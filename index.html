@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Avery Whitted Studio | Acting Workshops + Coaching</title>
+    <meta
+      name="description"
+      content="Acting workshops and private coaching. Practical tools for auditioning, self-tapes, and confidence."
+    />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg0: #f5f1ea;
+        --bg1: #e8eeec;
+        --card: rgba(255, 255, 255, 0.62);
+        --card2: rgba(255, 255, 255, 0.78);
+        --text: #283137;
+        --muted: #4b5c62;
+        --faint: #617176;
+        --line: rgba(40, 49, 55, 0.16);
+        --shadow: 0 18px 36px rgba(29, 41, 49, 0.1);
+        --radius: 18px;
+        --radius2: 26px;
+        --max: 1120px;
+
+        --a: #89a89b; /* sage */
+        --b: #9cb2ca; /* mist blue */
+        --c: #b99685; /* warm clay */
+        --d: #f2e9d4; /* soft oat */
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        min-height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family:
+          "Source Sans 3",
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+        color: var(--text);
+        background: linear-gradient(
+          165deg,
+          var(--bg0) 0%,
+          var(--bg1) 52%,
+          #e2ebe8 100%
+        );
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        overflow-x: hidden;
+      }
+
+      /* Soft vignette */
+      body::before {
+        content: none;
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .blobs {
+        display: none;
+      }
+      .blob {
+        position: absolute;
+        width: 520px;
+        height: 520px;
+        border-radius: 999px;
+        background:
+          radial-gradient(
+            circle at 30% 30%,
+            rgba(110, 231, 255, 0.55),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 70% 60%,
+            rgba(167, 139, 250, 0.55),
+            transparent 58%
+          ),
+          radial-gradient(
+            circle at 55% 40%,
+            rgba(251, 113, 133, 0.3),
+            transparent 62%
+          );
+        animation: drift 18s ease-in-out infinite;
+      }
+      .blob:nth-child(2) {
+        width: 640px;
+        height: 640px;
+        left: 58%;
+        top: 22%;
+        background:
+          radial-gradient(
+            circle at 30% 30%,
+            rgba(52, 211, 153, 0.5),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 70% 60%,
+            rgba(110, 231, 255, 0.38),
+            transparent 58%
+          ),
+          radial-gradient(
+            circle at 55% 40%,
+            rgba(167, 139, 250, 0.3),
+            transparent 62%
+          );
+        animation-duration: 22s;
+        animation-direction: reverse;
+      }
+      .blob:nth-child(1) {
+        left: 10%;
+        top: 5%;
+      }
+      @keyframes drift {
+        0% {
+          transform: translate(0, 0) scale(1);
+        }
+        35% {
+          transform: translate(50px, 20px) scale(1.04);
+        }
+        70% {
+          transform: translate(-25px, 45px) scale(0.98);
+        }
+        100% {
+          transform: translate(0, 0) scale(1);
+        }
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .wrap {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 28px 18px 64px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 0 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0;
+      }
+      .brand h1 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 48px;
+        margin: 0;
+        letter-spacing: 0.01em;
+        line-height: 0.9;
+      }
+      .brand p {
+        margin: 0;
+        font-size: 24px;
+        color: var(--muted);
+      }
+
+      nav {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.55);
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        transition:
+          transform 0.12s ease,
+          background 0.12s ease,
+          border-color 0.12s ease;
+      }
+      .pill:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.78);
+        border-color: rgba(40, 49, 55, 0.18);
+        color: var(--text);
+      }
+
+      .editorial {
+        padding: 28px 6px 10px;
+      }
+      .editorial-copy {
+        max-width: none;
+      }
+      .editorial h2 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        margin: 0 0 12px;
+        font-size: clamp(42px, 6vw, 64px);
+        line-height: 0.95;
+        letter-spacing: -0.01em;
+      }
+      .editorial p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.6;
+        max-width: none;
+      }
+      .editorial h3 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        margin: 18px 0 8px;
+        font-size: 34px;
+        line-height: 0.95;
+      }
+      .editorial ul {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.7;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius2);
+        background: linear-gradient(180deg, var(--card2), var(--card));
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        position: relative;
+      }
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            900px 500px at 15% 10%,
+            rgba(156, 178, 202, 0.16),
+            transparent 56%
+          ),
+          radial-gradient(
+            800px 450px at 85% 20%,
+            rgba(137, 168, 155, 0.14),
+            transparent 54%
+          );
+        pointer-events: none;
+      }
+      .panel > * {
+        position: relative;
+      }
+
+      .hero-main {
+        padding: 28px 26px 22px;
+      }
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border: 1px solid rgba(40, 49, 55, 0.18);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.65);
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--a), var(--b));
+        box-shadow: 0 0 0 4px rgba(110, 231, 255, 0.12);
+      }
+      .hero h2 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        margin: 14px 0 10px;
+        font-size: clamp(40px, 6vw, 64px);
+        line-height: 0.95;
+        letter-spacing: -0.01em;
+      }
+      .hero p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+        max-width: 56ch;
+      }
+
+      .cta-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(40, 49, 55, 0.2);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition:
+          transform 0.12s ease,
+          background 0.12s ease,
+          border-color 0.12s ease;
+        user-select: none;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.95);
+        border-color: rgba(40, 49, 55, 0.24);
+      }
+      .btn.primary {
+        border: 1px solid rgba(156, 178, 202, 0.52);
+        background: linear-gradient(
+          135deg,
+          rgba(156, 178, 202, 0.38),
+          rgba(137, 168, 155, 0.24)
+        );
+      }
+      .btn.ghost {
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .hero-side {
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.58);
+        padding: 16px;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 27px;
+        line-height: 0.95;
+        letter-spacing: 0.01em;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .linkgrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .tile {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(40, 49, 55, 0.16);
+        background: rgba(255, 255, 255, 0.7);
+        transition:
+          transform 0.12s ease,
+          border-color 0.12s ease,
+          background 0.12s ease;
+        min-height: 68px;
+      }
+      .tile:hover {
+        transform: translateY(-1px);
+        border-color: rgba(40, 49, 55, 0.22);
+        background: rgba(255, 255, 255, 0.9);
+      }
+      .tile strong {
+        font-size: 13px;
+      }
+      .tile span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .section {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      @media (max-width: 920px) {
+        .section {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .section .panel {
+        padding: 20px;
+      }
+      .section .panel.coaching-panel {
+        display: flex;
+        flex-direction: column;
+      }
+      .section h3 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        margin: 0 0 6px;
+        font-size: 38px;
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+      .section p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      form {
+        display: grid;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      @media (max-width: 520px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--faint);
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 12px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(40, 49, 55, 0.18);
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--text);
+        outline: none;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: rgba(64, 79, 86, 0.62);
+      }
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+      .form-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 4px;
+      }
+      .fineprint {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 6px 0 0;
+        line-height: 1.5;
+      }
+
+      .embed {
+        border-radius: var(--radius);
+        overflow: hidden;
+        border: 1px solid rgba(40, 49, 55, 0.16);
+        background: rgba(255, 255, 255, 0.74);
+      }
+      .coaching-panel .embed {
+        flex: 1;
+        min-height: 620px;
+      }
+      .calendly-inline-widget {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+      }
+
+      @media (max-width: 1100px) {
+        .wrap {
+          padding: 24px 16px 56px;
+        }
+        .brand h1 {
+          font-size: 42px;
+        }
+        .brand p {
+          font-size: 21px;
+        }
+        .section h3 {
+          font-size: 34px;
+        }
+      }
+
+      @media (max-width: 860px) {
+        header {
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+        }
+        .brand {
+          width: 100%;
+          justify-content: center;
+          text-align: center;
+        }
+        nav {
+          width: 100%;
+        }
+        .pill {
+          justify-content: center;
+          flex: 1 1 auto;
+          min-width: 118px;
+        }
+        .editorial {
+          padding: 22px 2px 8px;
+        }
+        .editorial h2 {
+          font-size: clamp(36px, 8vw, 52px);
+        }
+        .editorial h3 {
+          font-size: 30px;
+        }
+        .editorial p {
+          font-size: 17px;
+        }
+        .editorial ul {
+          font-size: 16px;
+        }
+        .section {
+          grid-template-columns: 1fr;
+        }
+        .coaching-panel .embed {
+          min-height: 560px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .wrap {
+          padding: 18px 12px 44px;
+        }
+        .brand h1 {
+          font-size: 36px;
+          line-height: 0.95;
+        }
+        .brand p {
+          font-size: 18px;
+        }
+        .pill {
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+        .editorial h2 {
+          font-size: clamp(34px, 11vw, 44px);
+        }
+        .editorial h3 {
+          font-size: 28px;
+        }
+        .editorial p {
+          font-size: 16px;
+        }
+        .editorial ul {
+          font-size: 15px;
+          padding-left: 18px;
+        }
+        .section .panel {
+          padding: 16px;
+        }
+        .section h3 {
+          font-size: 32px;
+        }
+        .row {
+          grid-template-columns: 1fr;
+        }
+        .btn {
+          width: 100%;
+        }
+        .coaching-panel .embed {
+          min-height: 500px;
+        }
+        .calendly-inline-widget {
+          min-width: 100%;
+        }
+        .footer {
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+      }
+      .footer {
+        margin-top: 22px;
+        padding: 18px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .social-icon {
+        width: 44px;
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        transition:
+          transform 0.12s ease,
+          background 0.12s ease,
+          border-color 0.12s ease;
+      }
+      .social-icon:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.95);
+        border-color: rgba(40, 49, 55, 0.22);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <div>
+            <h1>Avery Whitted</h1>
+            <p>Acting Workshops + Private Coaching</p>
+          </div>
+        </div>
+
+        <nav>
+          <a class="pill" href="#about">About</a>
+          <a class="pill" href="#workshops">Workshops</a>
+          <a class="pill" href="#coaching">Private coaching</a>
+        </nav>
+      </header>
+
+      <main class="editorial" id="about">
+        <div class="editorial-copy">
+          <h2>Teacher, coach, and creative partner for actors in process.</h2>
+          <p>
+            I coach actors through the full audition cycle: finding
+            opportunities, prepping efficiently, making strong choices, and
+            staying grounded in the room. This work is practical, direct, and
+            built for real casting conditions.
+          </p>
+
+          <h3>The Audition Survival Workshop</h3>
+          <p>
+            This workshop covers what actually moves the needle from submission
+            to callback, with tools you can use immediately.
+          </p>
+          <ul>
+            <li>
+              How to find better auditions through Actors Access, Backstage,
+              EPAs, and reps.
+            </li>
+            <li>
+              Prep systems that stick: memorization methods, line drills, and
+              fast scene choices.
+            </li>
+            <li>
+              Self-tape workflow: reader setup, lighting, edits, file delivery,
+              and submission habits.
+            </li>
+            <li>
+              In-room and callback strategy: handling adjustments, nerves, and
+              post-audition reset.
+            </li>
+            <li>
+              What you leave with: a repeatable framework, anxiety tools, and
+              live feedback on your work.
+            </li>
+          </ul>
+        </div>
+      </main>
+
+      <section class="section">
+        <!-- Workshops -->
+        <div class="panel" id="workshops">
+          <h3>Workshop signup</h3>
+          <p>
+            Reserve your seat for The Audition Survival Workshop and share where
+            you want support most.
+          </p>
+
+          <form
+            action="https://formsubmit.co/avery@averywhitted.com"
+            method="POST"
+          >
+            <input
+              type="hidden"
+              name="_subject"
+              value="New workshop signup from website"
+            />
+            <input type="hidden" name="_template" value="table" />
+            <input type="hidden" name="_captcha" value="false" />
+            <div class="row">
+              <label>
+                Full name
+                <input
+                  name="name"
+                  type="text"
+                  placeholder="Your name"
+                  autocomplete="name"
+                  required
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  name="email"
+                  type="email"
+                  placeholder="you@email.com"
+                  autocomplete="email"
+                  required
+                />
+              </label>
+            </div>
+
+            <div class="row">
+              <label>
+                Phone (optional)
+                <input
+                  name="phone"
+                  type="tel"
+                  placeholder="(555) 555-5555"
+                  autocomplete="tel"
+                />
+              </label>
+              <label>
+                Which workshop?
+                <select name="workshop" required>
+                  <option value="" selected disabled>Select one…</option>
+                  <option>The Audition Survival Workshop (core)</option>
+                  <option>Self-tape workflow lab</option>
+                  <option>In-room + callback lab</option>
+                  <option>Private group workshop (custom)</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              Experience level (optional)
+              <select name="experience">
+                <option value="" selected disabled>Select one…</option>
+                <option>Student / training</option>
+                <option>Early-career professional</option>
+                <option>Working professional</option>
+                <option>Returning after time away</option>
+              </select>
+            </label>
+
+            <label>
+              Anything I should know?
+              <textarea
+                name="notes"
+                placeholder="What are you currently getting stuck on: prep, self-tapes, in-room nerves, callbacks, or something else?"
+              ></textarea>
+            </label>
+
+            <!-- Basic anti-spam honeypot -->
+            <label class="sr-only">
+              Do not fill this out
+              <input name="_gotcha" />
+            </label>
+
+            <div class="form-actions">
+              <button class="btn primary" type="submit">
+                Submit workshop signup
+              </button>
+            </div>
+            <p class="fineprint">
+              You will get a confirmation email after submission with next
+              available dates.
+            </p>
+          </form>
+        </div>
+
+        <!-- Coaching -->
+        <div class="panel coaching-panel" id="coaching">
+          <h3>Private coaching</h3>
+          <p>
+            Book one-on-one coaching for audition prep, self-tapes, callback
+            adjustments, and confidence in high-pressure rooms.
+          </p>
+
+          <div class="embed">
+            <div
+              class="calendly-inline-widget"
+              data-url="https://calendly.com/avery_whitted"
+            ></div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div>© <span id="year"></span> Avery Whitted</div>
+        <div>
+          <a
+            class="social-icon"
+            href="https://www.instagram.com/avery_whitted?igsh=MXZsaWZrbTAwNThyMg%3D%3D&utm_source=qr"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Instagram"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect
+                x="2.5"
+                y="2.5"
+                width="19"
+                height="19"
+                rx="5.5"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="4.5"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" />
+            </svg>
+          </a>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Calendly embed script -->
+    <script
+      async
+      src="https://assets.calendly.com/assets/external/widget.js"
+    ></script>
+
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
