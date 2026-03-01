@@ -31,6 +31,7 @@
         --radius: 18px;
         --radius2: 26px;
         --max: 1120px;
+        --hero-overlay: 0.5;
 
         --a: #89a89b; /* sage */
         --b: #9cb2ca; /* mist blue */
@@ -140,6 +141,7 @@
         padding: 28px 6px 10px;
       }
       .editorial-shell {
+        border-radius: var(--radius2);
         overflow: hidden;
         box-shadow: var(--shadow);
       }
@@ -157,7 +159,11 @@
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(180deg, rgba(17, 22, 27, 0.22), rgba(17, 22, 27, 0.14));
+        background: linear-gradient(
+          180deg,
+          rgba(12, 16, 20, var(--hero-overlay)),
+          rgba(12, 16, 20, calc(var(--hero-overlay) - 0.06))
+        );
       }
       .hero-panel.first {
         border-radius: var(--radius2) var(--radius2) 0 0;
@@ -179,9 +185,9 @@
       .hero-content {
         position: relative;
         z-index: 1;
-        width: min(68%, 760px);
-        padding: 22px 28px 18px;
-        background: rgba(255, 255, 255, 0.97);
+        width: min(80%, 920px);
+        padding: 0;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
       }
       .hero-content h2 {
         font-family: "Cormorant Garamond", Georgia, serif;
@@ -189,23 +195,25 @@
         font-size: clamp(42px, 6vw, 64px);
         line-height: 0.95;
         letter-spacing: -0.01em;
+        color: #ffffff;
       }
       .hero-content h3 {
         font-family: "Cormorant Garamond", Georgia, serif;
         margin: 0 0 10px;
         font-size: 34px;
         line-height: 0.95;
+        color: #ffffff;
       }
       .hero-content p {
         margin: 0 0 14px;
-        color: var(--muted);
+        color: rgba(255, 255, 255, 0.96);
         font-size: 18px;
         line-height: 1.6;
       }
       .hero-content ul {
         margin: 0;
         padding-left: 20px;
-        color: var(--muted);
+        color: rgba(255, 255, 255, 0.96);
         font-size: 17px;
         line-height: 1.7;
       }
@@ -494,7 +502,7 @@
           padding: 24px;
         }
         .hero-content {
-          width: min(78%, 640px);
+          width: min(82%, 720px);
         }
         .hero-content h2 {
           font-size: clamp(36px, 8vw, 52px);
@@ -553,7 +561,7 @@
           align-items: flex-end;
         }
         .hero-content {
-          width: 100%;
+          width: min(86%, 100%);
           padding: 16px 16px 14px;
         }
         .hero-content h2 {
@@ -672,19 +680,27 @@
 
       <main class="editorial">
         <div class="editorial-shell">
-          <section class="hero-panel first left" aria-label="Teacher, coach, and creative partner">
+          <section
+            class="hero-panel first left"
+            aria-label="Teacher, coach, and creative partner"
+          >
             <div class="hero-content">
-              <h2>Teacher, coach, and creative partner for actors in process.</h2>
+              <h2>
+                Teacher, coach, and creative partner for actors in process.
+              </h2>
               <p>
                 I coach actors through the full audition cycle: finding
                 opportunities, prepping efficiently, making strong choices, and
-                staying grounded in the room. This work is practical, direct, and
-                built for real casting conditions.
+                staying grounded in the room. This work is practical, direct,
+                and built for real casting conditions.
               </p>
             </div>
           </section>
 
-          <section class="hero-panel middle left" aria-label="The Audition Survival Workshop">
+          <section
+            class="hero-panel middle left"
+            aria-label="The Audition Survival Workshop"
+          >
             <div class="hero-content">
               <h3>The Audition Survival Workshop</h3>
               <p>
@@ -697,26 +713,26 @@
                   EPAs, and reps.
                 </li>
                 <li>
-                  Prep systems that stick: memorization methods, line drills, and
-                  fast scene choices.
+                  Prep systems that stick: memorization methods, line drills,
+                  and fast scene choices.
                 </li>
                 <li>
                   Self-tape workflow: reader setup, lighting, edits, file
                   delivery, and submission habits.
                 </li>
                 <li>
-                  In-room and callback strategy: handling adjustments, nerves, and
-                  post-audition reset.
+                  In-room and callback strategy: handling adjustments, nerves,
+                  and post-audition reset.
                 </li>
                 <li>
-                  What you leave with: a repeatable framework, tools for handling
-                  anxiety, and live feedback on your work.
+                  What you leave with: a repeatable framework, tools for
+                  handling anxiety, and live feedback on your work.
                 </li>
               </ul>
             </div>
           </section>
 
-          <section class="hero-panel last right" aria-label="Private Coaching">
+          <section class="hero-panel last left" aria-label="Private Coaching">
             <div class="hero-content">
               <h3>Private Coaching</h3>
               <p>
@@ -726,12 +742,12 @@
               </p>
               <ul>
                 <li>
-                  One-hour coaching sessions for deeper script work, choices, and
-                  self-tape support.
+                  One-hour coaching sessions for deeper script work, choices,
+                  and self-tape support.
                 </li>
                 <li>
-                  Thirty-minute audition prep sessions for quick turnaround sides
-                  and last-minute confidence.
+                  Thirty-minute audition prep sessions for quick turnaround
+                  sides and last-minute confidence.
                 </li>
                 <li>
                   Practical feedback tailored to where you are getting stuck,
