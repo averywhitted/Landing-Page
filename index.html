@@ -212,6 +212,44 @@
       .editorial-copy {
         max-width: none;
       }
+      .credentials {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+        gap: 24px;
+        align-items: start;
+      }
+      .credentials-copy {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+        min-height: 420px;
+      }
+      .credentials-copy h3 {
+        margin: 0;
+      }
+      .credentials-copy p {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.65;
+        color: var(--muted);
+      }
+      .editorial-photo {
+        border-radius: var(--radius2);
+        overflow: hidden;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.74);
+        width: 80%;
+        justify-self: end;
+      }
+      .editorial-photo img {
+        display: block;
+        width: 100%;
+        height: auto;
+        object-fit: cover;
+      }
       .editorial h2 {
         font-family: "Cormorant Garamond", Georgia, serif;
         margin: 0 0 12px;
@@ -460,6 +498,27 @@
         font-size: 12px;
         color: var(--faint);
       }
+      .label-text {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 2px;
+      }
+      .req {
+        color: var(--c);
+      }
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .checkbox-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        flex: 0 0 auto;
+      }
       input,
       select,
       textarea {
@@ -491,6 +550,25 @@
         color: var(--muted);
         margin: 6px 0 0;
         line-height: 1.5;
+      }
+      .contact-section {
+        margin-top: 18px;
+      }
+      .contact-section .panel {
+        padding: 20px;
+      }
+      .contact-section h3 {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        margin: 0 0 6px;
+        font-size: 38px;
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+      .contact-section p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
       }
 
       .embed {
@@ -558,6 +636,18 @@
         .editorial ul {
           font-size: 16px;
         }
+        .credentials {
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
+        .credentials-copy {
+          min-height: 0;
+        }
+        .editorial-photo {
+          max-width: 340px;
+          width: 78%;
+          justify-self: center;
+        }
         .section {
           grid-template-columns: 1fr;
         }
@@ -594,10 +684,25 @@
           font-size: 15px;
           padding-left: 18px;
         }
+        .credentials-copy p {
+          font-size: 17px;
+          line-height: 1.55;
+        }
+        .editorial-photo {
+          max-width: 280px;
+          width: 72%;
+          justify-self: center;
+        }
         .section .panel {
           padding: 16px;
         }
         .section h3 {
+          font-size: 32px;
+        }
+        .contact-section .panel {
+          padding: 16px;
+        }
+        .contact-section h3 {
           font-size: 32px;
         }
         .row {
@@ -676,9 +781,7 @@
           <a class="pill" href="#about">About</a>
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#coaching">Private coaching</a>
-          <a class="pill" href="https://averybadideadesign.framer.website/"
-            >Other work</a
-          >
+          <a class="pill" href="other-work.html">Other work</a>
         </nav>
       </header>
 
@@ -715,12 +818,34 @@
               post-audition reset.
             </li>
             <li>
-              What you leave with: a repeatable framework, anxiety tools, and
-              live feedback on your work.
+              What you leave with: a repeatable framework, tools for handling
+              anxiety, and live feedback on your work.
             </li>
           </ul>
         </div>
       </main>
+
+      <section class="credentials">
+        <div class="credentials-copy">
+          <p>
+            I graduated from the BFA Acting program at Mason Gross School of the
+            Arts in 2015, and I have been working for over 10 years across film,
+            television, and theater. My work includes regional productions, new
+            plays, guest-starring roles on network television including
+            <em>Magnum P.I.</em> and <em>FBI: Most Wanted</em>, and a starring
+            role in the 2019 Netflix original film <em>In the Tall Grass</em>.
+          </p>
+          <p>
+            I have done hundreds of auditions and built ongoing relationships
+            with fellow actors, writers, directors, casting directors, managers,
+            and agents. That experience shapes the way I teach: practical,
+            actor-centered, and rooted in what actually happens in the room.
+          </p>
+        </div>
+        <div class="editorial-photo">
+          <img src="Avery115final.JPG" alt="Avery Whitted portrait" />
+        </div>
+      </section>
 
       <section class="section">
         <!-- Workshops -->
@@ -744,7 +869,9 @@
             <input type="hidden" name="_captcha" value="false" />
             <div class="row">
               <label>
-                Full name
+                <span class="label-text"
+                  >Full name<span class="req">*</span></span
+                >
                 <input
                   name="name"
                   type="text"
@@ -754,7 +881,7 @@
                 />
               </label>
               <label>
-                Email
+                <span class="label-text">Email<span class="req">*</span></span>
                 <input
                   name="email"
                   type="email"
@@ -776,7 +903,9 @@
                 />
               </label>
               <label>
-                Which workshop?
+                <span class="label-text"
+                  >Which workshop?<span class="req">*</span></span
+                >
                 <select name="workshop" required>
                   <option value="" selected disabled>Select one…</option>
                   <option>The Audition Survival Workshop (core)</option>
@@ -802,7 +931,7 @@
               Anything I should know?
               <textarea
                 name="notes"
-                placeholder="What are you currently getting stuck on: prep, self-tapes, in-room nerves, callbacks, or something else?"
+                placeholder="What are you currently feeling stuck on: prep, self-tapes, in-room nerves, callbacks, or something else?"
               ></textarea>
             </label>
 
@@ -838,6 +967,89 @@
               data-url="https://calendly.com/avery_whitted"
             ></div>
           </div>
+        </div>
+      </section>
+
+      <section class="contact-section" id="reach-out">
+        <div class="panel">
+          <h3>Reach Out</h3>
+          <p>
+            For questions, private group inquiries, or anything that does not
+            fit the workshop signup, send a note here.
+          </p>
+
+          <form
+            action="https://formsubmit.co/avery@averywhitted.com"
+            method="POST"
+          >
+            <input
+              type="hidden"
+              name="_subject"
+              value="New reach out message from website"
+            />
+            <input type="hidden" name="_template" value="table" />
+            <input type="hidden" name="_captcha" value="false" />
+
+            <div class="row">
+              <label>
+                <span class="label-text"
+                  >First name<span class="req">*</span></span
+                >
+                <input
+                  name="first_name"
+                  type="text"
+                  placeholder="First name"
+                  autocomplete="given-name"
+                  required
+                />
+              </label>
+              <label>
+                <span class="label-text"
+                  >Last name<span class="req">*</span></span
+                >
+                <input
+                  name="last_name"
+                  type="text"
+                  placeholder="Last name"
+                  autocomplete="family-name"
+                  required
+                />
+              </label>
+            </div>
+
+            <label>
+              <span class="label-text">Email<span class="req">*</span></span>
+              <input
+                name="email"
+                type="email"
+                placeholder="you@email.com"
+                autocomplete="email"
+                required
+              />
+            </label>
+
+            <label>
+              <span class="label-text">Message<span class="req">*</span></span>
+              <textarea
+                name="message"
+                placeholder="Tell me what you are looking for or what you would like to ask."
+                required
+              ></textarea>
+            </label>
+
+            <label class="checkbox-row">
+              <input
+                name="news_updates"
+                type="checkbox"
+                value="Yes, sign me up"
+              />
+              Sign up for news and updates
+            </label>
+
+            <div class="form-actions">
+              <button class="btn primary" type="submit">Send message</button>
+            </div>
+          </form>
         </div>
       </section>
 

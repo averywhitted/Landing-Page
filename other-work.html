@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>A Very Bad Idea Design | Coming Soon</title>
+    <meta
+      name="description"
+      content="A Very Bad Idea Design website coming soon."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg0: #f5f1ea;
+        --bg1: #e8eeec;
+        --text: #283137;
+        --muted: #4b5c62;
+        --line: rgba(40, 49, 55, 0.16);
+        --shadow: 0 18px 36px rgba(29, 41, 49, 0.1);
+        --radius2: 26px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px;
+        font-family:
+          "Source Sans 3",
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+        color: var(--text);
+        background: linear-gradient(
+          165deg,
+          var(--bg0) 0%,
+          var(--bg1) 52%,
+          #e2ebe8 100%
+        );
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+      }
+
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        min-height: calc(100vh - 48px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .copy {
+        max-width: 760px;
+      }
+
+      h3 {
+        margin: 0;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 34px;
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+
+      .line-two {
+        display: block;
+        margin-top: 8px;
+      }
+
+      .back-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        text-decoration: none;
+        font-weight: 600;
+        transition:
+          transform 0.12s ease,
+          background 0.12s ease,
+          border-color 0.12s ease;
+      }
+
+      .back-btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.95);
+        border-color: rgba(40, 49, 55, 0.22);
+      }
+
+      .social-icon {
+        width: 44px;
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 20px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        transition:
+          transform 0.12s ease,
+          background 0.12s ease,
+          border-color 0.12s ease;
+      }
+
+      .social-icon:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.95);
+        border-color: rgba(40, 49, 55, 0.22);
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 18px 12px;
+        }
+
+        .wrap {
+          min-height: calc(100vh - 36px);
+        }
+
+        h3 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <div class="copy">
+        <h3>
+          <em>A Very Bad Idea Design</em> website coming soon.
+          <span class="line-two">Please visit me here on instagram</span>
+        </h3>
+
+        <a
+          class="social-icon"
+          href="https://www.instagram.com/a.very.bad.idea.art/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="A Very Bad Idea Design Instagram"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <rect
+              x="2.5"
+              y="2.5"
+              width="19"
+              height="19"
+              rx="5.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <circle
+              cx="12"
+              cy="12"
+              r="4.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" />
+          </svg>
+        </a>
+
+        <div>
+          <a class="back-btn" href="index.html">Back</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
