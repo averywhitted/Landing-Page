@@ -651,6 +651,18 @@
               anxiety, and live feedback on your work.
             </li>
           </ul>
+
+          <h3>Private Coaching</h3>
+          <p>
+            Private coaching is available via Zoom for actors who want focused,
+            individualized support between classes or ahead of an audition.
+          </p>
+          <ul>
+            <li>One-hour coaching sessions for deeper script work, choices, and self-tape support.</li>
+            <li>Thirty-minute audition prep sessions for quick turnaround sides and last-minute confidence.</li>
+            <li>Practical feedback tailored to where you are getting stuck, whether that is prep, clarity, or nerves.</li>
+            <li>Flexible Zoom sessions that keep the work specific, efficient, and immediately usable.</li>
+          </ul>
         </div>
       </main>
 
@@ -697,29 +709,39 @@
             <input type="hidden" name="_captcha" value="false" />
             <div class="row">
               <label>
-                <span class="label-text"
-                  >Full name<span class="req">*</span></span
-                >
+                <span class="label-text">First name<span class="req">*</span></span>
                 <input
-                  name="name"
+                  name="first_name"
                   type="text"
-                  placeholder="Your name"
-                  autocomplete="name"
+                  placeholder="First name"
+                  autocomplete="given-name"
                   required
                 />
               </label>
               <label>
-                <span class="label-text">Email<span class="req">*</span></span>
+                <span class="label-text">Last name<span class="req">*</span></span>
                 <input
-                  name="email"
-                  type="email"
-                  placeholder="you@email.com"
-                  autocomplete="email"
+                  name="last_name"
+                  type="text"
+                  placeholder="Last name"
+                  autocomplete="family-name"
                   required
                 />
               </label>
             </div>
 
+            <label>
+              <span class="label-text">Email<span class="req">*</span></span>
+              <input
+                name="email"
+                type="email"
+                placeholder="you@email.com"
+                autocomplete="email"
+                required
+              />
+            </label>
+
+            <!--
             <div class="row">
               <label>
                 Phone (optional)
@@ -743,6 +765,7 @@
                 </select>
               </label>
             </div>
+            -->
 
             <label>
               Experience level (optional)
@@ -858,7 +881,7 @@
               <span class="label-text">Message<span class="req">*</span></span>
               <textarea
                 name="message"
-                placeholder="Tell me what you are looking for or what you would like to ask."
+                placeholder="Tell me what you are looking for or anything else you would like to ask."
                 required
               ></textarea>
             </label>
