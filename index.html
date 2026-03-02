@@ -247,6 +247,21 @@
         font-size: 17px;
         line-height: 1.7;
       }
+      .price-note {
+        display: inline-flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.26);
+        color: rgba(255, 255, 255, 0.98);
+        font-size: 15px;
+        line-height: 1.4;
+        font-family: "Source Sans 3", system-ui, -apple-system, Segoe UI, sans-serif;
+      }
+      .price-note strong {
+        font-weight: 700;
+      }
       .credentials {
         margin-top: 45px;
         display: grid;
@@ -546,6 +561,10 @@
         .hero-content ul {
           font-size: 16px;
         }
+        .price-note {
+          font-size: 14px;
+          gap: 14px;
+        }
         .credentials {
           grid-template-columns: 1fr;
           gap: 16px;
@@ -606,6 +625,10 @@
         .hero-content ul {
           font-size: 15px;
           padding-left: 18px;
+        }
+        .price-note {
+          font-size: 13px;
+          gap: 10px;
         }
         .credentials-copy p {
           font-size: 17px;
@@ -737,6 +760,10 @@
                 This workshop covers what actually moves the needle from
                 submission to callback, with tools you can use immediately.
               </p>
+              <p>
+                Workshops are held on Zoom and are currently limited to 8
+                people.
+              </p>
               <ul>
                 <li>
                   How to find better auditions through Actors Access, Backstage,
@@ -759,6 +786,13 @@
                   handling anxiety, and live feedback on your work.
                 </li>
               </ul>
+              <div class="price-note" aria-label="Workshop pricing information">
+                <span
+                  ><strong>Pricing:</strong> Submit the signup form below to
+                  receive current workshop pricing and upcoming session
+                  information.</span
+                >
+              </div>
             </div>
           </section>
 
@@ -788,6 +822,10 @@
                   and immediately usable.
                 </li>
               </ul>
+              <div class="price-note" aria-label="Private coaching pricing">
+                <span><strong>1 hour:</strong> $80</span>
+                <span><strong>30 min audition prep:</strong> $50</span>
+              </div>
             </div>
           </section>
         </div>
