@@ -257,7 +257,12 @@
         color: rgba(255, 255, 255, 0.98);
         font-size: 15px;
         line-height: 1.4;
-        font-family: "Source Sans 3", system-ui, -apple-system, Segoe UI, sans-serif;
+        font-family:
+          "Source Sans 3",
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
       }
       .price-note strong {
         font-weight: 700;
@@ -860,8 +865,19 @@
             Reserve your seat for The Audition Survival Workshop and share where
             you want support most.
           </p>
-
-          <form
+          <!-- Calendly inline widget begin -->
+          <div
+            class="calendly-inline-widget"
+            data-url="https://calendly.com/avery_whitted/the-audition-survival-workshop"
+            style="min-width: 320px; height: 700px"
+          ></div>
+          <script
+            type="text/javascript"
+            src="https://assets.calendly.com/assets/external/widget.js"
+            async
+          ></script>
+          <!-- Calendly inline widget end -->
+          <!-- <form
             action="https://formsubmit.co/workshops@averywhitted.com"
             method="POST"
           >
@@ -910,8 +926,7 @@
               />
             </label>
 
-            <!--
-            <div class="row">
+            <div>
               <label>
                 Phone (optional)
                 <input
@@ -927,14 +942,13 @@
                 >
                 <select name="workshop" required>
                   <option value="" selected disabled>Select one…</option>
-                  <option>The Audition Survival Workshop (core)</option>
+                  <option>The Audition Survival Workshop - 03/17/26</option>
                   <option>Self-tape workflow lab</option>
                   <option>In-room + callback lab</option>
                   <option>Private group workshop (custom)</option>
                 </select>
               </label>
             </div>
-            -->
 
             <label>
               Experience level (optional)
@@ -969,7 +983,7 @@
               You will get a confirmation email after submission with next
               available dates.
             </p>
-          </form>
+          </form>-->
         </div>
 
         <div class="panel coaching-panel" id="coaching">
