@@ -267,6 +267,74 @@
       .price-note strong {
         font-weight: 700;
       }
+      .next-workshop-card {
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 24px;
+        margin-top: 20px;
+        padding: 18px 22px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.38);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+      .nwc-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .nwc-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+        text-shadow: none;
+      }
+      .nwc-date {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 26px;
+        font-weight: 600;
+        color: #ffffff;
+        line-height: 1.1;
+        text-shadow: none;
+      }
+      .nwc-price {
+        font-size: 16px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.8);
+        text-shadow: none;
+      }
+      .nwc-cta,
+      .nwc-cta:hover {
+        flex-shrink: 0;
+        align-self: center;
+        text-decoration: none;
+        color: #ffffff !important;
+        white-space: nowrap;
+        text-shadow: none;
+      }
+      @media (max-width: 860px) {
+        .next-workshop-card {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 14px;
+        }
+        .nwc-cta {
+          align-self: stretch;
+          justify-content: center;
+        }
+      }
+      @media (max-width: 600px) {
+        .next-workshop-card {
+          padding: 14px 16px;
+        }
+        .nwc-date {
+          font-size: 22px;
+        }
+      }
       .credentials {
         margin-top: 45px;
         display: grid;
@@ -791,10 +859,18 @@
                   handling anxiety, and live feedback on your work.
                 </li>
               </ul>
-              <div class="price-note" aria-label="Workshop pricing information">
-                <span
-                  ><strong>Pricing:</strong> See the signup form below for
-                  current workshop pricing and upcoming session dates.</span
+              <div class="next-workshop-card" aria-label="Next workshop details">
+                <div class="nwc-info">
+                  <span class="nwc-label">Next Workshop</span>
+                  <span class="nwc-date">April 12 &middot; 6&ndash;8pm</span>
+                  <span class="nwc-price">$30</span>
+                </div>
+                <a
+                  class="btn primary nwc-cta"
+                  href="https://calendly.com/avery_whitted/the-audition-survival-workshop"
+                  target="_blank"
+                  rel="noopener"
+                  >Reserve Your Spot</a
                 >
               </div>
             </div>
