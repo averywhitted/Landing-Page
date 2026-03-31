@@ -783,6 +783,95 @@
         clip: rect(0, 0, 0, 0);
         border: 0;
       }
+      /* ── Divider ─────────────────────────────────────────────── */
+      .section-divider {
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 48px 0;
+      }
+
+      /* ── Reviews ──────────────────────────────────────────────── */
+      .reviews-section {
+        margin-top: 48px;
+      }
+      .reviews-label {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 34px;
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--text);
+        margin: 0 0 18px;
+        line-height: 1;
+      }
+      .reviews-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 16px;
+      }
+      .review-card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius2);
+        background: linear-gradient(160deg, var(--card2) 0%, var(--card) 100%);
+        box-shadow: var(--shadow);
+        padding: 30px 32px 26px;
+        position: relative;
+        overflow: hidden;
+      }
+      .review-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          600px 340px at 10% 0%,
+          rgba(185, 150, 133, 0.1),
+          transparent 60%
+        );
+        pointer-events: none;
+      }
+      .review-stars {
+        display: flex;
+        gap: 3px;
+        margin-bottom: 16px;
+      }
+      .review-star {
+        width: 16px;
+        height: 16px;
+        color: #c9a86c;
+      }
+      .review-quote {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: clamp(19px, 2.2vw, 22px);
+        font-weight: 500;
+        line-height: 1.6;
+        color: var(--text);
+        margin: 0 0 20px;
+        position: relative;
+        z-index: 1;
+      }
+      .review-quote::before {
+        content: "\201C";
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 72px;
+        line-height: 0;
+        color: var(--c);
+        opacity: 0.4;
+        position: absolute;
+        top: 18px;
+        left: -10px;
+        pointer-events: none;
+      }
+      .review-meta {
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--faint);
+        position: relative;
+        z-index: 1;
+      }
     </style>
   </head>
 
@@ -910,6 +999,30 @@
           </section>
         </div>
       </main>
+
+      <section class="reviews-section" aria-label="Workshop reviews">
+        <p class="reviews-label">What students say</p>
+        <div class="reviews-grid">
+          <article class="review-card">
+            <div class="review-stars" aria-label="5 out of 5 stars">
+              <svg class="review-star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="review-star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="review-star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="review-star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="review-star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+            </div>
+            <blockquote class="review-quote">
+              Avery is very generous and knowledgeable. He understands the common
+              actor pitfalls during auditions and what direction would be most
+              helpful to take in any given situation. The workshop was well
+              structured and enough time was given for each subject covered.
+            </blockquote>
+            <p class="review-meta">Audition Survival Workshop participant</p>
+          </article>
+        </div>
+      </section>
+
+      <hr class="section-divider" />
 
       <section class="credentials" id="about">
         <div class="credentials-copy">
