@@ -59,16 +59,15 @@
         --faint: #617176;
         --line: rgba(40, 49, 55, 0.16);
         --shadow: 0 18px 36px rgba(29, 41, 49, 0.1);
-        --radius-sm: 14px;
+        --radius-sm: 18px;
         --radius-lg: 26px;
         --section-gap: 44px;
         --max: 1120px;
         --hero-overlay: 0.5;
 
-        --a: #89a89b; /* sage */
-        --b: #9cb2ca; /* mist blue */
-        --c: #b99685; /* warm clay */
-        --d: #f2e9d4; /* soft oat */
+        --a: #89a89b; /* sage — primary accent, buttons, testimonials */
+        --b: #9cb2ca; /* mist blue — panel shimmer only */
+        --c: #b99685; /* warm clay — required field asterisks */
       }
 
       * { box-sizing: border-box; }
@@ -296,7 +295,7 @@
       }
       .credentials-copy p {
         margin: 0;
-        font-size: 20px;
+        font-size: 18px;
         line-height: 1.65;
         color: var(--muted);
       }
@@ -363,8 +362,13 @@
         border-color: rgba(40, 49, 55, 0.24);
       }
       .btn.primary {
-        border-color: rgba(156, 178, 202, 0.52); /* --b */
-        background: linear-gradient(135deg, rgba(156, 178, 202, 0.38), rgba(137, 168, 155, 0.24)); /* --b → --a */
+        border-color: rgba(100, 138, 126, 0.6); /* --a darkened */
+        background: var(--a);
+        color: #ffffff;
+      }
+      .btn.primary:hover {
+        background: #7a9e91; /* --a darkened ~10% */
+        border-color: rgba(100, 138, 126, 0.8);
       }
 
       /* ── Section layout ── */
@@ -388,7 +392,7 @@
       .contact-section p {
         margin: 0 0 14px;
         color: var(--muted);
-        font-size: 14px;
+        font-size: 16px;
         line-height: 1.6;
       }
       .section .panel.coaching-panel { display: flex; flex-direction: column; }
@@ -441,6 +445,12 @@
         background: rgba(255, 255, 255, 0.82);
         color: var(--text);
         outline: none;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--a);
+        box-shadow: 0 0 0 3px rgba(137, 168, 155, 0.2); /* --a glow */
       }
       input::placeholder,
       textarea::placeholder {
