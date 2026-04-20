@@ -279,6 +279,7 @@
         border: 1px solid rgba(255, 255, 255, 0.38);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
+        min-width: 0;
       }
       .nwc-info {
         display: flex;
@@ -783,6 +784,85 @@
         clip: rect(0, 0, 0, 0);
         border: 0;
       }
+      .testimonials {
+        margin-top: 45px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+      .testimonial-stars {
+        font-size: 14px;
+        margin-bottom: 14px;
+        letter-spacing: 0.18em;
+        color: var(--a);
+      }
+      .testimonial {
+        margin: 0;
+        padding: 36px 44px 32px;
+        border: 1px solid rgba(137, 168, 155, 0.4);
+        border-radius: var(--radius2);
+        background: linear-gradient(
+          160deg,
+          rgba(137, 168, 155, 0.18),
+          rgba(137, 168, 155, 0.08)
+        );
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+      .testimonial::before {
+        content: "\201C";
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 180px;
+        line-height: 1;
+        color: var(--a);
+        opacity: 0.18;
+        position: absolute;
+        top: -10px;
+        left: 24px;
+        pointer-events: none;
+        user-select: none;
+      }
+      .testimonial-quote {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 24px;
+        font-style: italic;
+        line-height: 1.55;
+        color: var(--text);
+        margin: 0 0 20px;
+        position: relative;
+      }
+      .testimonial-attr {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--faint);
+        position: relative;
+      }
+      @media (max-width: 860px) {
+        .testimonials {
+          grid-template-columns: 1fr;
+        }
+        .testimonial {
+          padding: 28px 32px;
+        }
+        .testimonial-quote {
+          font-size: 23px;
+        }
+      }
+      @media (max-width: 600px) {
+        .testimonials {
+          margin-top: 32px;
+        }
+        .testimonial {
+          padding: 22px 22px;
+        }
+        .testimonial-quote {
+          font-size: 21px;
+        }
+      }
     </style>
   </head>
 
@@ -862,16 +942,8 @@
               <div class="next-workshop-card" aria-label="Next workshop details">
                 <div class="nwc-info">
                   <span class="nwc-label">Next Workshop</span>
-                  <span class="nwc-date">April 12 &middot; 6&ndash;8pm</span>
-                  <span class="nwc-price">$30</span>
+                  <span class="nwc-date">Date TBD</span>
                 </div>
-                <a
-                  class="btn primary nwc-cta"
-                  href="https://calendly.com/avery_whitted/the-audition-survival-workshop"
-                  target="_blank"
-                  rel="noopener"
-                  >Reserve Your Spot</a
-                >
               </div>
             </div>
           </section>
@@ -931,6 +1003,18 @@
         <div class="editorial-photo">
           <img src="Avery115final.JPG" alt="Avery Whitted portrait" />
         </div>
+      </section>
+
+      <section class="testimonials" aria-label="Student testimonials">
+        <blockquote class="testimonial">
+          <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
+          <footer class="testimonial-attr">&mdash; Private coaching student</footer>
+        </blockquote>
+        <blockquote class="testimonial">
+          <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p class="testimonial-quote">&ldquo;Avery is very generous and knowledgeable. He understands the common actor pitfalls during auditions and what direction would be most helpful to take in any given situation. The workshop was well structured and enough time was given for each subject covered.&rdquo;</p>
+          <footer class="testimonial-attr">&mdash; Audition Survival Workshop student</footer>
+        </blockquote>
       </section>
 
       <section class="section">
