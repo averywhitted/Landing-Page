@@ -588,6 +588,226 @@
         border-color: rgba(40, 49, 55, 0.22);
       }
 
+      /* ── Press / credits ── */
+      .press { margin-top: var(--section-gap); }
+      .press.panel { padding: 36px 44px; }
+      .press-heading {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        line-height: 0.95;
+        margin: 0 0 28px;
+      }
+      .press-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+      }
+      .press-group-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin-bottom: 14px;
+      }
+      .press-list { list-style: none; margin: 0; padding: 0; }
+      .press-item {
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .press-item:first-child { border-top: 1px solid var(--line); }
+      .press-title {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.2;
+      }
+      .press-meta { font-size: 13px; color: var(--faint); margin-top: 3px; }
+
+      /* ── What to Expect ── */
+      .expect-section { margin-top: var(--section-gap); }
+      .expect-section.panel { padding: 36px 44px; }
+      .expect-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        align-items: start;
+      }
+      .expect-heading {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        line-height: 0.95;
+        margin: 0 0 20px;
+      }
+      .expect-body p {
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+      .expect-body p:last-child { margin-bottom: 0; }
+      .expect-details {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .expect-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .expect-detail:first-child { border-top: 1px solid var(--line); }
+      .expect-detail-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+      .expect-detail-value {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 20px;
+        color: var(--text);
+        line-height: 1.2;
+      }
+
+      /* ── FAQ ── */
+      .faq-section { margin-top: var(--section-gap); }
+      .faq-section.panel { padding: 36px 44px; }
+      .faq-heading {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        line-height: 0.95;
+        margin: 0 0 6px;
+      }
+      .faq-intro {
+        font-size: 16px;
+        color: var(--muted);
+        margin: 0 0 28px;
+        line-height: 1.6;
+      }
+      .faq-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 40px;
+      }
+      .faq-item {
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .faq-item:first-child { border-top: 1px solid var(--line); }
+      .faq-q {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 21px;
+        font-weight: 600;
+        color: var(--text);
+        margin: 0 0 7px;
+        line-height: 1.2;
+      }
+      .faq-a {
+        font-size: 15px;
+        color: var(--muted);
+        line-height: 1.6;
+        margin: 0;
+      }
+      .faq-a a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+
+      /* ── Email modal ── */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(20, 28, 34, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+      }
+      .modal-overlay.open {
+        opacity: 1;
+        pointer-events: all;
+      }
+      .modal {
+        background: var(--bg0);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 24px 60px rgba(20, 28, 34, 0.2);
+        padding: 36px 40px;
+        width: 100%;
+        max-width: 420px;
+        position: relative;
+        transform: translateY(10px);
+        transition: transform 0.18s ease;
+      }
+      .modal-overlay.open .modal { transform: translateY(0); }
+      .modal-close {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--faint);
+        font-size: 22px;
+        line-height: 1;
+        padding: 4px 6px;
+        border-radius: 6px;
+      }
+      .modal-close:hover { color: var(--text); background: var(--line); }
+      .modal-heading {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 32px;
+        line-height: 0.95;
+        margin: 0 0 10px;
+        color: var(--text);
+      }
+      .modal-body {
+        font-size: 15px;
+        color: var(--muted);
+        margin: 0 0 20px;
+        line-height: 1.55;
+      }
+      .modal-form { display: flex; flex-direction: column; gap: 10px; }
+      .modal-fineprint {
+        font-size: 12px;
+        color: var(--faint);
+        margin: 4px 0 0;
+        line-height: 1.5;
+      }
+
+      /* ── Responsive additions ── */
+      @media (max-width: 860px) {
+        .press.panel,
+        .expect-section.panel,
+        .faq-section.panel { padding: 28px 32px; }
+        .press-cols,
+        .expect-cols,
+        .faq-cols { grid-template-columns: 1fr; gap: 28px; }
+        .press-heading,
+        .expect-heading,
+        .faq-heading { font-size: 34px; }
+      }
+      @media (max-width: 640px) {
+        .press.panel,
+        .expect-section.panel,
+        .faq-section.panel { padding: 22px; }
+        .press-heading,
+        .expect-heading,
+        .faq-heading { font-size: 30px; }
+        .modal { padding: 28px 24px; }
+      }
+
       .sr-only {
         position: absolute;
         width: 1px;
@@ -733,6 +953,7 @@
                   <span class="nwc-label">Next Workshop</span>
                   <span class="nwc-date">Date TBD</span>
                 </div>
+                <button class="btn primary nwc-cta" data-modal-open>Get notified</button>
               </div>
             </div>
           </section>
@@ -794,6 +1015,106 @@
         </div>
       </section>
 
+      <section class="press panel" aria-label="Selected credits">
+        <h3 class="press-heading">Selected Credits</h3>
+        <div class="press-cols">
+          <div>
+            <p class="press-group-label">Film &amp; Television</p>
+            <ul class="press-list">
+              <li class="press-item">
+                <div class="press-title">In the Tall Grass</div>
+                <div class="press-meta">Netflix &middot; 2019 &middot; Starring role</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">A New York Christmas Wedding</div>
+                <div class="press-meta">Netflix &middot; 2020</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">Magnum P.I.</div>
+                <div class="press-meta">CBS &middot; Season 3</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">FBI: Most Wanted</div>
+                <div class="press-meta">CBS &middot; 2020</div>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <p class="press-group-label">Theater</p>
+            <ul class="press-list">
+              <li class="press-item">
+                <div class="press-title">Garside's Career</div>
+                <div class="press-meta">Mint Theater Company &middot; Off-Broadway &middot; 2025</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">Candida</div>
+                <div class="press-meta">Gingold Theatrical Group &middot; Off-Broadway &middot; 2022</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">Chains</div>
+                <div class="press-meta">Mint Theater Company &middot; Off-Broadway &middot; 2022</div>
+              </li>
+              <li class="press-item">
+                <div class="press-title">A Sherlock Carol</div>
+                <div class="press-meta">Capital Repertory Theatre &middot; 2024</div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="expect-section panel" aria-label="What to expect at the workshop">
+        <div class="expect-cols">
+          <div>
+            <h3 class="expect-heading">What to Expect</h3>
+            <div class="expect-body">
+              <p>
+                The workshop runs two hours on Zoom with a maximum of ten actors.
+                Each session follows a clear structure — we move through the full
+                audition cycle from finding opportunities to leaving the room — but
+                there's time built in for your specific questions and live feedback
+                on your work.
+              </p>
+              <p>
+                This isn't a lecture. Expect to participate. Part of each session
+                is spent working on material in real time, with direct feedback on
+                your choices, your habits, and the specific places you tend to
+                get stuck.
+              </p>
+              <p>
+                You walk out with a repeatable framework and a clearer read on
+                where your actual sticking points are — not a set of notes to
+                revisit later.
+              </p>
+            </div>
+          </div>
+          <div>
+            <ul class="expect-details">
+              <li class="expect-detail">
+                <span class="expect-detail-label">Format</span>
+                <span class="expect-detail-value">Group workshop on Zoom</span>
+              </li>
+              <li class="expect-detail">
+                <span class="expect-detail-label">Duration</span>
+                <span class="expect-detail-value">Two hours</span>
+              </li>
+              <li class="expect-detail">
+                <span class="expect-detail-label">Group size</span>
+                <span class="expect-detail-value">Max 10 actors</span>
+              </li>
+              <li class="expect-detail">
+                <span class="expect-detail-label">What to bring</span>
+                <span class="expect-detail-value">Yourself — and any current sides if you have them</span>
+              </li>
+              <li class="expect-detail">
+                <span class="expect-detail-label">What you leave with</span>
+                <span class="expect-detail-value">A repeatable framework and live feedback on your work</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section class="testimonials" aria-label="Student testimonials">
         <blockquote class="testimonial">
           <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
@@ -846,6 +1167,45 @@
             async
           ></script>
           <!-- Calendly inline widget end -->
+        </div>
+      </section>
+
+      <section class="faq-section panel" aria-label="Frequently asked questions">
+        <h3 class="faq-heading">Common Questions</h3>
+        <p class="faq-intro">Everything you need to know before booking.</p>
+        <div class="faq-cols">
+          <div>
+            <dl>
+              <div class="faq-item">
+                <dt class="faq-q">Is the workshop held on Zoom?</dt>
+                <dd class="faq-a">Yes. All sessions are remote via Zoom. You'll receive a link after booking.</dd>
+              </div>
+              <div class="faq-item">
+                <dt class="faq-q">How many people are in each session?</dt>
+                <dd class="faq-a">Sessions are capped at ten actors to keep the feedback specific and the room manageable.</dd>
+              </div>
+              <div class="faq-item">
+                <dt class="faq-q">Is this for beginners or working actors?</dt>
+                <dd class="faq-a">Both. The workshop is built for actors who are actively auditioning or working toward it — whether you're just starting out or have been at it for years, the tools are immediately usable.</dd>
+              </div>
+            </dl>
+          </div>
+          <div>
+            <dl>
+              <div class="faq-item">
+                <dt class="faq-q">How is the workshop different from private coaching?</dt>
+                <dd class="faq-a">The workshop covers the full audition cycle in a group format. Private coaching is one-on-one and goes deeper on whatever you're specifically working through — a particular audition, a recurring problem, or ongoing prep support.</dd>
+              </div>
+              <div class="faq-item">
+                <dt class="faq-q">What should I have ready?</dt>
+                <dd class="faq-a">Just yourself. Bring any current sides if you have them, but nothing is required in advance.</dd>
+              </div>
+              <div class="faq-item">
+                <dt class="faq-q">How do I find out about upcoming dates?</dt>
+                <dd class="faq-a">Use the <a href="#" data-modal-open>email signup</a> and you'll hear directly when new workshop dates are announced.</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </section>
 
@@ -1045,6 +1405,31 @@
       </footer>
     </div>
 
+    <!-- Email signup modal -->
+    <div class="modal-overlay" id="email-modal" role="dialog" aria-modal="true" aria-labelledby="modal-heading">
+      <div class="modal">
+        <button class="modal-close" data-modal-close aria-label="Close">&times;</button>
+        <h2 class="modal-heading" id="modal-heading">Stay in the loop</h2>
+        <p class="modal-body">Sign up to hear when new workshop dates are announced. No spam — just dates and availability.</p>
+        <form
+          class="modal-form"
+          action="https://formsubmit.co/avery@averywhitted.com"
+          method="POST"
+        >
+          <input type="hidden" name="_subject" value="New workshop notification signup" />
+          <input type="hidden" name="_template" value="table" />
+          <input type="hidden" name="_captcha" value="false" />
+          <input type="hidden" name="_next" value="https://averywhitted.com/" />
+          <label style="display:grid;gap:6px;font-size:12px;color:var(--faint)">
+            Email address
+            <input type="email" name="email" placeholder="you@email.com" autocomplete="email" required />
+          </label>
+          <button class="btn primary" type="submit">Notify me</button>
+          <p class="modal-fineprint">You can unsubscribe at any time.</p>
+        </form>
+      </div>
+    </div>
+
     <!-- Calendly embed script -->
     <script
       async
@@ -1053,6 +1438,17 @@
 
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+
+      // Email modal
+      const modal = document.getElementById("email-modal");
+      document.querySelectorAll("[data-modal-open]").forEach(el => {
+        el.addEventListener("click", e => { e.preventDefault(); modal.classList.add("open"); });
+      });
+      document.querySelectorAll("[data-modal-close]").forEach(el => {
+        el.addEventListener("click", () => modal.classList.remove("open"));
+      });
+      modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("open"); });
+      document.addEventListener("keydown", e => { if (e.key === "Escape") modal.classList.remove("open"); });
     </script>
   </body>
 </html>
