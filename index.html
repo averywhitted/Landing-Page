@@ -594,28 +594,36 @@
       }
       .poster-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 24px 16px;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 18px 12px;
       }
       .poster-thumb {
         aspect-ratio: 2/3;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        overflow: hidden;
+        background: var(--bg1);
+      }
+      .poster-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 8px;
       }
       .poster-title {
         font-family: "Cormorant Garamond", Georgia, serif;
-        font-size: 15px;
+        font-size: 13px;
         font-weight: 600;
         color: var(--text);
         line-height: 1.25;
-        margin: 0 0 3px;
+        margin: 0 0 2px;
       }
       .poster-meta {
         font-size: 11px;
         color: var(--faint);
         margin: 0;
-        line-height: 1.5;
+        line-height: 1.45;
       }
 
       /* ── What to Expect ── */
@@ -788,7 +796,7 @@
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
         .expect-heading,
         .faq-heading { font-size: 34px; }
-        .poster-grid { grid-template-columns: repeat(3, 1fr); }
+        .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
       @media (max-width: 640px) {
         .expect-section.panel,
@@ -796,7 +804,7 @@
         .expect-heading,
         .faq-heading { font-size: 30px; }
         .modal { padding: 28px 24px; }
-        .poster-grid { grid-template-columns: repeat(2, 1fr); }
+        .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
 
       .sr-only {
@@ -988,72 +996,16 @@
         </div>
       </main>
 
-      <section class="credentials" id="about">
-        <div class="credentials-copy">
-          <p>
-            I graduated from the BFA Acting program at Mason Gross School of the
-            Arts in 2015, and I have been working for over 10 years across film,
-            television, and theater. My work includes regional productions, new
-            plays, guest-starring roles on network television including
-            <em>Magnum P.I.</em> and <em>FBI: Most Wanted</em>, and a starring
-            role in the 2019 Netflix original film <em>In the Tall Grass</em>.
-          </p>
-          <p>
-            I have done hundreds of auditions and built ongoing relationships
-            with fellow actors, writers, directors, casting directors, managers,
-            and agents. That experience shapes the way I teach: practical,
-            actor-centered, and rooted in what actually happens in the room.
-          </p>
-        </div>
-        <div class="editorial-photo">
-          <img src="Avery115final.JPG" alt="Avery Whitted portrait" />
-        </div>
-      </section>
-
-      <section class="press" aria-label="Selected credits">
-        <p class="press-eyebrow">Selected Credits</p>
-        <div class="poster-grid">
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
-            <p class="poster-title">In the Tall Grass</p>
-            <p class="poster-meta">Netflix &middot; 2019<br>Starring role</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
-            <p class="poster-title">A New York Christmas Wedding</p>
-            <p class="poster-meta">Netflix &middot; 2020</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(185,150,133,0.22) 0%, rgba(185,150,133,0.08) 100%)"></div>
-            <p class="poster-title">Magnum P.I.</p>
-            <p class="poster-meta">CBS &middot; Season 3</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
-            <p class="poster-title">FBI: Most Wanted</p>
-            <p class="poster-meta">CBS &middot; 2020</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
-            <p class="poster-title">Garside's Career</p>
-            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2025</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(185,150,133,0.22) 0%, rgba(185,150,133,0.08) 100%)"></div>
-            <p class="poster-title">Candida</p>
-            <p class="poster-meta">Gingold Theatrical Group<br>Off-Broadway &middot; 2022</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
-            <p class="poster-title">Chains</p>
-            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2022</p>
-          </div>
-          <div class="poster-item">
-            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
-            <p class="poster-title">A Sherlock Carol</p>
-            <p class="poster-meta">Capital Repertory Theatre<br>2024</p>
-          </div>
-        </div>
+      <section class="testimonials" aria-label="Student testimonials">
+        <blockquote class="testimonial">
+          <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
+          <footer class="testimonial-attr">&mdash; Private coaching student</footer>
+        </blockquote>
+        <blockquote class="testimonial">
+          <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p class="testimonial-quote">&ldquo;Avery is very generous and knowledgeable. He understands the common actor pitfalls during auditions and what direction would be most helpful to take in any given situation. The workshop was well structured and enough time was given for each subject covered.&rdquo;</p>
+          <footer class="testimonial-attr">&mdash; Audition Survival Workshop student</footer>
+        </blockquote>
       </section>
 
       <section class="expect-section panel" aria-label="What to expect at the workshop">
@@ -1108,19 +1060,6 @@
         </div>
       </section>
 
-      <section class="testimonials" aria-label="Student testimonials">
-        <blockquote class="testimonial">
-          <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
-          <footer class="testimonial-attr">&mdash; Private coaching student</footer>
-        </blockquote>
-        <blockquote class="testimonial">
-          <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-          <p class="testimonial-quote">&ldquo;Avery is very generous and knowledgeable. He understands the common actor pitfalls during auditions and what direction would be most helpful to take in any given situation. The workshop was well structured and enough time was given for each subject covered.&rdquo;</p>
-          <footer class="testimonial-attr">&mdash; Audition Survival Workshop student</footer>
-        </blockquote>
-      </section>
-
-
       <section class="faq-section panel" aria-label="Frequently asked questions">
         <h3 class="faq-heading">Common Questions</h3>
         <p class="faq-intro">Everything you need to know before booking.</p>
@@ -1156,6 +1095,90 @@
                 <dd class="faq-a">Use the <a href="#" data-modal-open>email signup</a> and you'll hear directly when new workshop dates are announced.</dd>
               </div>
             </dl>
+          </div>
+        </div>
+      </section>
+
+      <section class="credentials" id="about">
+        <div class="credentials-copy">
+          <p>
+            I graduated from the BFA Acting program at Mason Gross School of the
+            Arts in 2015, and I have been working for over 10 years across film,
+            television, and theater. My work includes regional productions, new
+            plays, guest-starring roles on network television including
+            <em>Magnum P.I.</em> and <em>FBI: Most Wanted</em>, and a starring
+            role in the 2019 Netflix original film <em>In the Tall Grass</em>.
+          </p>
+          <p>
+            I have done hundreds of auditions and built ongoing relationships
+            with fellow actors, writers, directors, casting directors, managers,
+            and agents. That experience shapes the way I teach: practical,
+            actor-centered, and rooted in what actually happens in the room.
+          </p>
+        </div>
+        <div class="editorial-photo">
+          <img src="Avery115final.JPG" alt="Avery Whitted portrait" />
+        </div>
+      </section>
+
+      <section class="press" aria-label="Selected credits">
+        <p class="press-eyebrow">Selected Credits</p>
+        <div class="poster-grid">
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/ITTG%20poster" alt="In the Tall Grass poster" />
+            </div>
+            <p class="poster-title">In the Tall Grass</p>
+            <p class="poster-meta">Netflix &middot; 2019<br>Starring role</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/ANYCW%20poster.jpg" alt="A New York Christmas Wedding poster" />
+            </div>
+            <p class="poster-title">A New York Christmas Wedding</p>
+            <p class="poster-meta">Netflix &middot; 2020</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/Magnum%20PI%20poster.jpg" alt="Magnum P.I. poster" />
+            </div>
+            <p class="poster-title">Magnum P.I.</p>
+            <p class="poster-meta">CBS &middot; Season 3</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/FBI%20MW%20poster.jpg" alt="FBI Most Wanted poster" />
+            </div>
+            <p class="poster-title">FBI: Most Wanted</p>
+            <p class="poster-meta">CBS &middot; 2020</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/Garside%20poster.jpg" alt="Garside's Career poster" />
+            </div>
+            <p class="poster-title">Garside's Career</p>
+            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2025</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/Candida%20poster.webp" alt="Candida poster" />
+            </div>
+            <p class="poster-title">Candida</p>
+            <p class="poster-meta">Gingold Theatrical Group<br>Off-Broadway &middot; 2022</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/Chains%20poster.jpg" alt="Chains poster" />
+            </div>
+            <p class="poster-title">Chains</p>
+            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2022</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb">
+              <img src="Production%20posters/Sherlock%20Carol%20poster.jpg" alt="A Sherlock Carol poster" />
+            </div>
+            <p class="poster-title">A Sherlock Carol</p>
+            <p class="poster-meta">Capital Repertory Theatre<br>2024</p>
           </div>
         </div>
       </section>
