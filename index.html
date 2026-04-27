@@ -516,8 +516,10 @@
         .price-note { font-size: 14px; gap: 14px; }
         .credentials { grid-template-columns: 1fr; gap: 16px; }
         .editorial-photo { max-width: 340px; width: 78%; justify-self: center; }
-        .next-workshop-card { flex-direction: column; align-items: flex-start; gap: 14px; }
+        .next-workshop-card { display: flex; flex-direction: column; width: 100%; align-items: center; gap: 14px; }
+        .nwc-info { align-items: center; text-align: center; width: 100%; }
         .btn.nwc-cta { align-self: stretch; justify-content: center; }
+        .btn[data-coaching-modal-open] { width: 100%; }
         .testimonials { grid-template-columns: 1fr; }
         .testimonial { padding: 28px 32px; }
         .testimonial-quote { font-size: 23px; }
