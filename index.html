@@ -395,7 +395,6 @@
         font-size: 16px;
         line-height: 1.6;
       }
-      .section .panel.coaching-panel { display: flex; flex-direction: column; }
 
       /* ── Forms ── */
       form {
@@ -483,10 +482,6 @@
         border: 1px solid rgba(40, 49, 55, 0.16);
         background: rgba(255, 255, 255, 0.74);
       }
-      .coaching-panel .embed {
-        flex: 1;
-        min-height: 620px;
-      }
       .calendly-inline-widget {
         width: 100%;
         min-width: 320px;
@@ -521,7 +516,6 @@
         .price-note { font-size: 14px; gap: 14px; }
         .credentials { grid-template-columns: 1fr; gap: 16px; }
         .editorial-photo { max-width: 340px; width: 78%; justify-self: center; }
-        .coaching-panel .embed { min-height: 560px; }
         .next-workshop-card { flex-direction: column; align-items: flex-start; gap: 14px; }
         .btn.nwc-cta { align-self: stretch; justify-content: center; }
         .testimonials { grid-template-columns: 1fr; }
@@ -590,40 +584,39 @@
 
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
-      .press.panel { padding: 36px 44px; }
-      .press-heading {
-        font-family: "Cormorant Garamond", Georgia, serif;
-        font-size: 38px;
-        line-height: 0.95;
-        margin: 0 0 28px;
-      }
-      .press-cols {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 40px;
-      }
-      .press-group-label {
+      .press-eyebrow {
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.1em;
         text-transform: uppercase;
         color: var(--faint);
-        margin-bottom: 14px;
+        margin: 0 0 20px;
       }
-      .press-list { list-style: none; margin: 0; padding: 0; }
-      .press-item {
-        padding: 13px 0;
-        border-bottom: 1px solid var(--line);
+      .poster-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px 16px;
       }
-      .press-item:first-child { border-top: 1px solid var(--line); }
-      .press-title {
+      .poster-thumb {
+        aspect-ratio: 2/3;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        border: 1px solid var(--line);
+      }
+      .poster-title {
         font-family: "Cormorant Garamond", Georgia, serif;
-        font-size: 20px;
+        font-size: 15px;
         font-weight: 600;
         color: var(--text);
-        line-height: 1.2;
+        line-height: 1.25;
+        margin: 0 0 3px;
       }
-      .press-meta { font-size: 13px; color: var(--faint); margin-top: 3px; }
+      .poster-meta {
+        font-size: 11px;
+        color: var(--faint);
+        margin: 0;
+        line-height: 1.5;
+      }
 
       /* ── What to Expect ── */
       .expect-section { margin-top: var(--section-gap); }
@@ -785,27 +778,25 @@
         margin: 4px 0 0;
         line-height: 1.5;
       }
+      .modal-large { max-width: 720px; }
 
       /* ── Responsive additions ── */
       @media (max-width: 860px) {
-        .press.panel,
         .expect-section.panel,
         .faq-section.panel { padding: 28px 32px; }
-        .press-cols,
         .expect-cols,
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
-        .press-heading,
         .expect-heading,
         .faq-heading { font-size: 34px; }
+        .poster-grid { grid-template-columns: repeat(3, 1fr); }
       }
       @media (max-width: 640px) {
-        .press.panel,
         .expect-section.panel,
         .faq-section.panel { padding: 22px; }
-        .press-heading,
         .expect-heading,
         .faq-heading { font-size: 30px; }
         .modal { padding: 28px 24px; }
+        .poster-grid { grid-template-columns: repeat(2, 1fr); }
       }
 
       .sr-only {
@@ -955,6 +946,9 @@
                 </div>
                 <button class="btn primary nwc-cta" data-modal-open>Get notified</button>
               </div>
+              <!-- UNCOMMENT WHEN A WORKSHOP DATE IS SCHEDULED:
+              <button class="btn primary" style="margin-top:12px" data-workshop-modal-open>Reserve Your Spot</button>
+              -->
             </div>
           </section>
 
@@ -988,6 +982,7 @@
                 <span><strong>1 hour:</strong> $80</span>
                 <span><strong>30 min audition prep:</strong> $50</span>
               </div>
+              <button class="btn primary" style="margin-top:16px" data-coaching-modal-open>Book a Session</button>
             </div>
           </section>
         </div>
@@ -1015,50 +1010,48 @@
         </div>
       </section>
 
-      <section class="press panel" aria-label="Selected credits">
-        <h3 class="press-heading">Selected Credits</h3>
-        <div class="press-cols">
-          <div>
-            <p class="press-group-label">Film &amp; Television</p>
-            <ul class="press-list">
-              <li class="press-item">
-                <div class="press-title">In the Tall Grass</div>
-                <div class="press-meta">Netflix &middot; 2019 &middot; Starring role</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">A New York Christmas Wedding</div>
-                <div class="press-meta">Netflix &middot; 2020</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">Magnum P.I.</div>
-                <div class="press-meta">CBS &middot; Season 3</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">FBI: Most Wanted</div>
-                <div class="press-meta">CBS &middot; 2020</div>
-              </li>
-            </ul>
+      <section class="press" aria-label="Selected credits">
+        <p class="press-eyebrow">Selected Credits</p>
+        <div class="poster-grid">
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
+            <p class="poster-title">In the Tall Grass</p>
+            <p class="poster-meta">Netflix &middot; 2019<br>Starring role</p>
           </div>
-          <div>
-            <p class="press-group-label">Theater</p>
-            <ul class="press-list">
-              <li class="press-item">
-                <div class="press-title">Garside's Career</div>
-                <div class="press-meta">Mint Theater Company &middot; Off-Broadway &middot; 2025</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">Candida</div>
-                <div class="press-meta">Gingold Theatrical Group &middot; Off-Broadway &middot; 2022</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">Chains</div>
-                <div class="press-meta">Mint Theater Company &middot; Off-Broadway &middot; 2022</div>
-              </li>
-              <li class="press-item">
-                <div class="press-title">A Sherlock Carol</div>
-                <div class="press-meta">Capital Repertory Theatre &middot; 2024</div>
-              </li>
-            </ul>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
+            <p class="poster-title">A New York Christmas Wedding</p>
+            <p class="poster-meta">Netflix &middot; 2020</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(185,150,133,0.22) 0%, rgba(185,150,133,0.08) 100%)"></div>
+            <p class="poster-title">Magnum P.I.</p>
+            <p class="poster-meta">CBS &middot; Season 3</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
+            <p class="poster-title">FBI: Most Wanted</p>
+            <p class="poster-meta">CBS &middot; 2020</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
+            <p class="poster-title">Garside's Career</p>
+            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2025</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(185,150,133,0.22) 0%, rgba(185,150,133,0.08) 100%)"></div>
+            <p class="poster-title">Candida</p>
+            <p class="poster-meta">Gingold Theatrical Group<br>Off-Broadway &middot; 2022</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(137,168,155,0.22) 0%, rgba(137,168,155,0.08) 100%)"></div>
+            <p class="poster-title">Chains</p>
+            <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2022</p>
+          </div>
+          <div class="poster-item">
+            <div class="poster-thumb" style="background: linear-gradient(160deg, rgba(156,178,202,0.22) 0%, rgba(156,178,202,0.08) 100%)"></div>
+            <p class="poster-title">A Sherlock Carol</p>
+            <p class="poster-meta">Capital Repertory Theatre<br>2024</p>
           </div>
         </div>
       </section>
@@ -1127,48 +1120,6 @@
         </blockquote>
       </section>
 
-      <section class="section">
-        <div class="panel" id="workshops">
-          <h3>Workshop signup</h3>
-          <p>
-            Reserve your seat for The Audition Survival Workshop and share where
-            you want support most.
-          </p>
-          <!-- Calendly inline widget begin -->
-          <div
-            class="calendly-inline-widget"
-            data-url="https://calendly.com/avery_whitted/the-audition-survival-workshop"
-            style="min-width: 320px; height: 700px"
-          ></div>
-          <script
-            type="text/javascript"
-            src="https://assets.calendly.com/assets/external/widget.js"
-            async
-          ></script>
-          <!-- Calendly inline widget end -->
-        </div>
-
-        <div class="panel coaching-panel" id="coaching">
-          <h3>Private coaching</h3>
-          <p>
-            Book one-on-one coaching for audition prep, self-tapes, callback
-            adjustments, and confidence in high-pressure rooms.
-          </p>
-
-          <!-- Calendly inline widget begin -->
-          <div
-            class="calendly-inline-widget"
-            data-url="https://calendly.com/avery_whitted/private-coaching"
-            style="min-width: 320px; height: 700px"
-          ></div>
-          <script
-            type="text/javascript"
-            src="https://assets.calendly.com/assets/external/widget.js"
-            async
-          ></script>
-          <!-- Calendly inline widget end -->
-        </div>
-      </section>
 
       <section class="faq-section panel" aria-label="Frequently asked questions">
         <h3 class="faq-heading">Common Questions</h3>
@@ -1430,6 +1381,35 @@
       </div>
     </div>
 
+    <!-- Private coaching booking modal -->
+    <div class="modal-overlay" id="coaching-modal" role="dialog" aria-modal="true" aria-labelledby="coaching-modal-heading">
+      <div class="modal modal-large">
+        <button class="modal-close" data-coaching-modal-close aria-label="Close">&times;</button>
+        <h2 class="modal-heading" id="coaching-modal-heading">Book a Session</h2>
+        <p class="modal-body">Choose a time that works for you — one-hour and 30-minute sessions available.</p>
+        <div
+          class="calendly-inline-widget"
+          data-url="https://calendly.com/avery_whitted/private-coaching"
+          style="min-width: 280px; height: 660px"
+        ></div>
+      </div>
+    </div>
+
+    <!-- Workshop booking modal — uncomment when a workshop date is scheduled:
+    <div class="modal-overlay" id="workshop-modal" role="dialog" aria-modal="true" aria-labelledby="workshop-modal-heading">
+      <div class="modal modal-large">
+        <button class="modal-close" data-workshop-modal-close aria-label="Close">&times;</button>
+        <h2 class="modal-heading" id="workshop-modal-heading">Reserve Your Spot</h2>
+        <p class="modal-body">Secure your seat for the next Audition Survival Workshop.</p>
+        <div
+          class="calendly-inline-widget"
+          data-url="https://calendly.com/avery_whitted/the-audition-survival-workshop"
+          style="min-width: 280px; height: 660px"
+        ></div>
+      </div>
+    </div>
+    -->
+
     <!-- Calendly embed script -->
     <script
       async
@@ -1439,7 +1419,7 @@
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
 
-      // Email modal
+      // Email notification modal
       const modal = document.getElementById("email-modal");
       document.querySelectorAll("[data-modal-open]").forEach(el => {
         el.addEventListener("click", e => { e.preventDefault(); modal.classList.add("open"); });
@@ -1448,7 +1428,24 @@
         el.addEventListener("click", () => modal.classList.remove("open"));
       });
       modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("open"); });
-      document.addEventListener("keydown", e => { if (e.key === "Escape") modal.classList.remove("open"); });
+
+      // Coaching booking modal
+      const coachingModal = document.getElementById("coaching-modal");
+      document.querySelectorAll("[data-coaching-modal-open]").forEach(el => {
+        el.addEventListener("click", e => { e.preventDefault(); coachingModal.classList.add("open"); });
+      });
+      document.querySelectorAll("[data-coaching-modal-close]").forEach(el => {
+        el.addEventListener("click", () => coachingModal.classList.remove("open"));
+      });
+      coachingModal.addEventListener("click", e => { if (e.target === coachingModal) coachingModal.classList.remove("open"); });
+
+      // Close any open modal on Escape
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape") {
+          modal.classList.remove("open");
+          coachingModal.classList.remove("open");
+        }
+      });
     </script>
   </body>
 </html>
