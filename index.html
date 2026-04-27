@@ -522,7 +522,6 @@
         .nwc-info { align-items: center; text-align: center; width: 100%; }
         .btn.nwc-cta { align-self: stretch; justify-content: center; }
         .btn[data-coaching-modal-open] { width: 100%; }
-        .testimonials { grid-template-columns: 1fr; }
         .testimonial { padding: 28px 32px; }
         .testimonial-quote { font-size: 23px; }
       }
@@ -554,7 +553,7 @@
         .next-workshop-card { display: flex; width: 100%; padding: 14px 16px; align-items: center; }
         .nwc-info { align-items: center; text-align: center; width: 100%; }
         .nwc-date { font-size: 22px; }
-        .testimonials { margin-top: 32px; }
+        .testimonials { margin-top: 32px; grid-template-columns: 1fr; }
         .testimonial { padding: 22px; }
         .testimonial-quote { font-size: 21px; }
       }
@@ -589,13 +588,13 @@
 
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
-      .press-eyebrow {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--faint);
-        margin: 0 0 20px;
+      .press-heading {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        font-weight: 600;
+        line-height: 0.95;
+        color: var(--text);
+        margin: 0 0 24px;
       }
       .poster-grid {
         display: grid;
@@ -1129,7 +1128,7 @@
       </section>
 
       <section class="press" aria-label="Selected credits">
-        <p class="press-eyebrow">Selected Credits</p>
+        <h3 class="press-heading">Selected Credits</h3>
         <div class="poster-grid">
           <div class="poster-item">
             <div class="poster-thumb">
