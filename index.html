@@ -553,7 +553,7 @@
         .next-workshop-card { display: flex; width: 100%; padding: 14px 16px; align-items: center; }
         .nwc-info { align-items: center; text-align: center; width: 100%; }
         .nwc-date { font-size: 22px; }
-        .testimonials { margin-top: 32px; grid-template-columns: 1fr; }
+        .testimonials { margin-top: 32px; }
         .testimonial { padding: 22px; }
         .testimonial-quote { font-size: 21px; }
       }
@@ -828,6 +828,9 @@
         grid-template-columns: 1fr 1fr;
         gap: 18px;
         align-items: start;
+      }
+      @media (max-width: 640px) {
+        .testimonials { grid-template-columns: 1fr; }
       }
       .testimonial-stars {
         font-size: 14px;
