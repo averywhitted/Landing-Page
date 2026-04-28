@@ -876,12 +876,10 @@
       }
       .poster-item {
         cursor: pointer;
+        transition: transform 0.12s ease;
       }
-      .poster-item .poster-thumb {
-        transition: opacity 0.15s ease;
-      }
-      .poster-item:hover .poster-thumb {
-        opacity: 0.82;
+      .poster-item:hover {
+        transform: translateY(-2px);
       }
       @media (max-width: 640px) {
         .credit-modal-inner { grid-template-columns: 1fr; }
