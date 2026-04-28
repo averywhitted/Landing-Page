@@ -792,6 +792,103 @@
       }
       .modal-large { max-width: 720px; }
 
+      /* ── Credit detail modal ── */
+      .modal-credit {
+        max-width: 760px;
+        padding: 0;
+        overflow: hidden;
+      }
+      .credit-modal-inner {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+      }
+      .credit-modal-poster {
+        background: var(--bg1);
+        min-height: 285px;
+        flex-shrink: 0;
+      }
+      .credit-modal-poster img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .credit-modal-info {
+        padding: 32px 36px 28px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .credit-modal-type {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin: 0;
+      }
+      .credit-modal-title {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 1.05;
+        margin: 0;
+        color: var(--text);
+      }
+      .credit-modal-role {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        margin: 4px 0 0;
+      }
+      .credit-modal-meta {
+        font-size: 13px;
+        color: var(--faint);
+        margin: 0;
+        line-height: 1.5;
+      }
+      .credit-modal-desc {
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--muted);
+        margin: 10px 0 0;
+      }
+      .credit-modal-photos {
+        padding: 18px 24px 22px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+      }
+      .credit-photo {
+        flex-shrink: 0;
+        width: 140px;
+        height: 90px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--bg1);
+      }
+      .credit-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .poster-item {
+        cursor: pointer;
+      }
+      .poster-item .poster-thumb {
+        transition: opacity 0.15s ease;
+      }
+      .poster-item:hover .poster-thumb {
+        opacity: 0.82;
+      }
+      @media (max-width: 640px) {
+        .credit-modal-inner { grid-template-columns: 1fr; }
+        .credit-modal-poster { min-height: 220px; max-height: 260px; }
+        .credit-modal-info { padding: 22px 20px 18px; }
+      }
+
       /* ── Responsive additions ── */
       @media (max-width: 860px) {
         .expect-section.panel,
@@ -1132,67 +1229,67 @@
       <section class="press" aria-label="Selected credits">
         <h3 class="press-heading">Selected Credits</h3>
         <div class="poster-grid">
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="ittg">
             <div class="poster-thumb">
               <img src="Production%20posters/ITTG%20poster" alt="In the Tall Grass poster" />
             </div>
             <p class="poster-title">In the Tall Grass</p>
             <p class="poster-meta">Netflix &middot; 2019<br>Starring role</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="anycw">
             <div class="poster-thumb">
               <img src="Production%20posters/ANYCW%20poster.jpg" alt="A New York Christmas Wedding poster" />
             </div>
             <p class="poster-title">A New York Christmas Wedding</p>
             <p class="poster-meta">Netflix &middot; 2020</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="magnum">
             <div class="poster-thumb">
               <img src="Production%20posters/Magnum%20PI%20poster.jpg" alt="Magnum P.I. poster" />
             </div>
             <p class="poster-title">Magnum P.I.</p>
             <p class="poster-meta">CBS &middot; Season 3</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="fbi">
             <div class="poster-thumb">
               <img src="Production%20posters/FBI%20MW%20poster.jpg" alt="FBI Most Wanted poster" />
             </div>
             <p class="poster-title">FBI: Most Wanted</p>
             <p class="poster-meta">CBS &middot; 2020</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="garside">
             <div class="poster-thumb">
               <img src="Production%20posters/Garside%20poster.jpg" alt="Garside's Career poster" />
             </div>
             <p class="poster-title">Garside's Career</p>
             <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2025</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="candida">
             <div class="poster-thumb">
               <img src="Production%20posters/Candida%20poster.webp" alt="Candida poster" />
             </div>
             <p class="poster-title">Candida</p>
             <p class="poster-meta">Gingold Theatrical Group<br>Off-Broadway &middot; 2022</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="chains">
             <div class="poster-thumb">
               <img src="Production%20posters/Chains%20poster.jpg" alt="Chains poster" />
             </div>
             <p class="poster-title">Chains</p>
             <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2022</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="sherlock">
             <div class="poster-thumb">
               <img src="Production%20posters/Sherlock%20Carol%20poster.jpg" alt="A Sherlock Carol poster" />
             </div>
             <p class="poster-title">A Sherlock Carol</p>
             <p class="poster-meta">Capital Repertory Theatre<br>2024</p>
           </div>
-          <div class="poster-item">
+          <div class="poster-item" data-credit-id="sidney">
             <div class="poster-thumb">
               <img src="Production%20posters/Sidney%20Hall%20poster.jpg" alt="Sidney Hall poster" />
             </div>
-            <p class="poster-title">Sidney Hall</p>
+            <p class="poster-title">The Vanishing of Sidney Hall</p>
             <p class="poster-meta">A24 &middot; 2017</p>
           </div>
         </div>
@@ -1433,6 +1530,26 @@
       </div>
     </div>
 
+    <!-- Credit detail modal -->
+    <div class="modal-overlay" id="credit-modal" role="dialog" aria-modal="true" aria-labelledby="credit-modal-title-el">
+      <div class="modal modal-credit">
+        <button class="modal-close" id="credit-modal-close" aria-label="Close">&times;</button>
+        <div class="credit-modal-inner">
+          <div class="credit-modal-poster">
+            <img id="credit-modal-img" src="" alt="" />
+          </div>
+          <div class="credit-modal-info">
+            <p class="credit-modal-type" id="credit-modal-type"></p>
+            <h2 class="credit-modal-title" id="credit-modal-title-el"></h2>
+            <p class="credit-modal-role" id="credit-modal-role"></p>
+            <p class="credit-modal-meta" id="credit-modal-meta"></p>
+            <p class="credit-modal-desc" id="credit-modal-desc"></p>
+          </div>
+        </div>
+        <div class="credit-modal-photos" id="credit-modal-photos" style="display:none"></div>
+      </div>
+    </div>
+
     <!-- Workshop booking modal — uncomment when a workshop date is scheduled:
     <div class="modal-overlay" id="workshop-modal" role="dialog" aria-modal="true" aria-labelledby="workshop-modal-heading">
       <div class="modal modal-large">
@@ -1477,11 +1594,129 @@
       });
       coachingModal.addEventListener("click", e => { if (e.target === coachingModal) coachingModal.classList.remove("open"); });
 
+      // Credit detail modals
+      const creditData = {
+        ittg: {
+          type: "Film",
+          title: "In the Tall Grass",
+          role: "Cal",
+          meta: "Netflix \u00b7 2019 \u00b7 Directed by Vincenzo Natali",
+          desc: "Based on the novella by Stephen King and Joe Hill, In the Tall Grass follows a brother and sister who become hopelessly lost in a field of tall grass after following the cries of a young boy — and discover something far more sinister than they expected. Avery played Cal, the older brother, in a starring role alongside Harrison Gilbertson, Laysla De Oliveira, and Patrick Wilson. The film premiered at Fantastic Fest before its Netflix release in October 2019.",
+          poster: "Production%20posters/ITTG%20poster",
+          photos: [
+            // Add production photo paths here, e.g.: "Production%20posters/photos/ittg-1.jpg"
+          ]
+        },
+        anycw: {
+          type: "Film",
+          title: "A New York Christmas Wedding",
+          role: "", // Add character name
+          meta: "Netflix \u00b7 2020 \u00b7 Directed by Otoja Abit",
+          desc: "As her wedding approaches, a bride-to-be is visited by an angel who shows her an alternate life — one in which she followed her heart years earlier. A romantic drama weaving together themes of identity, faith, and second chances set against the backdrop of New York City at Christmas. The film stars Nia Fairweather, Chris Noth, and Cooper Koch.",
+          poster: "Production%20posters/ANYCW%20poster.jpg",
+          photos: []
+        },
+        magnum: {
+          type: "Television",
+          title: "Magnum P.I.",
+          role: "Joey",
+          meta: "CBS \u00b7 Season 3, Episode 8 \u00b7 \"Someone to Watch Over Me\"",
+          desc: "A guest-starring role in the CBS reboot of the classic detective series. Magnum P.I. follows Thomas Magnum, a Navy SEAL veteran turned private investigator working on Oahu, Hawaii. The episode aired February 12, 2021.",
+          poster: "Production%20posters/Magnum%20PI%20poster.jpg",
+          photos: []
+        },
+        fbi: {
+          type: "Television",
+          title: "FBI: Most Wanted",
+          role: "Lucas Earley",
+          meta: "CBS \u00b7 Season 1 \u00b7 Episode: \"Execute\" \u00b7 2020",
+          desc: "In the episode \"Execute,\" a hacker triggers a deadly car crash killing a family of three, and the FBI's Fugitive Task Force races to stop his ransomware demands from escalating further. Avery played Lucas Earley. The episode aired November 24, 2020.",
+          poster: "Production%20posters/FBI%20MW%20poster.jpg",
+          photos: []
+        },
+        garside: {
+          type: "Theater",
+          title: "Garside's Career",
+          role: "", // Add character name
+          meta: "Mint Theater Company \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2025",
+          desc: "Harold Brighouse's Garside's Career traces the soaring rise of Peter Garside from working engineer to member of Parliament, driven by a silver tongue and an insatiable hunger for power. Directed by Matt Dickson, this was the New York premiere of a play first produced in 1919 — a promised Broadway production never materialized at the time. The production ran February 1 through March 15 at Theatre Row.",
+          poster: "Production%20posters/Garside%20poster.jpg",
+          photos: []
+        },
+        candida: {
+          type: "Theater",
+          title: "Candida",
+          role: "Marchbanks",
+          meta: "Gingold Theatrical Group \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2022",
+          desc: "George Bernard Shaw's Candida, reimagined by the Gingold Theatrical Group in a bold transposition from London 1895 to Harlem 1929. Directed by David Staller, the production starred Avanthika Srinivasan as Candida and R.J. Foster as Morell. Avery played Marchbanks, the passionate young poet who challenges the seemingly perfect Morell household. The run extended October 5 through November 19.",
+          poster: "Production%20posters/Candida%20poster.webp",
+          photos: []
+        },
+        chains: {
+          type: "Theater",
+          title: "Chains",
+          role: "Percy",
+          meta: "Mint Theater Company \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2022",
+          desc: "The American premiere of Elizabeth Baker's 1909 drama, directed by Jenn Thompson. Chains is a sharp, compassionate portrait of Edwardian middle-class life — a group of ordinary people held in place by routine, obligation, and quiet resignation. Avery played Percy, Lily's younger brother, an optimistic young man on the verge of marriage and all the settled life it implies.",
+          poster: "Production%20posters/Chains%20poster.jpg",
+          photos: []
+        },
+        sherlock: {
+          type: "Theater",
+          title: "A Sherlock Carol",
+          role: "Dr. Timothy Cratchit",
+          meta: "Capital Repertory Theatre \u00b7 Albany, NY \u00b7 2024",
+          desc: "A holiday theatrical mashup in which the ghost of Ebenezer Scrooge seeks the help of Sherlock Holmes to clear his name. The production starred Drew McVety as Sherlock Holmes and Allen Gilmore as Scrooge. Avery played the grown-up Dr. Timothy Cratchit alongside several other roles, in a run that stretched November 22 through December 22.",
+          poster: "Production%20posters/Sherlock%20Carol%20poster.jpg",
+          photos: []
+        },
+        sidney: {
+          type: "Film",
+          title: "The Vanishing of Sidney Hall",
+          role: "", // Add character name
+          meta: "A24 \u00b7 2017 \u00b7 Directed by Shawn Christensen",
+          desc: "After publishing a bestselling novel based on the death of a high school classmate, the young writer Sidney Hall finds himself catapulted to unexpected fame — and then disappears without a trace. The film unfolds across three periods of Sidney's life in an elliptical, non-linear narrative. It stars Logan Lerman, Elle Fanning, Michelle Monaghan, Nathan Lane, and Kyle Chandler, and premiered at Sundance 2017.",
+          poster: "Production%20posters/Sidney%20Hall%20poster.jpg",
+          photos: []
+        }
+      };
+
+      const creditModal = document.getElementById("credit-modal");
+      document.getElementById("credit-modal-close").addEventListener("click", () => creditModal.classList.remove("open"));
+      creditModal.addEventListener("click", e => { if (e.target === creditModal) creditModal.classList.remove("open"); });
+
+      document.querySelectorAll(".poster-item[data-credit-id]").forEach(item => {
+        item.addEventListener("click", () => {
+          const credit = creditData[item.dataset.creditId];
+          if (!credit) return;
+          document.getElementById("credit-modal-img").src = credit.poster;
+          document.getElementById("credit-modal-img").alt = credit.title + " poster";
+          document.getElementById("credit-modal-type").textContent = credit.type;
+          document.getElementById("credit-modal-title-el").textContent = credit.title;
+          const roleEl = document.getElementById("credit-modal-role");
+          roleEl.textContent = credit.role ? credit.role : "";
+          roleEl.style.display = credit.role ? "" : "none";
+          document.getElementById("credit-modal-meta").textContent = credit.meta;
+          document.getElementById("credit-modal-desc").textContent = credit.desc;
+          const photosEl = document.getElementById("credit-modal-photos");
+          if (credit.photos && credit.photos.length > 0) {
+            photosEl.innerHTML = credit.photos.map(src =>
+              `<div class="credit-photo"><img src="${src}" alt="Production photo" /></div>`
+            ).join("");
+            photosEl.style.display = "flex";
+          } else {
+            photosEl.style.display = "none";
+          }
+          creditModal.classList.add("open");
+        });
+      });
+
       // Close any open modal on Escape
       document.addEventListener("keydown", e => {
         if (e.key === "Escape") {
           modal.classList.remove("open");
           coachingModal.classList.remove("open");
+          creditModal.classList.remove("open");
         }
       });
     </script>
