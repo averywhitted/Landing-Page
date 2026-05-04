@@ -1,193 +1,406 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>A Very Bad Idea Design | Coming Soon</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A Very Bad Idea Art — Coming Soon</title>
     <meta
       name="description"
-      content="A Very Bad Idea Design website coming soon."
+      content="A Very Bad Idea Art — 3D, design, and anything else that shouldn't exist. Coming soon."
+    />
+
+    <!-- Favicon — inline SVG -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2308080a'/><text x='2' y='22' font-family='monospace' font-size='11' font-weight='700' fill='%235cff77'>[ABI]</text></svg>"
     />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap"
       rel="stylesheet"
     />
 
     <style>
+      /* ════════════════════════════════════════════
+         TOKENS
+      ════════════════════════════════════════════ */
       :root {
-        --bg0: #f5f1ea;
-        --bg1: #e8eeec;
-        --text: #283137;
-        --muted: #4b5c62;
-        --line: rgba(40, 49, 55, 0.16);
-        --shadow: 0 18px 36px rgba(29, 41, 49, 0.1);
-        --radius2: 26px;
+        --bg:          #08080a;
+        --surface:     #0f0f12;
+        --border:      #222228;
+        --text:        #b8b8c4;
+        --text-dim:    #7c7c8a;
+        --text-bright: #e4e4f0;
+        --accent:      #5cff77;
+        --accent-dim:  rgba(92, 255, 119, 0.08);
+        --accent-glow: 0 0 24px rgba(92, 255, 119, 0.22);
+        --font:        "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
+      /* ════════════════════════════════════════════
+         RESET & BASE
+      ════════════════════════════════════════════ */
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
       body {
-        margin: 0;
-        min-height: 100vh;
-        padding: 24px;
-        font-family:
-          "Source Sans 3",
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          sans-serif;
+        font-family: var(--font);
+        background: var(--bg);
         color: var(--text);
-        background: linear-gradient(
-          165deg,
-          var(--bg0) 0%,
-          var(--bg1) 52%,
-          #e2ebe8 100%
-        );
-        background-repeat: no-repeat;
-        background-size: 100% 100%;
+        min-height: 100vh;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        cursor: none;
+      }
+      a, button, [role="button"] { cursor: none; }
+      ::selection { background: rgba(92, 255, 119, 0.18); color: var(--text-bright); }
+
+      /* ════════════════════════════════════════════
+         CUSTOM CURSOR
+      ════════════════════════════════════════════ */
+      .cursor-dot {
+        position: fixed;
+        width: 3px; height: 3px;
+        border-radius: 50%;
+        background: var(--accent);
+        pointer-events: none;
+        z-index: 9999;
+        transform: translate(-50%, -50%);
+        will-change: left, top;
+      }
+      .cursor-ring {
+        position: fixed;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        border: 1px solid var(--accent);
+        pointer-events: none;
+        z-index: 9998;
+        transform: translate(-50%, -50%);
+        opacity: 0.65;
+        transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.22s ease;
+        will-change: left, top;
+      }
+      body.cursor-hover .cursor-ring {
+        transform: translate(-50%, -50%) scale(1.65);
+        opacity: 1;
+      }
+      @media (hover: none) {
+        .cursor-dot, .cursor-ring { display: none; }
+        body, a, button, [role="button"] { cursor: auto; }
       }
 
-      .wrap {
-        max-width: 1120px;
-        margin: 0 auto;
-        min-height: calc(100vh - 48px);
+      /* ════════════════════════════════════════════
+         BACKGROUND — subtle dot grid + gradient blobs
+      ════════════════════════════════════════════ */
+      .bg-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          radial-gradient(ellipse at 70% 40%, rgba(22, 12, 60, 0.7) 0%, transparent 55%),
+          radial-gradient(ellipse at 20% 80%, rgba(0, 45, 30, 0.4) 0%, transparent 50%),
+          #08080a;
+        animation: bgFloat 14s ease-in-out infinite alternate;
+      }
+      @keyframes bgFloat {
+        0%   { filter: hue-rotate(0deg) brightness(1); }
+        50%  { filter: hue-rotate(15deg) brightness(1.03); }
+        100% { filter: hue-rotate(-8deg) brightness(0.97); }
+      }
+      .bg-layer::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+        background-size: 28px 28px;
+        mask-image: radial-gradient(ellipse at 50% 50%, black 30%, transparent 80%);
+      }
+      .bg-layer::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          transparent, transparent 3px,
+          rgba(0,0,0,0.035) 3px, rgba(0,0,0,0.035) 4px
+        );
+      }
+
+      /* ════════════════════════════════════════════
+         LAYOUT
+      ════════════════════════════════════════════ */
+      .page {
+        position: relative;
+        z-index: 1;
+        min-height: 100vh;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        padding: 48px 24px;
         text-align: center;
       }
 
-      .copy {
-        max-width: 760px;
-      }
-
-      h3 {
-        margin: 0;
-        font-family: "Cormorant Garamond", Georgia, serif;
-        font-size: 34px;
-        line-height: 0.95;
-        letter-spacing: 0;
-      }
-
-      .line-two {
-        display: block;
-        margin-top: 8px;
-      }
-
-      .back-btn {
-        display: inline-flex;
+      /* ════════════════════════════════════════════
+         CONTENT
+      ════════════════════════════════════════════ */
+      .eyebrow {
+        font-size: 10px;
+        letter-spacing: 0.35em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 2rem;
+        display: flex;
         align-items: center;
         justify-content: center;
         gap: 10px;
-        margin-top: 20px;
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--text);
-        text-decoration: none;
-        font-weight: 600;
-        transition:
-          transform 0.12s ease,
-          background 0.12s ease,
-          border-color 0.12s ease;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.2s forwards;
+      }
+      .eyebrow::before, .eyebrow::after {
+        content: "";
+        display: inline-block;
+        width: 24px; height: 1px;
+        background: var(--accent);
       }
 
-      .back-btn:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.95);
-        border-color: rgba(40, 49, 55, 0.22);
+      .title {
+        font-size: clamp(2.2rem, 6vw, 4.8rem);
+        font-weight: 700;
+        line-height: 0.95;
+        letter-spacing: -0.02em;
+        color: var(--text-bright);
+        margin-bottom: 1.5rem;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.4s forwards;
+      }
+      .title .accent { color: var(--accent); }
+
+      .subtitle {
+        font-size: 12px;
+        font-weight: 400;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin: 0.9rem auto 1.8rem;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.5s forwards;
+      }
+      .tagline {
+        font-size: 13px;
+        font-weight: 300;
+        letter-spacing: 0.04em;
+        color: var(--text-dim);
+        line-height: 1.9;
+        max-width: 360px;
+        margin: 0 auto 2.5rem;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.65s forwards;
       }
 
-      .social-icon {
-        width: 44px;
-        height: 44px;
+      /* terminal status line */
+      .status {
         display: inline-flex;
         align-items: center;
+        gap: 10px;
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 8px 16px;
+        margin-bottom: 3rem;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.7s forwards;
+      }
+      .status-dot {
+        width: 5px; height: 5px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: var(--accent-glow);
+        animation: pulse 2.2s ease-in-out infinite;
+        flex-shrink: 0;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.35; transform: scale(1); }
+        50%       { opacity: 1;    transform: scale(1.35); }
+      }
+      .status-cursor {
+        color: var(--accent);
+        animation: blink 1.1s step-end infinite;
+        margin-left: 2px;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0; }
+      }
+
+      /* ════════════════════════════════════════════
+         ACTIONS
+      ════════════════════════════════════════════ */
+      .actions {
+        display: flex;
+        align-items: center;
         justify-content: center;
-        margin-top: 20px;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--text);
-        transition:
-          transform 0.12s ease,
-          background 0.12s ease,
-          border-color 0.12s ease;
+        gap: 14px;
+        flex-wrap: wrap;
+        opacity: 0;
+        animation: fadeUp 0.7s ease 0.85s forwards;
       }
 
-      .social-icon:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.95);
-        border-color: rgba(40, 49, 55, 0.22);
+      /* back link — inherits acting-site pill aesthetic subtly */
+      .btn-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        font-family: var(--font);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        text-decoration: none;
+        color: var(--text-dim);
+        border: 1px solid var(--border);
+        background: transparent;
+        transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+      }
+      .btn-back:hover {
+        color: var(--text-bright);
+        border-color: #444;
+        background: var(--surface);
+      }
+      .btn-back svg { flex-shrink: 0; }
+
+      /* instagram button */
+      .btn-ig {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        font-family: var(--font);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        text-decoration: none;
+        color: var(--accent);
+        border: 1px solid rgba(92, 255, 119, 0.28);
+        background: var(--accent-dim);
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .btn-ig:hover {
+        background: rgba(92, 255, 119, 0.14);
+        border-color: rgba(92, 255, 119, 0.55);
+        box-shadow: var(--accent-glow);
+      }
+      .btn-ig svg { flex-shrink: 0; }
+
+      /* ════════════════════════════════════════════
+         FADE-UP KEYFRAME
+      ════════════════════════════════════════════ */
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
       }
 
-      @media (max-width: 640px) {
-        body {
-          padding: 18px 12px;
-        }
-
-        .wrap {
-          min-height: calc(100vh - 36px);
-        }
-
-        h3 {
-          font-size: 28px;
-        }
+      /* ════════════════════════════════════════════
+         MOBILE
+      ════════════════════════════════════════════ */
+      @media (max-width: 480px) {
+        .title { font-size: clamp(1.8rem, 10vw, 2.8rem); }
+        .actions { flex-direction: column; align-items: stretch; }
+        .btn-back, .btn-ig { justify-content: center; }
       }
     </style>
   </head>
   <body>
-    <main class="wrap">
-      <div class="copy">
-        <h3>
-          <em>A Very Bad Idea Design</em> website coming soon.
-          <span class="line-two">Please visit me here on instagram</span>
-        </h3>
 
+    <!-- Custom cursor -->
+    <div class="cursor-dot" id="cursor-dot"></div>
+    <div class="cursor-ring" id="cursor-ring"></div>
+
+    <!-- Background -->
+    <div class="bg-layer"></div>
+
+    <div class="page">
+
+      <p class="eyebrow">averywhitted.com / other work</p>
+
+      <h1 class="title">
+        A Very Bad<br><span class="accent">Idea Art</span>
+      </h1>
+
+      <p class="subtitle">3D &amp; Design</p>
+
+      <p class="tagline">
+        Blender renders, visual identities, motion,<br>
+        and anything else that shouldn&rsquo;t exist.
+      </p>
+
+      <div class="status">
+        <span class="status-dot"></span>
+        site under construction<span class="status-cursor">_</span>
+      </div>
+
+      <div class="actions">
+        <a class="btn-back" href="index.html">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          averywhitted.com
+        </a>
         <a
-          class="social-icon"
+          class="btn-ig"
           href="https://www.instagram.com/a.very.bad.idea.art/"
           target="_blank"
           rel="noreferrer"
-          aria-label="A Very Bad Idea Design Instagram"
+          aria-label="A Very Bad Idea Art on Instagram"
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <rect
-              x="2.5"
-              y="2.5"
-              width="19"
-              height="19"
-              rx="5.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <circle
-              cx="12"
-              cy="12"
-              r="4.5"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke="currentColor" stroke-width="1.8"/>
+            <circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.8"/>
+            <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor"/>
           </svg>
+          @a.very.bad.idea.art
         </a>
-
-        <div>
-          <a class="back-btn" href="index.html">Back</a>
-        </div>
       </div>
-    </main>
+
+    </div>
+
+    <script>
+      /* ── Custom cursor ── */
+      const curDot  = document.getElementById("cursor-dot");
+      const curRing = document.getElementById("cursor-ring");
+      let mouseX = -100, mouseY = -100;
+      let ringX  = -100, ringY  = -100;
+      let moved = false;
+
+      document.addEventListener("mousemove", e => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        curDot.style.left = mouseX + "px";
+        curDot.style.top  = mouseY + "px";
+        if (!moved) { ringX = mouseX; ringY = mouseY; moved = true; }
+      });
+
+      (function lerpRing() {
+        ringX += (mouseX - ringX) * 0.3;
+        ringY += (mouseY - ringY) * 0.3;
+        curRing.style.left = ringX + "px";
+        curRing.style.top  = ringY + "px";
+        requestAnimationFrame(lerpRing);
+      })();
+
+      document.querySelectorAll("a, button, [role='button']").forEach(el => {
+        el.addEventListener("mouseenter", () => document.body.classList.add("cursor-hover"));
+        el.addEventListener("mouseleave", () => document.body.classList.remove("cursor-hover"));
+      });
+    </script>
+
   </body>
 </html>

@@ -43,7 +43,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
 
@@ -139,6 +139,21 @@
         background: rgba(255, 255, 255, 0.78);
         border-color: rgba(40, 49, 55, 0.18);
         color: var(--text);
+      }
+      .pill--abi {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        background: #08080a;
+        border-color: rgba(92, 255, 119, 0.28);
+        color: #5cff77;
+        text-transform: none;
+      }
+      .pill--abi:hover {
+        background: #0f0f12;
+        border-color: rgba(92, 255, 119, 0.55);
+        color: #5cff77;
+        box-shadow: 0 0 14px rgba(92, 255, 119, 0.18);
       }
 
       /* ── Hero stack ── */
@@ -856,6 +871,17 @@
         color: var(--muted);
         margin: 10px 0 0;
       }
+      .credit-modal-review {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 15px;
+        font-style: italic;
+        line-height: 1.5;
+        color: var(--faint);
+        margin: 12px 0 0;
+        padding: 10px 14px;
+        border-left: 2px solid var(--a);
+        background: transparent;
+      }
       .credit-modal-photos {
         padding: 18px 24px 22px;
         border-top: 1px solid var(--line);
@@ -1545,6 +1571,7 @@
             <p class="credit-modal-role" id="credit-modal-role"></p>
             <p class="credit-modal-meta" id="credit-modal-meta"></p>
             <p class="credit-modal-desc" id="credit-modal-desc"></p>
+            <blockquote class="credit-modal-review" id="credit-modal-review" style="display:none"></blockquote>
           </div>
         </div>
         <div class="credit-modal-photos" id="credit-modal-photos" style="display:none"></div>
@@ -1638,10 +1665,11 @@
         garside: {
           type: "Theater",
           title: "Garside's Career",
-          role: "", // Add character name
+          role: "Freddie Mottram",
           meta: "Mint Theater Company \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2025",
           desc: "Harold Brighouse's Garside's Career traces the soaring rise of Peter Garside from working engineer to member of Parliament, driven by a silver tongue and an insatiable hunger for power. Directed by Matt Dickson, this was the New York premiere of a play first produced in 1919 — a promised Broadway production never materialized at the time. The production ran February 1 through March 15 at Theatre Row.",
           poster: "Production%20posters/Garside%20poster.jpg",
+          review: "\u201cAvery Whitted gives the standout performance amongst the men.\u201d \u2014 Stage and Cinema",
           photos: []
         },
         candida: {
@@ -1651,6 +1679,7 @@
           meta: "Gingold Theatrical Group \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2022",
           desc: "George Bernard Shaw's Candida, reimagined by the Gingold Theatrical Group in a bold transposition from London 1895 to Harlem 1929. Directed by David Staller, the production starred Avanthika Srinivasan as Candida and R.J. Foster as Morell. Avery played Marchbanks, the passionate young poet who challenges the seemingly perfect Morell household. The run extended October 5 through November 19.",
           poster: "Production%20posters/Candida%20poster.webp",
+          review: "\u201cHilarious as Marchbanks, whose over-the-top antics are nearly as impassioned as his declarations of love.\u201d \u2014 TheaterMania",
           photos: []
         },
         chains: {
@@ -1669,6 +1698,7 @@
           meta: "Capital Repertory Theatre \u00b7 Albany, NY \u00b7 2024",
           desc: "A holiday theatrical mashup in which the ghost of Ebenezer Scrooge seeks the help of Sherlock Holmes to clear his name. The production starred Drew McVety as Sherlock Holmes and Allen Gilmore as Scrooge. Avery played the grown-up Dr. Timothy Cratchit alongside several other roles, in a run that stretched November 22 through December 22.",
           poster: "Production%20posters/Sherlock%20Carol%20poster.jpg",
+          review: "\u201cAvery Whitted as the adult Tiny Tim made an impressive debut at the Rep\u201d \u2014 WAMC",
           photos: []
         },
         sidney: {
@@ -1699,6 +1729,13 @@
           roleEl.style.display = credit.role ? "" : "none";
           document.getElementById("credit-modal-meta").textContent = credit.meta;
           document.getElementById("credit-modal-desc").textContent = credit.desc;
+          const reviewEl = document.getElementById("credit-modal-review");
+          if (credit.review) {
+            reviewEl.textContent = credit.review;
+            reviewEl.style.display = "";
+          } else {
+            reviewEl.style.display = "none";
+          }
           const photosEl = document.getElementById("credit-modal-photos");
           if (credit.photos && credit.photos.length > 0) {
             photosEl.innerHTML = credit.photos.map(src =>
