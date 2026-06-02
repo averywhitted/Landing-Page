@@ -114,8 +114,9 @@
 
       nav {
         display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
+        gap: 8px;
+        flex-wrap: nowrap;
+        align-items: center;
       }
       .pill {
         display: inline-flex;
@@ -154,6 +155,16 @@
         border-color: rgba(92, 255, 119, 0.55);
         color: #5cff77;
         box-shadow: 0 0 14px rgba(92, 255, 119, 0.18);
+      }
+      .pill--tr {
+        background: rgba(137, 168, 155, 0.14);
+        border-color: rgba(137, 168, 155, 0.45);
+        color: #4e7268;
+      }
+      .pill--tr:hover {
+        background: rgba(137, 168, 155, 0.26);
+        border-color: rgba(137, 168, 155, 0.65);
+        color: #3d5f56;
       }
 
       /* ── Hero stack ── */
@@ -604,6 +615,112 @@
         border-color: rgba(40, 49, 55, 0.22);
       }
 
+      /* ── Table Read section ── */
+      .table-read-section {
+        margin-top: var(--section-gap);
+      }
+      .table-read-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+        overflow: hidden;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, var(--card2), var(--card));
+        box-shadow: var(--shadow);
+        position: relative;
+      }
+      .table-read-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(900px 500px at 15% 10%, rgba(156,178,202,0.14), transparent 56%),
+          radial-gradient(800px 450px at 85% 20%, rgba(137,168,155,0.12), transparent 54%);
+        pointer-events: none;
+      }
+      .table-read-panel > * { position: relative; }
+      .tr-left {
+        padding: 40px 36px 40px 44px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        border-right: 1px solid var(--line);
+      }
+      .tr-app-icon {
+        width: 64px; height: 64px;
+        border-radius: 16px;
+        background: linear-gradient(145deg, #d5e4de 0%, #c4d8d0 100%);
+        border: 1px solid rgba(137,168,155,0.35);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 14px rgba(29,41,49,0.1);
+        flex-shrink: 0;
+      }
+      .tr-app-icon svg { width: 32px; height: 32px; color: var(--a); }
+      .tr-eyebrow {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--a);
+        margin: 0;
+      }
+      .tr-title {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        font-weight: 600;
+        line-height: 0.95;
+        color: var(--text);
+        margin: 0;
+      }
+      .tr-desc {
+        font-size: 15px;
+        color: var(--muted);
+        line-height: 1.65;
+        margin: 0;
+        max-width: 360px;
+      }
+      .tr-right {
+        padding: 40px 44px 40px 36px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .tr-features {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .tr-feature {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .tr-feature-icon {
+        font-size: 17px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .tr-feature-text { font-size: 14px; color: var(--muted); line-height: 1.55; }
+      .tr-feature-text strong { color: var(--text); font-weight: 600; }
+      .tr-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .tr-note { font-size: 12px; color: var(--faint); }
+      @media (max-width: 860px) {
+        .table-read-panel { grid-template-columns: 1fr; }
+        .tr-left { border-right: none; border-bottom: 1px solid var(--line); padding: 32px 28px 28px; }
+        .tr-right { padding: 28px 28px 32px; }
+      }
+      @media (max-width: 640px) {
+        .tr-left { padding: 24px 20px 22px; }
+        .tr-right { padding: 22px 20px 26px; }
+        .tr-title { font-size: 32px; }
+        .tr-cta { flex-direction: column; align-items: flex-start; }
+        .tr-cta .btn { width: 100%; justify-content: center; }
+      }
+
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
       .press-heading {
@@ -1021,7 +1138,7 @@
           <a class="pill" href="#about">About</a>
           <a class="pill" href="#reach-out">Contact</a>
           <a class="pill" href="other-work.html">Other work</a>
-          <a class="pill" href="table-read.html">Table Read ↓</a>
+          <a class="pill pill--tr" href="table-read.html">Table Read</a>
         </nav>
       </header>
 
@@ -1319,6 +1436,42 @@
             </div>
             <p class="poster-title">The Vanishing of Sidney Hall</p>
             <p class="poster-meta">A24 &middot; 2017</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="table-read-section" aria-label="Table Read app">
+        <div class="table-read-panel">
+          <div class="tr-left">
+            <div class="tr-app-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12h2m4-6v12m4-9v6m4-9v12m4-3h2"/>
+              </svg>
+            </div>
+            <p class="tr-eyebrow">Free macOS App</p>
+            <h3 class="tr-title">Table Read</h3>
+            <p class="tr-desc">Drop in any screenplay PDF and get a full-cast audio drama back — every character voiced differently, scene by scene. Built for actors who want to hear their material, not just read it.</p>
+          </div>
+          <div class="tr-right">
+            <div class="tr-features">
+              <div class="tr-feature">
+                <span class="tr-feature-icon">🎭</span>
+                <p class="tr-feature-text"><strong>Full cast of voices</strong> — every character gets a distinct voice using built-in macOS voices or optional AI upgrades.</p>
+              </div>
+              <div class="tr-feature">
+                <span class="tr-feature-icon">✏️</span>
+                <p class="tr-feature-text"><strong>Editable parse</strong> — review and correct every line before generating. Fixes carry over on re-imports.</p>
+              </div>
+              <div class="tr-feature">
+                <span class="tr-feature-icon">🔒</span>
+                <p class="tr-feature-text"><strong>Fully private</strong> — everything runs on your Mac. No account, no upload, no data leaving your machine.</p>
+              </div>
+            </div>
+            <div class="tr-cta">
+              <a class="btn primary" href="table-read.html">Download free</a>
+              <span class="tr-note">macOS 14 or later &nbsp;·&nbsp; Beta v0.1.0</span>
+            </div>
           </div>
         </div>
       </section>
