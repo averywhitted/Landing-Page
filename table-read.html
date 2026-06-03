@@ -456,7 +456,7 @@
     -->
     <div class="panel download-card">
       <div class="download-meta">
-        <div class="label">Beta v0.1.0</div>
+        <div class="label" id="release-version">Beta v0.1.0</div>
         <div class="filename">TableRead.dmg</div>
         <div class="details">
           macOS 14 Sonoma or later &nbsp;·&nbsp; Apple Silicon &amp; Intel
@@ -676,6 +676,18 @@
 
 <script>
   document.getElementById("year").textContent = new Date().getFullYear();
+
+  // Pull the latest release version from GitHub and update the label live.
+  fetch("https://api.github.com/repos/averywhitted/script-to-audio-app/releases/latest")
+    .then(r => r.json())
+    .then(data => {
+      if (data.tag_name) {
+        const v = data.tag_name.replace(/^v/, "");
+        document.getElementById("release-version").textContent = "Beta v" + v;
+      }
+    })
+    .catch(() => {}); // silently keep the hardcoded fallback if fetch fails
+
   function showTab(id) {
     document.querySelectorAll(".os-tab").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".os-panel").forEach(p => p.classList.remove("active"));
