@@ -118,6 +118,49 @@
         flex-wrap: nowrap;
         align-items: center;
       }
+
+      /* ── Hamburger nav animations ── */
+      @keyframes navSlideDown {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pillFadeUp {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      /* ── Hamburger ── */
+      .hamburger {
+        display: none;
+        flex-direction: column;
+        justify-content: space-between;
+        width: 28px;
+        height: 18px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        flex-shrink: 0;
+      }
+      .hamburger-line {
+        display: block;
+        width: 100%;
+        height: 1.5px;
+        background: var(--text);
+        border-radius: 2px;
+        transition: transform 0.22s ease, opacity 0.18s ease;
+        transform-origin: center;
+      }
+      .hamburger[aria-expanded="true"] .hamburger-line:nth-child(1) {
+        transform: translateY(8.25px) rotate(45deg);
+      }
+      .hamburger[aria-expanded="true"] .hamburger-line:nth-child(2) {
+        opacity: 0;
+        transform: scaleX(0);
+      }
+      .hamburger[aria-expanded="true"] .hamburger-line:nth-child(3) {
+        transform: translateY(-8.25px) rotate(-45deg);
+      }
       .pill {
         display: inline-flex;
         align-items: center;
@@ -529,11 +572,37 @@
         .section { grid-template-columns: 1fr; }
       }
 
+      @media (max-width: 983px) {
+        header { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 0 0; }
+        .brand { flex: 1; justify-content: flex-start; text-align: left; width: auto; }
+        .hamburger { display: flex; }
+        nav {
+          display: none;
+          flex-direction: column;
+          width: 100%;
+          gap: 6px;
+          padding: 14px 0 16px;
+          border-top: 1px solid var(--line);
+          margin-top: 10px;
+        }
+        nav.open {
+          display: flex;
+          animation: navSlideDown 0.2s ease forwards;
+        }
+        nav.open .pill {
+          opacity: 0;
+          animation: pillFadeUp 0.18s ease forwards;
+        }
+        nav.open .pill:nth-child(1) { animation-delay: 0.04s; }
+        nav.open .pill:nth-child(2) { animation-delay: 0.08s; }
+        nav.open .pill:nth-child(3) { animation-delay: 0.12s; }
+        nav.open .pill:nth-child(4) { animation-delay: 0.16s; }
+        nav.open .pill:nth-child(5) { animation-delay: 0.20s; }
+        nav.open .pill:nth-child(6) { animation-delay: 0.24s; }
+        .pill { justify-content: center; font-size: 12px; padding: 10px 14px; min-width: 0; width: 100%; }
+      }
+
       @media (max-width: 860px) {
-        header { flex-direction: column; align-items: center; gap: 14px; }
-        .brand { width: 100%; justify-content: center; text-align: center; }
-        nav { width: 100%; }
-        .pill { justify-content: center; flex: 1 1 auto; min-width: 118px; }
         .editorial { padding: 22px 2px 8px; }
         .hero-panel { min-height: 360px; padding: 24px; }
         .hero-content { width: min(82%, 720px); }
@@ -554,10 +623,8 @@
 
       @media (max-width: 640px) {
         .wrap { padding: 18px 12px 44px; }
-        nav { gap: 8px; }
-        .brand h1 { font-size: 36px; line-height: 0.95; }
-        .brand p { font-size: 18px; }
-        .pill { padding: 8px; font-size: 10px; min-width: 0; }
+        .brand h1 { font-size: 32px; line-height: 0.95; }
+        .brand p { font-size: 16px; }
         .hero-panel { min-height: 320px; padding: 18px 14px; align-items: flex-end; }
         .hero-panel.left, .hero-panel.right { justify-content: center; }
         .hero-content { width: min(86%, 100%); padding: 16px 16px 14px; }
@@ -1132,13 +1199,18 @@
           </div>
         </div>
 
-        <nav>
+        <button class="hamburger" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+        </button>
+        <nav id="main-nav">
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#coaching">Private coaching</a>
           <a class="pill" href="#about">About</a>
           <a class="pill" href="#reach-out">Contact</a>
           <a class="pill" href="other-work.html">Other work</a>
-          <a class="pill pill--tr" href="#table-read">Table Read</a>
+          <a class="pill pill--tr" href="table-read.html">Table Read</a>
         </nav>
       </header>
 
@@ -1755,6 +1827,21 @@
 
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+
+      // ── Hamburger menu ──
+      const navToggle = document.getElementById("nav-toggle");
+      const mainNav   = document.getElementById("main-nav");
+      navToggle.addEventListener("click", () => {
+        const open = mainNav.classList.toggle("open");
+        navToggle.setAttribute("aria-expanded", open);
+      });
+      // Close menu when a nav link is clicked
+      mainNav.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", () => {
+          mainNav.classList.remove("open");
+          navToggle.setAttribute("aria-expanded", "false");
+        });
+      });
 
       // Email notification modal
       const modal = document.getElementById("email-modal");
