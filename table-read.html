@@ -170,16 +170,13 @@
     .app-icon {
       width: 100px;
       height: 100px;
-      border-radius: 24px;
-      background: linear-gradient(145deg, #d5e4de 0%, #c4d8d0 100%);
-      border: 1px solid rgba(137,168,155,0.35);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      border-radius: 22px;
+      display: inline-block;
       margin-bottom: 28px;
       box-shadow: var(--shadow);
+      overflow: hidden;
     }
-    .app-icon svg { width: 52px; height: 52px; color: var(--a); }
+    .app-icon img { width: 100%; height: 100%; display: block; }
 
     .hero h2 {
       font-family: "Cormorant Garamond", Georgia, serif;
@@ -441,10 +438,7 @@
   <!-- ── Hero ── -->
   <section class="hero">
     <div class="app-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 12h2m4-6v12m4-9v6m4-9v12m4-3h2"/>
-      </svg>
+      <img src="table-read-icon.png" alt="Table Read icon" width="100" height="100" />
     </div>
     <h2>Your screenplay, performed.</h2>
     <p class="tagline">
