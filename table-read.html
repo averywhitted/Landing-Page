@@ -24,7 +24,7 @@
       --radius-sm: 18px;
       --radius-lg: 26px;
       --section-gap: 44px;
-      --max: 980px;
+      --max: 1120px;
       --a: #89a89b;
       --b: #9cb2ca;
       --c: #b99685;
@@ -37,8 +37,8 @@
       color: var(--text);
       background: linear-gradient(165deg, var(--bg0) 0%, var(--bg1) 52%, #e2ebe8 100%);
       background-repeat: no-repeat;
-      background-attachment: fixed;
-      min-height: 100vh;
+      background-size: 100% 100%;
+      overflow-x: hidden;
     }
     a { color: inherit; text-decoration: none; }
 
@@ -59,12 +59,14 @@
     }
     .brand h1 {
       font-family: "Cormorant Garamond", Georgia, serif;
-      font-size: 42px;
-      letter-spacing: .01em;
-      line-height: .9;
+      font-size: 48px;
+      margin: 0;
+      letter-spacing: 0.01em;
+      line-height: 0.9;
     }
     .brand p {
-      font-size: 18px;
+      margin: 0;
+      font-size: 24px;
       color: var(--muted);
     }
     nav { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -181,7 +183,7 @@
     .hero h2 {
       font-family: "Cormorant Garamond", Georgia, serif;
       font-size: clamp(44px, 6vw, 64px);
-      font-weight: 600;
+      font-weight: 700;
       letter-spacing: -.01em;
       line-height: .95;
       margin-bottom: 16px;
