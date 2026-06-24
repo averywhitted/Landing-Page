@@ -447,23 +447,16 @@
       Free, private, and runs entirely on your Mac.
     </p>
 
-    <!--
-      UPDATE BEFORE EACH RELEASE:
-        • href → new DMG URL
-        • .filename text
-        • .details size
-        • sha256 href
-    -->
     <div class="panel download-card">
       <div class="download-meta">
         <div class="label" id="release-version">Beta v0.1.0</div>
         <div class="filename">TableRead.dmg</div>
         <div class="details">
           macOS 14 Sonoma or later &nbsp;·&nbsp; Apple Silicon &amp; Intel
-          &nbsp;·&nbsp; <a href="https://github.com/averywhitted/script-to-audio-app/releases/latest/download/TableRead.sha256">SHA-256</a>
+          &nbsp;·&nbsp; <a id="dl-sha" href="https://github.com/averywhitted/script-to-audio-app/releases/latest/download/TableRead.sha256">SHA-256</a>
         </div>
       </div>
-      <a class="btn primary" href="https://github.com/averywhitted/script-to-audio-app/releases/latest/download/TableRead.dmg">
+      <a id="dl-btn" class="btn primary" href="https://github.com/averywhitted/script-to-audio-app/releases/latest/download/TableRead.dmg">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3v12m0 0l-4-4m4 4l4-4M3 18h18"/>
@@ -509,7 +502,7 @@
         <ol class="install-steps">
           <li>
             <div class="step-num">1</div>
-            <div class="body">Open the downloaded <kbd>TableRead.dmg</kbd> file.</div>
+            <div class="body">Open the downloaded <kbd class="dl-dmg-name">TableRead.dmg</kbd> file.</div>
           </li>
           <li>
             <div class="step-num">2</div>
@@ -541,7 +534,7 @@
         <ol class="install-steps">
           <li>
             <div class="step-num">1</div>
-            <div class="body">Open the downloaded <kbd>TableRead.dmg</kbd> file.</div>
+            <div class="body">Open the downloaded <kbd class="dl-dmg-name">TableRead.dmg</kbd> file.</div>
           </li>
           <li>
             <div class="step-num">2</div>
@@ -651,16 +644,41 @@
 <script>
   document.getElementById("year").textContent = new Date().getFullYear();
 
-  // Pull the latest release version from GitHub and update the label live.
-  fetch("https://api.github.com/repos/averywhitted/script-to-audio-app/releases/latest")
+  // Fetch the most recent release (including prereleases) and update the page.
+  // Uses ?per_page=1 instead of /releases/latest because /latest skips prereleases.
+  fetch("https://api.github.com/repos/averywhitted/script-to-audio-app/releases?per_page=1")
     .then(r => r.json())
-    .then(data => {
-      if (data.tag_name) {
-        const v = data.tag_name.replace(/^v/, "");
-        document.getElementById("release-version").textContent = "Beta v" + v;
+    .then(releases => {
+      const data = Array.isArray(releases) && releases[0];
+      if (!data || !data.tag_name) return;
+
+      const v = data.tag_name.replace(/^v/, "");
+      const label = data.prerelease ? "Beta v" + v : "v" + v;
+
+      // Find the DMG and SHA-256 assets by name
+      const assets = data.assets || [];
+      const dmgAsset  = assets.find(a => a.name === "TableRead.dmg");
+      const shaAsset  = assets.find(a => a.name === "TableRead.sha256");
+
+      // Update version badge
+      document.getElementById("release-version").textContent = label;
+
+      // Update download button href
+      if (dmgAsset) {
+        document.getElementById("dl-btn").href = dmgAsset.browser_download_url;
       }
+
+      // Update SHA-256 link href
+      if (shaAsset) {
+        document.getElementById("dl-sha").href = shaAsset.browser_download_url;
+      }
+
+      // Update all <kbd> filename references
+      document.querySelectorAll(".dl-dmg-name").forEach(el => {
+        el.textContent = "TableRead.dmg";
+      });
     })
-    .catch(() => {}); // silently keep the hardcoded fallback if fetch fails
+    .catch(() => {}); // silently keep the hardcoded fallback on network error / rate limit
 
   function showTab(id) {
     document.querySelectorAll(".os-tab").forEach(t => t.classList.remove("active"));
