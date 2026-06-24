@@ -449,7 +449,6 @@
 
     <div class="panel download-card">
       <div class="download-meta">
-        <div class="label" id="release-version">Beta v0.1.0</div>
         <div class="filename">TableRead.dmg</div>
         <div class="details">
           macOS 14 Sonoma or later &nbsp;·&nbsp; Apple Silicon &amp; Intel
@@ -652,16 +651,10 @@
       const data = Array.isArray(releases) && releases[0];
       if (!data || !data.tag_name) return;
 
-      const v = data.tag_name.replace(/^v/, "");
-      const label = data.prerelease ? "Beta v" + v : "v" + v;
-
       // Find the DMG and SHA-256 assets by name
       const assets = data.assets || [];
       const dmgAsset  = assets.find(a => a.name === "TableRead.dmg");
       const shaAsset  = assets.find(a => a.name === "TableRead.sha256");
-
-      // Update version badge
-      document.getElementById("release-version").textContent = label;
 
       // Update download button href
       if (dmgAsset) {
