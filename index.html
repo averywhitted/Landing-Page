@@ -717,15 +717,11 @@
       .tr-app-icon {
         width: 64px; height: 64px;
         border-radius: 16px;
-        background: linear-gradient(145deg, #d5e4de 0%, #c4d8d0 100%);
-        border: 1px solid rgba(137,168,155,0.35);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        overflow: hidden;
         box-shadow: 0 4px 14px rgba(29,41,49,0.1);
         flex-shrink: 0;
       }
-      .tr-app-icon svg { width: 32px; height: 32px; color: var(--a); }
+      .tr-app-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
       .tr-eyebrow {
         font-size: 11px;
         font-weight: 700;
@@ -824,6 +820,11 @@
         color: var(--text);
         line-height: 1.25;
         margin: 0 0 2px;
+      }
+      .resume-cta {
+        margin-top: 28px;
+        display: flex;
+        justify-content: center;
       }
       .poster-meta {
         font-size: 11px;
@@ -1510,16 +1511,16 @@
             <p class="poster-meta">A24 &middot; 2017</p>
           </div>
         </div>
+        <div class="resume-cta">
+          <a class="btn primary" href="Avery%20Whitted%20Resume.pdf" download>Download Full Resume (PDF)</a>
+        </div>
       </section>
 
       <section class="table-read-section" id="table-read" aria-label="Table Read app">
         <div class="table-read-panel">
           <div class="tr-left">
-            <div class="tr-app-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-                   stroke-linecap="round" stroke-linejoin="round">
-                <path d="M2 12h2m4-6v12m4-9v6m4-9v12m4-3h2"/>
-              </svg>
+            <div class="tr-app-icon">
+              <img src="table-read-icon.png" alt="Table Read app icon" width="64" height="64" />
             </div>
             <p class="tr-eyebrow">Free macOS App</p>
             <h3 class="tr-title">Table Read</h3>
