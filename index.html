@@ -1783,13 +1783,6 @@
         <h2 class="modal-heading" id="coaching-modal-heading">Book a Session</h2>
         <p class="modal-body">Choose a time that works for you. One-hour and 30-minute sessions available.</p>
         <div id="cal-coaching-inline" style="width:100%; height:660px; overflow:scroll"></div>
-        <script type="text/javascript">
-          Cal("inline", {
-            elementOrSelector: "#cal-coaching-inline",
-            calLink: "averywhitted/30-minute-coaching-session"
-          });
-          Cal("ui", { hideEventTypeDetails: false, layout: "month_view" });
-        </script>
       </div>
     </div>
 
@@ -1874,8 +1867,20 @@ Cal("init", { origin: "https://app.cal.com" });
 
       // Coaching booking modal
       const coachingModal = document.getElementById("coaching-modal");
+      let calInlineInitialized = false;
       document.querySelectorAll("[data-coaching-modal-open]").forEach(el => {
-        el.addEventListener("click", e => { e.preventDefault(); coachingModal.classList.add("open"); });
+        el.addEventListener("click", e => {
+          e.preventDefault();
+          coachingModal.classList.add("open");
+          if (!calInlineInitialized) {
+            calInlineInitialized = true;
+            Cal("inline", {
+              elementOrSelector: "#cal-coaching-inline",
+              calLink: "averywhitted/30-minute-coaching-session"
+            });
+            Cal("ui", { hideEventTypeDetails: false, layout: "month_view" });
+          }
+        });
       });
       document.querySelectorAll("[data-coaching-modal-close]").forEach(el => {
         el.addEventListener("click", () => coachingModal.classList.remove("open"));
