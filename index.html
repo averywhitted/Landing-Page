@@ -616,7 +616,7 @@
         .next-workshop-card { display: flex; flex-direction: column; width: 100%; align-items: center; gap: 14px; }
         .nwc-info { align-items: center; text-align: center; width: 100%; }
         .btn.nwc-cta { align-self: stretch; justify-content: center; }
-        .btn[data-coaching-modal-open] { width: 100%; }
+        .btn.book-session-btn { width: 100%; }
         .testimonial { padding: 28px 32px; }
         .testimonial-quote { font-size: 23px; }
       }
@@ -629,7 +629,7 @@
         .hero-panel.left, .hero-panel.right { justify-content: center; }
         .hero-content { width: min(86%, 100%); padding: 16px 16px 14px; }
         .price-note { justify-content: center; }
-        .btn[data-coaching-modal-open] { display: block; margin-left: auto; margin-right: auto; }
+        .btn.book-session-btn { display: block; margin-left: auto; margin-right: auto; }
         .hero-content h2 { font-size: clamp(34px, 11vw, 44px); }
         .hero-content h3 { font-size: 28px; }
         .hero-content p { font-size: 16px; }
@@ -1322,7 +1322,7 @@
                 <span><strong>1 hour:</strong> $130</span>
                 <span><strong>90 min:</strong> $195</span>
               </div>
-              <button class="btn primary" style="margin-top:16px" data-coaching-modal-open>Book a Session</button>
+              <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
             </div>
           </section>
         </div>
@@ -1778,16 +1778,6 @@
       </div>
     </div>
 
-    <!-- Private coaching booking modal -->
-    <div class="modal-overlay" id="coaching-modal" role="dialog" aria-modal="true" aria-labelledby="coaching-modal-heading">
-      <div class="modal modal-large">
-        <button class="modal-close" data-coaching-modal-close aria-label="Close">&times;</button>
-        <h2 class="modal-heading" id="coaching-modal-heading">Book a Session</h2>
-        <p class="modal-body">Choose a time that works for you. One-hour and 30-minute sessions available.</p>
-        <div id="cal-coaching-inline" style="width:100%; height:660px; overflow:scroll"></div>
-      </div>
-    </div>
-
     <!-- Credit detail modal -->
     <div class="modal-overlay" id="credit-modal" role="dialog" aria-modal="true" aria-labelledby="credit-modal-title-el">
       <div class="modal modal-credit">
@@ -1824,21 +1814,6 @@
     </div>
     -->
 
-    <!-- Cal.com embed script -->
-    <script type="text/javascript">
-(function (C, A, L) {
-  let p = function (a, ar) { a.q.push(ar); };
-  let d = C.document;
-  C.Cal = C.Cal || function () {
-    let cal = C.Cal; let ar = arguments;
-    if (!cal.loaded) { cal.ns = {}; cal.q = cal.q || []; d.head.appendChild(d.createElement("script")).src = A; cal.loaded = true; }
-    if (ar[0] === L) { const api = function () { p(api, arguments); }; const namespace = ar[1]; api.q = api.q || []; if(typeof namespace === "string"){cal.ns[namespace] = cal.ns[namespace] || api; p(cal.ns[namespace], ar); p(cal, [L, namespace, ar[2]]);} else p(cal, [L, "", ar[1]]); return; }
-    p(cal, ar);
-  };
-})(window, "https://app.cal.com/embed/embed.js", "init");
-Cal("init", { origin: "https://app.cal.com" });
-</script>
-
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
 
@@ -1866,28 +1841,6 @@ Cal("init", { origin: "https://app.cal.com" });
         el.addEventListener("click", () => modal.classList.remove("open"));
       });
       modal.addEventListener("click", e => { if (e.target === modal) modal.classList.remove("open"); });
-
-      // Coaching booking modal
-      const coachingModal = document.getElementById("coaching-modal");
-      let calInlineInitialized = false;
-      document.querySelectorAll("[data-coaching-modal-open]").forEach(el => {
-        el.addEventListener("click", e => {
-          e.preventDefault();
-          coachingModal.classList.add("open");
-          if (!calInlineInitialized) {
-            calInlineInitialized = true;
-            Cal("inline", {
-              elementOrSelector: "#cal-coaching-inline",
-              calLink: "averywhitted/private-coaching-session"
-            });
-            Cal("ui", { hideEventTypeDetails: false, layout: "month_view" });
-          }
-        });
-      });
-      document.querySelectorAll("[data-coaching-modal-close]").forEach(el => {
-        el.addEventListener("click", () => coachingModal.classList.remove("open"));
-      });
-      coachingModal.addEventListener("click", e => { if (e.target === coachingModal) coachingModal.classList.remove("open"); });
 
       // Credit detail modals
       const creditData = {
@@ -2020,7 +1973,6 @@ Cal("init", { origin: "https://app.cal.com" });
       document.addEventListener("keydown", e => {
         if (e.key === "Escape") {
           modal.classList.remove("open");
-          coachingModal.classList.remove("open");
           creditModal.classList.remove("open");
         }
       });
