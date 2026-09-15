@@ -784,6 +784,72 @@
         .tr-cta .btn { width: 100%; justify-content: center; }
       }
 
+      /* ── Podcast ── */
+      .podcast-section { margin-top: var(--section-gap); }
+      .podcast-section.panel { padding: 36px 44px; }
+      .podcast-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        align-items: center;
+      }
+      .podcast-eyebrow {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--a);
+        margin: 0 0 10px;
+      }
+      .podcast-title {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 38px;
+        font-weight: 600;
+        line-height: 0.95;
+        margin: 0 0 6px;
+        color: var(--text);
+      }
+      .podcast-tagline {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-style: italic;
+        font-size: 20px;
+        color: var(--muted);
+        margin: 0 0 16px;
+      }
+      .podcast-body p {
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+      .podcast-body p:last-child { margin-bottom: 20px; }
+      .podcast-links { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      .podcast-note {
+        font-size: 13px;
+        color: var(--faint);
+        margin: 14px 0 0;
+        line-height: 1.5;
+      }
+      .podcast-embed {
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        border: 1px solid rgba(40, 49, 55, 0.16);
+        background: rgba(255, 255, 255, 0.74);
+        display: flex;
+        justify-content: center;
+      }
+      .podcast-embed iframe { display: block; }
+      @media (max-width: 860px) {
+        .podcast-section.panel { padding: 28px 32px; }
+        .podcast-cols { grid-template-columns: 1fr; gap: 28px; }
+        .podcast-title { font-size: 34px; }
+      }
+      @media (max-width: 640px) {
+        .podcast-section.panel { padding: 22px; }
+        .podcast-title { font-size: 30px; }
+        .podcast-embed iframe { height: 400px; }
+      }
+
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
       .press-heading {
@@ -1209,9 +1275,12 @@
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#coaching">Private coaching</a>
           <a class="pill" href="#about">About</a>
+          <a class="pill" href="#podcast">Podcast</a>
           <a class="pill" href="#reach-out">Contact</a>
           <a class="pill" href="other-work.html">Other work</a>
+          <!-- Table Read paused in nav — severe bugs, re-enable once fixed:
           <a class="pill pill--tr" href="table-read.html">Table Read</a>
+          -->
         </nav>
       </header>
 
@@ -1524,6 +1593,53 @@
         </div>
       </section>
 
+      <section class="podcast-section panel" id="podcast" aria-label="90% of the Job podcast">
+        <div class="podcast-cols">
+          <div>
+            <p class="podcast-eyebrow">New Podcast</p>
+            <h3 class="podcast-title">90% of the Job</h3>
+            <p class="podcast-tagline">Surviving Auditions as a Working Actor</p>
+            <div class="podcast-body">
+              <p>
+                Most of the life of an actor isn't spent on stage or in front
+                of a camera. It's spent scrolling casting notices, memorizing
+                lines, uploading self-tapes, juggling day jobs, and waiting
+                for something to click.
+              </p>
+              <p>
+                It's hard out here, but you don't have to go it alone. Join
+                host and fellow working actor Avery Whitted for conversations,
+                stories, and honest advice that demystify the grind and make
+                each audition a little easier.
+              </p>
+            </div>
+            <div class="podcast-links">
+              <a
+                class="btn primary"
+                href="https://podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Listen on Apple Podcasts</a
+              >
+            </div>
+            <p class="podcast-note">Also available on Spotify and everywhere you get podcasts.</p>
+          </div>
+          <div class="podcast-embed">
+            <iframe
+              allow="autoplay *; encrypted-media *; clipboard-write"
+              frameborder="0"
+              height="450"
+              style="width: 100%; max-width: 660px; overflow: hidden; border-radius: 14px"
+              sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
+              src="https://embed.podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314"
+              title="90% of the Job — Apple Podcasts player"
+              loading="lazy"
+            ></iframe>
+          </div>
+        </div>
+      </section>
+
+      <!-- Table Read promo paused — severe bugs, re-enable once fixed:
       <section class="table-read-section" id="table-read" aria-label="Table Read app">
         <div class="table-read-panel">
           <div class="tr-left">
@@ -1556,6 +1672,7 @@
           </div>
         </div>
       </section>
+      -->
 
       <section class="contact-section" id="reach-out">
         <div class="panel">
