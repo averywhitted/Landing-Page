@@ -823,7 +823,6 @@
         margin: 0 0 14px;
       }
       .podcast-body p:last-child { margin-bottom: 20px; }
-      .podcast-links { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       .podcast-note {
         font-size: 13px;
         color: var(--faint);
@@ -836,21 +835,6 @@
         align-items: center;
         gap: 18px;
         width: 100%;
-      }
-      .podcast-art {
-        width: 100%;
-        max-width: 400px;
-        aspect-ratio: 1 / 1;
-        border-radius: var(--radius-sm);
-        overflow: hidden;
-        border: 1px solid rgba(40, 49, 55, 0.16);
-        box-shadow: var(--shadow);
-      }
-      .podcast-art img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
       }
       .podcast-embed {
         width: 100%;
@@ -1636,29 +1620,17 @@
                 each audition a little easier.
               </p>
             </div>
-            <div class="podcast-links">
-              <a
-                class="btn primary"
-                href="https://podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314"
-                target="_blank"
-                rel="noopener noreferrer"
-                >Listen on Apple Podcasts</a
-              >
-            </div>
             <p class="podcast-note">Also on Spotify — more platforms coming soon.</p>
           </div>
           <div class="podcast-media">
-            <div class="podcast-art">
-              <img src="podcast-cover.jpg" alt="90% of the Job podcast cover art" />
-            </div>
             <div class="podcast-embed">
               <iframe
-                height="160"
+                height="225"
                 width="100%"
                 title="Media player"
-                src="https://embed.podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314?itscg=30200&amp;itsct=podcast_box_player&amp;ls=1&amp;mttnsubad=6811251314&amp;theme=auto&amp;size=small"
+                src="https://embed.podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314?itscg=30200&amp;itsct=podcast_box_player&amp;ls=1&amp;mttnsubad=6811251314&amp;theme=auto&amp;size=large"
                 id="embedPlayer"
-                style="border: 0px; border-radius: 12px; width: 100%; height: 160px; max-width: 400px"
+                style="border: 0px; border-radius: 12px; width: 100%; height: 225px; max-width: 400px"
                 sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
                 allow="autoplay *; encrypted-media *; clipboard-write"
               ></iframe>
