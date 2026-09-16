@@ -76,6 +76,7 @@
 
         --display: "Horizon", "Helvetica Neue", Arial, sans-serif;
         --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
         --a: #1f47f5; /* electric blue — primary accent, buttons, links */
         --a-dark: #1637d4; /* blue hover/pressed */
@@ -93,7 +94,7 @@
         margin: 0;
         font-family: var(--body);
         color: var(--text);
-        background: var(--bg0);
+        background: linear-gradient(180deg, #ffffff 0%, #ffffff 22%, #eef1fd 68%, #dfe6fb 100%);
         background-repeat: no-repeat;
         background-size: 100% 100%;
         overflow-x: hidden;
@@ -328,6 +329,13 @@
       .price-note strong {
         font-weight: 700;
       }
+      .price-chip {
+        display: inline-block;
+        padding: 7px 12px;
+        border-radius: 7px;
+        font-size: 13.5px;
+      }
+      .price-chip strong { font-weight: 800; }
       /* ── Next workshop card ── */
       .next-workshop-card {
         display: inline-flex;
@@ -1354,6 +1362,108 @@
         letter-spacing: -0.01em;
         line-height: 1.3;
       }
+
+      /* ── Monospace body copy ── */
+      .hero-content p,
+      .hero-content ul,
+      .credentials-copy p,
+      .section p,
+      .contact-section p,
+      .podcast-body p,
+      .podcast-note,
+      .expect-body p,
+      .faq-a,
+      .faq-intro,
+      .tr-desc,
+      .tr-feature-text,
+      .fineprint,
+      .modal-body,
+      .price-note {
+        font-family: var(--mono);
+        letter-spacing: -0.03em;
+      }
+      .hero-content p { font-size: 15px; line-height: 1.7; }
+      .hero-content ul { font-size: 14.5px; line-height: 1.75; }
+      .credentials-copy p { font-size: 15px; line-height: 1.75; }
+      .section p,
+      .contact-section p { font-size: 14.5px; line-height: 1.7; }
+      .podcast-body p { font-size: 14.5px; line-height: 1.75; }
+      .expect-body p { font-size: 14px; line-height: 1.8; }
+      .faq-a { font-size: 13.5px; line-height: 1.7; }
+
+      /* ── Collapsible sections (What to Expect, Common Questions) ── */
+      details.collapse { width: 100%; }
+      .collapse-summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .collapse-summary::-webkit-details-marker { display: none; }
+      .collapse-summary > div { min-width: 0; }
+      .collapse-summary h3 { margin: 0; }
+      .collapse-summary .faq-intro { margin: 8px 0 0; }
+      .collapse-icon {
+        flex-shrink: 0;
+        width: 38px;
+        height: 38px;
+        border: 1.5px solid var(--text);
+        border-radius: 999px;
+        position: relative;
+        transition: background 0.2s ease;
+      }
+      .collapse-icon::before,
+      .collapse-icon::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        background: var(--text);
+        transform: translate(-50%, -50%);
+        transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+      }
+      .collapse-icon::before { width: 15px; height: 2px; }
+      .collapse-icon::after { width: 2px; height: 15px; }
+      details[open] .collapse-icon::after { transform: translate(-50%, -50%) scaleY(0); opacity: 0; }
+      .collapse-summary:hover .collapse-icon { background: var(--a); border-color: var(--a); }
+      .collapse-summary:hover .collapse-icon::before,
+      .collapse-summary:hover .collapse-icon::after { background: #ffffff; }
+      .collapse-body { padding-top: 26px; }
+
+      /* ── Mobile refinements ── */
+      @media (max-width: 640px) {
+        /* Tighter monospace so long copy doesn't become a wall */
+        .hero-content p { font-size: 13px; line-height: 1.65; }
+        .hero-content ul { font-size: 12.5px; line-height: 1.7; padding-left: 16px; }
+        .credentials-copy p,
+        .podcast-body p,
+        .section p,
+        .contact-section p,
+        .expect-body p { font-size: 13px; line-height: 1.7; }
+        .faq-a { font-size: 12.5px; line-height: 1.65; }
+        .faq-intro { font-size: 12.5px; }
+        .podcast-note { font-size: 12px; }
+        .credentials-copy { padding-top: 0; }
+
+        /* Coaching price chips */
+        .price-note { gap: 8px; }
+        .price-chip { font-size: 12px; padding: 6px 9px; }
+
+        /* Collapsible headers: keep the title clear of the toggle */
+        .collapse-summary { gap: 14px; align-items: flex-start; }
+        .collapse-summary h3 { min-width: 0; }
+        .expect-heading,
+        .faq-heading { font-size: 25px; }
+        .collapse-icon { width: 30px; height: 30px; margin-top: 2px; }
+        .collapse-icon::before { width: 12px; }
+        .collapse-icon::after { height: 12px; }
+        .collapse-body { padding-top: 20px; }
+
+        /* Testimonials */
+        .testimonial-quote { font-size: 17.5px; line-height: 1.5; }
+      }
     </style>
   </head>
 
@@ -1378,7 +1488,7 @@
           <a class="pill" href="#about">About</a>
           <a class="pill" href="#podcast">Podcast</a>
           <a class="pill" href="#reach-out">Contact</a>
-          <a class="pill" href="other-work.html">Other work</a>
+          <!-- "Other work" hidden until that site is ready -->
           <!-- Table Read paused in nav — severe bugs, re-enable once fixed:
           <a class="pill pill--tr" href="table-read.html">Table Read</a>
           -->
@@ -1489,9 +1599,9 @@
                 </li>
               </ul>
               <div class="price-note" aria-label="Private coaching pricing">
-                <span><strong>30 min</strong> <span class="hl">$75</span></span>
-                <span><strong>1 hour</strong> <span class="hl">$130</span></span>
-                <span><strong>90 min</strong> <span class="hl">$195</span></span>
+                <span class="hl price-chip"><strong>30 min</strong> $75</span>
+                <span class="hl price-chip"><strong>1 hour</strong> $130</span>
+                <span class="hl price-chip"><strong>90 min</strong> $195</span>
               </div>
               <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
             </div>
@@ -1512,10 +1622,15 @@
       </section>
 
       <section class="expect-section panel" aria-label="What to expect at the workshop">
-        <div class="expect-cols">
-          <div>
+        <details class="collapse">
+          <summary class="collapse-summary">
             <h3 class="expect-heading">What to Expect</h3>
-            <div class="expect-body">
+            <span class="collapse-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="collapse-body">
+            <div class="expect-cols">
+              <div>
+                <div class="expect-body">
               <p>
                 The workshop runs two hours on Zoom with a maximum of ten actors.
                 Each session follows a clear structure, going through the full
@@ -1558,14 +1673,23 @@
                 <span class="expect-detail-value">A repeatable framework and live feedback on your work</span>
               </li>
             </ul>
+              </div>
+            </div>
           </div>
-        </div>
+        </details>
       </section>
 
       <section class="faq-section panel" aria-label="Frequently asked questions">
-        <h3 class="faq-heading">Common Questions</h3>
-        <p class="faq-intro">Things worth knowing before you book.</p>
-        <div class="faq-cols">
+        <details class="collapse">
+          <summary class="collapse-summary">
+            <div>
+              <h3 class="faq-heading">Common Questions</h3>
+              <p class="faq-intro">Things worth knowing before you book.</p>
+            </div>
+            <span class="collapse-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="collapse-body">
+            <div class="faq-cols">
           <div>
             <dl>
               <div class="faq-item">
@@ -1598,7 +1722,9 @@
               </div>
             </dl>
           </div>
-        </div>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="credentials" id="about">
