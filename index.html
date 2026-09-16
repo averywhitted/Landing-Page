@@ -904,6 +904,7 @@
 
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
+      .press.panel { padding: 36px 44px; }
       .press-heading {
         font-family: var(--display);
         font-size: 38px;
@@ -1223,16 +1224,19 @@
       /* ── Responsive additions ── */
       @media (max-width: 860px) {
         .expect-section.panel,
-        .faq-section.panel { padding: 28px 32px; }
+        .faq-section.panel,
+        .press.panel { padding: 28px 32px; }
         .expect-cols,
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
         .expect-heading,
-        .faq-heading { font-size: 34px; }
+        .faq-heading,
+        .press-heading { font-size: 34px; }
         .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
       @media (max-width: 640px) {
         .expect-section.panel,
-        .faq-section.panel { padding: 22px; }
+        .faq-section.panel,
+        .press.panel { padding: 22px; }
         .expect-heading,
         .faq-heading { font-size: 30px; }
         .modal { padding: 28px 24px; }
@@ -1455,7 +1459,8 @@
         .collapse-summary { gap: 14px; align-items: flex-start; }
         .collapse-summary h3 { min-width: 0; }
         .expect-heading,
-        .faq-heading { font-size: 25px; }
+        .faq-heading,
+        .press-heading { font-size: 25px; }
         .collapse-icon { width: 30px; height: 30px; margin-top: 2px; }
         .collapse-icon::before { width: 12px; }
         .collapse-icon::after { height: 12px; }
@@ -1483,8 +1488,8 @@
           <span class="hamburger-line"></span>
         </button>
         <nav id="main-nav">
-          <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#coaching">Coaching</a>
+          <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#about">About</a>
           <a class="pill" href="#podcast">Podcast</a>
           <a class="pill" href="#reach-out">Contact</a>
@@ -1515,8 +1520,50 @@
             </div>
           </section>
 
+          <section class="hero-panel middle left" id="coaching" aria-label="Private Coaching">
+            <div class="hero-content">
+              <h3>Private Coaching</h3>
+              <p>
+                Private coaching is available via Zoom for actors who want
+                focused, individualized support between classes or ahead of an
+                audition.
+              </p>
+              <ul>
+                <li>
+                  Thirty-minute sessions, built for audition prep,
+                  quick-turnaround sides, and last-minute confidence before
+                  you go on tape.
+                </li>
+                <li>
+                  One-hour sessions, recommended for deeper script work,
+                  making and testing strong choices, and self-tape support
+                  when there's more ground to cover.
+                </li>
+                <li>
+                  Ninety-minute sessions, for a full deep dive: multiple
+                  pieces of material, layered choice work, or a self-tape
+                  session with time to record, review, and retake.
+                </li>
+                <li>
+                  Feedback is practical and tailored to wherever you're
+                  getting stuck, whether that is prep, clarity, or nerves.
+                </li>
+                <li>
+                  Every session stays specific, efficient, and immediately
+                  usable.
+                </li>
+              </ul>
+              <div class="price-note" aria-label="Private coaching pricing">
+                <span class="hl price-chip"><strong>30 min</strong> $75</span>
+                <span class="hl price-chip"><strong>1 hour</strong> $130</span>
+                <span class="hl price-chip"><strong>90 min</strong> $195</span>
+              </div>
+              <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+            </div>
+          </section>
+
           <section
-            class="hero-panel middle left"
+            class="hero-panel last left"
             id="workshops"
             aria-label="The Audition Survival Workshop"
           >
@@ -1564,67 +1611,16 @@
               -->
             </div>
           </section>
-
-          <section class="hero-panel last left" id="coaching" aria-label="Private Coaching">
-            <div class="hero-content">
-              <h3>Private Coaching</h3>
-              <p>
-                Private coaching is available via Zoom for actors who want
-                focused, individualized support between classes or ahead of an
-                audition.
-              </p>
-              <ul>
-                <li>
-                  Thirty-minute sessions, built for audition prep,
-                  quick-turnaround sides, and last-minute confidence before
-                  you go on tape.
-                </li>
-                <li>
-                  One-hour sessions, recommended for deeper script work,
-                  making and testing strong choices, and self-tape support
-                  when there's more ground to cover.
-                </li>
-                <li>
-                  Ninety-minute sessions, for a full deep dive: multiple
-                  pieces of material, layered choice work, or a self-tape
-                  session with time to record, review, and retake.
-                </li>
-                <li>
-                  Feedback is practical and tailored to wherever you're
-                  getting stuck, whether that is prep, clarity, or nerves.
-                </li>
-                <li>
-                  Every session stays specific, efficient, and immediately
-                  usable.
-                </li>
-              </ul>
-              <div class="price-note" aria-label="Private coaching pricing">
-                <span class="hl price-chip"><strong>30 min</strong> $75</span>
-                <span class="hl price-chip"><strong>1 hour</strong> $130</span>
-                <span class="hl price-chip"><strong>90 min</strong> $195</span>
-              </div>
-              <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
-            </div>
-          </section>
         </div>
       </main>
-
-      <section class="testimonials" aria-label="Student testimonials">
-        <blockquote class="testimonial">
-          <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
-          <footer class="testimonial-attr">Private coaching student</footer>
-        </blockquote>
-        <blockquote class="testimonial">
-          <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-          <p class="testimonial-quote">&ldquo;Avery is very generous and knowledgeable. He understands the common actor pitfalls during auditions and what direction would be most helpful to take in any given situation. The workshop was well structured and enough time was given for each subject covered.&rdquo;</p>
-          <footer class="testimonial-attr">Audition Survival Workshop student</footer>
-        </blockquote>
-      </section>
 
       <section class="expect-section panel" aria-label="What to expect at the workshop">
         <details class="collapse">
           <summary class="collapse-summary">
-            <h3 class="expect-heading">What to Expect</h3>
+            <div>
+              <h3 class="expect-heading">What to Expect</h3>
+              <p class="faq-intro">How a workshop session actually runs.</p>
+            </div>
             <span class="collapse-icon" aria-hidden="true"></span>
           </summary>
           <div class="collapse-body">
@@ -1727,6 +1723,18 @@
         </details>
       </section>
 
+      <section class="testimonials" aria-label="Student testimonials">
+        <blockquote class="testimonial">
+          <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
+          <footer class="testimonial-attr">Private coaching student</footer>
+        </blockquote>
+        <blockquote class="testimonial">
+          <div class="testimonial-stars" aria-label="5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <p class="testimonial-quote">&ldquo;Avery is very generous and knowledgeable. He understands the common actor pitfalls during auditions and what direction would be most helpful to take in any given situation. The workshop was well structured and enough time was given for each subject covered.&rdquo;</p>
+          <footer class="testimonial-attr">Audition Survival Workshop student</footer>
+        </blockquote>
+      </section>
+
       <section class="credentials" id="about">
         <div class="credentials-copy">
           <p>
@@ -1749,9 +1757,17 @@
         </div>
       </section>
 
-      <section class="press" aria-label="Selected credits">
-        <h3 class="press-heading">Selected Credits</h3>
-        <div class="poster-grid">
+      <section class="press panel" aria-label="Selected credits">
+        <details class="collapse">
+          <summary class="collapse-summary">
+            <div>
+              <h3 class="press-heading">Selected Credits</h3>
+              <p class="faq-intro">Selected film, television, and theater work.</p>
+            </div>
+            <span class="collapse-icon" aria-hidden="true"></span>
+          </summary>
+          <div class="collapse-body">
+            <div class="poster-grid">
           <div class="poster-item" data-credit-id="ittg">
             <div class="poster-thumb">
               <img src="Production%20posters/ITTG%20poster" alt="In the Tall Grass poster" />
@@ -1815,10 +1831,12 @@
             <p class="poster-title">The Vanishing of Sidney Hall</p>
             <p class="poster-meta">A24 &middot; 2017</p>
           </div>
-        </div>
-        <div class="resume-cta">
-          <a class="btn primary" href="Avery%20Whitted%20Resume.pdf" download>Download Full Resume (PDF)</a>
-        </div>
+            </div>
+            <div class="resume-cta">
+              <a class="btn primary" href="Avery%20Whitted%20Resume.pdf" download>Download Full Resume (PDF)</a>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="podcast-section panel" id="podcast" aria-label="90% of the Job podcast">
