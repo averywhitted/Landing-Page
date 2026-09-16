@@ -314,10 +314,9 @@
         font-size: 17px;
         line-height: 1.7;
       }
-      /* Hero bullet lists: always open on desktop, collapsible on mobile */
+      /* Hero bullet lists: open on desktop, collapsible on mobile (JS-synced) */
       .hero-list { margin: 0; }
       .hero-list > summary { display: none; }
-      .hero-list > ul { display: block !important; }
       .hero-list-toggle {
         list-style: none;
         cursor: pointer;
@@ -360,8 +359,8 @@
       }
       .price-chip {
         display: inline-block;
-        padding: 7px 12px;
-        border-radius: 7px;
+        padding: 9px 17px;
+        border-radius: 8px;
         font-size: 13.5px;
       }
       .price-chip strong { font-weight: 800; }
@@ -932,6 +931,14 @@
       .press.panel { padding: 36px 44px; }
       .workshop-info { margin-top: var(--section-gap); padding: 36px 44px; }
       .about-card { margin-top: var(--section-gap); padding: 36px 44px; }
+      .about-heading {
+        font-family: var(--display);
+        font-size: 38px;
+        font-weight: 600;
+        line-height: 0.95;
+        color: var(--text);
+        margin: 0 0 24px;
+      }
       .about-card .credentials { margin-top: 0; align-items: center; }
       .about-card .credentials-copy { padding-top: 0; }
       .collapse-divider { border-top: 1px solid var(--line); margin: 30px 0; }
@@ -1259,7 +1266,8 @@
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
         .expect-heading,
         .faq-heading,
-        .press-heading { font-size: 34px; }
+        .press-heading,
+        .about-heading { font-size: 34px; }
         .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
       @media (max-width: 640px) {
@@ -1360,7 +1368,8 @@
       .expect-heading,
       .faq-heading,
       .modal-heading,
-      .credit-modal-title {
+      .credit-modal-title,
+      .about-heading {
         text-transform: uppercase;
         letter-spacing: 0.005em;
       }
@@ -1464,6 +1473,18 @@
       .collapse-summary:hover .collapse-icon::after { background: #ffffff; }
       .collapse-body { padding-top: 26px; }
 
+      /* Subtle reveal when a section is expanded */
+      @keyframes revealDown {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      details[open] > .collapse-body { animation: revealDown 0.3s ease; }
+      details.hero-list[open] > ul { animation: revealDown 0.3s ease; }
+      @media (prefers-reduced-motion: reduce) {
+        details[open] > .collapse-body,
+        details.hero-list[open] > ul { animation: none; }
+      }
+
       /* ── Mobile refinements ── */
       @media (max-width: 640px) {
         /* Tighter monospace so long copy doesn't become a wall */
@@ -1480,15 +1501,16 @@
         .credentials-copy { padding-top: 0; }
 
         /* Coaching price chips */
-        .price-note { gap: 8px; }
-        .price-chip { font-size: 12px; padding: 6px 9px; }
+        .price-note { gap: 10px; }
+        .price-chip { font-size: 12px; padding: 8px 14px; }
 
         /* Collapsible headers: keep the title clear of the toggle */
         .collapse-summary { gap: 14px; align-items: flex-start; }
         .collapse-summary h3 { min-width: 0; }
         .expect-heading,
         .faq-heading,
-        .press-heading { font-size: 25px; }
+        .press-heading,
+        .about-heading { font-size: 25px; }
         .collapse-icon { width: 30px; height: 30px; margin-top: 2px; }
         .collapse-icon::before { width: 12px; }
         .collapse-icon::after { height: 12px; }
@@ -1499,8 +1521,7 @@
 
         /* Hero bullet lists collapse on mobile */
         .hero-list > summary { display: inline-flex; margin-top: 6px; }
-        .hero-list:not([open]) > ul { display: none !important; }
-        .hero-list[open] > ul { display: block !important; margin-top: 14px; }
+        .hero-list[open] > ul { margin-top: 14px; }
       }
     </style>
   </head>
@@ -1541,7 +1562,7 @@
           >
             <div class="hero-content">
               <h2>
-                <span class="hl">Audition</span> coaching for actors.
+                <span class="hl">Audition</span> coaching for actors in process.
               </h2>
               <p>
                 Teacher, coach, and creative partner. I work with actors through
@@ -1561,7 +1582,7 @@
                 focused, individualized support between classes or ahead of an
                 audition.
               </p>
-              <details class="hero-list">
+              <details class="hero-list" open>
                 <summary class="hero-list-toggle">Session options</summary>
                 <ul>
                   <li>
@@ -1613,7 +1634,7 @@
                 Workshops are held on Zoom and are currently limited to 10
                 people.
               </p>
-              <details class="hero-list">
+              <details class="hero-list" open>
                 <summary class="hero-list-toggle">What we cover</summary>
                 <ul>
                   <li>
@@ -1775,6 +1796,7 @@
       </section>
 
       <section class="panel about-card" id="about">
+        <h3 class="about-heading">About Avery</h3>
         <div class="credentials">
         <div class="credentials-copy">
           <p>
@@ -2213,6 +2235,15 @@
 
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+
+      // ── Hero bullet lists: open on desktop, collapsible on mobile ──
+      (function () {
+        const mq = window.matchMedia("(max-width: 640px)");
+        const lists = document.querySelectorAll("details.hero-list");
+        const sync = () => lists.forEach(d => { d.open = !mq.matches; });
+        sync();
+        mq.addEventListener("change", sync);
+      })();
 
       // ── Hamburger menu ──
       const navToggle = document.getElementById("nav-toggle");
