@@ -272,12 +272,12 @@
         border-radius: 0 0 var(--radius-lg) var(--radius-lg);
         background-image: url("pexels-cottonbro-6877440.jpg");
       }
-      .hero-panel.left { justify-content: flex-start; }
-      .hero-panel.right { justify-content: flex-end; }
+      .hero-panel.left { justify-content: center; }
+      .hero-panel.right { justify-content: center; }
       .hero-content {
         position: relative;
         z-index: 1;
-        width: min(80%, 920px);
+        width: min(82%, 720px);
         text-shadow: 0 1px 10px rgba(0, 0, 0, 1);
       }
       .hero-content h2,
@@ -314,6 +314,35 @@
         font-size: 17px;
         line-height: 1.7;
       }
+      /* Hero bullet lists: always open on desktop, collapsible on mobile */
+      .hero-list { margin: 0; }
+      .hero-list > summary { display: none; }
+      .hero-list > ul { display: block !important; }
+      .hero-list-toggle {
+        list-style: none;
+        cursor: pointer;
+        width: fit-content;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--body);
+        font-weight: 700;
+        font-size: 11.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #ffffff;
+        border: 1.5px solid rgba(255, 255, 255, 0.55);
+        border-radius: 999px;
+        padding: 8px 15px;
+        text-shadow: none;
+      }
+      .hero-list-toggle::-webkit-details-marker { display: none; }
+      .hero-list-toggle::after {
+        content: "+";
+        font-size: 15px;
+        line-height: 1;
+        font-weight: 700;
+      }
+      details.hero-list[open] .hero-list-toggle::after { content: "\2013"; }
       /* ── Price note ── */
       .price-note {
         display: flex;
@@ -631,8 +660,8 @@
           display: none;
           flex-direction: column;
           width: 100%;
-          gap: 6px;
-          padding: 14px 0 16px;
+          gap: 8px;
+          padding: 16px 22px 20px;
           border-top: 1px solid var(--line);
           margin-top: 10px;
         }
@@ -680,7 +709,6 @@
         .hero-panel.left, .hero-panel.right { justify-content: center; }
         .hero-content { width: min(86%, 100%); padding: 16px 16px 14px; }
         .price-note { justify-content: center; }
-        .btn.book-session-btn { display: block; margin-left: auto; margin-right: auto; }
         .hero-content h2 { font-size: clamp(23px, 7.4vw, 34px); }
         .hero-content h3 { font-size: clamp(22px, 6.6vw, 28px); }
         .hero-content p { font-size: 16px; }
@@ -885,13 +913,10 @@
         width: 100%;
         max-width: 400px;
         border-radius: var(--radius-sm);
-        overflow: hidden;
-        border: 1px solid rgba(40, 49, 55, 0.16);
-        background: rgba(255, 255, 255, 0.74);
         display: flex;
         justify-content: center;
       }
-      .podcast-embed iframe { display: block; }
+      .podcast-embed iframe { display: block; border-radius: 12px; }
       @media (max-width: 860px) {
         .podcast-section.panel { padding: 28px 32px; }
         .podcast-cols { grid-template-columns: 1fr; gap: 28px; }
@@ -905,6 +930,11 @@
       /* ── Press / credits ── */
       .press { margin-top: var(--section-gap); }
       .press.panel { padding: 36px 44px; }
+      .workshop-info { margin-top: var(--section-gap); padding: 36px 44px; }
+      .about-card { margin-top: var(--section-gap); padding: 36px 44px; }
+      .about-card .credentials { margin-top: 0; align-items: center; }
+      .about-card .credentials-copy { padding-top: 0; }
+      .collapse-divider { border-top: 1px solid var(--line); margin: 30px 0; }
       .press-heading {
         font-family: var(--display);
         font-size: 38px;
@@ -1223,9 +1253,8 @@
 
       /* ── Responsive additions ── */
       @media (max-width: 860px) {
-        .expect-section.panel,
-        .faq-section.panel,
-        .press.panel { padding: 28px 32px; }
+        .workshop-info,
+        .about-card { padding: 28px 32px; }
         .expect-cols,
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
         .expect-heading,
@@ -1234,9 +1263,8 @@
         .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
       @media (max-width: 640px) {
-        .expect-section.panel,
-        .faq-section.panel,
-        .press.panel { padding: 22px; }
+        .workshop-info,
+        .about-card { padding: 22px; }
         .expect-heading,
         .faq-heading { font-size: 30px; }
         .modal { padding: 28px 24px; }
@@ -1468,6 +1496,11 @@
 
         /* Testimonials */
         .testimonial-quote { font-size: 17.5px; line-height: 1.5; }
+
+        /* Hero bullet lists collapse on mobile */
+        .hero-list > summary { display: inline-flex; margin-top: 6px; }
+        .hero-list:not([open]) > ul { display: none !important; }
+        .hero-list[open] > ul { display: block !important; margin-top: 14px; }
       }
     </style>
   </head>
@@ -1508,7 +1541,7 @@
           >
             <div class="hero-content">
               <h2>
-                Coaching for <span class="hl">actors</span> in process.
+                <span class="hl">Audition</span> coaching for actors.
               </h2>
               <p>
                 Teacher, coach, and creative partner. I work with actors through
@@ -1528,31 +1561,34 @@
                 focused, individualized support between classes or ahead of an
                 audition.
               </p>
-              <ul>
-                <li>
-                  Thirty-minute sessions, built for audition prep,
-                  quick-turnaround sides, and last-minute confidence before
-                  you go on tape.
-                </li>
-                <li>
-                  One-hour sessions, recommended for deeper script work,
-                  making and testing strong choices, and self-tape support
-                  when there's more ground to cover.
-                </li>
-                <li>
-                  Ninety-minute sessions, for a full deep dive: multiple
-                  pieces of material, layered choice work, or a self-tape
-                  session with time to record, review, and retake.
-                </li>
-                <li>
-                  Feedback is practical and tailored to wherever you're
-                  getting stuck, whether that is prep, clarity, or nerves.
-                </li>
-                <li>
-                  Every session stays specific, efficient, and immediately
-                  usable.
-                </li>
-              </ul>
+              <details class="hero-list">
+                <summary class="hero-list-toggle">Session options</summary>
+                <ul>
+                  <li>
+                    Thirty-minute sessions, built for audition prep,
+                    quick-turnaround sides, and last-minute confidence before
+                    you go on tape.
+                  </li>
+                  <li>
+                    One-hour sessions, recommended for deeper script work,
+                    making and testing strong choices, and self-tape support
+                    when there's more ground to cover.
+                  </li>
+                  <li>
+                    Ninety-minute sessions, for a full deep dive: multiple
+                    pieces of material, layered choice work, or a self-tape
+                    session with time to record, review, and retake.
+                  </li>
+                  <li>
+                    Feedback is practical and tailored to wherever you're
+                    getting stuck, whether that is prep, clarity, or nerves.
+                  </li>
+                  <li>
+                    Every session stays specific, efficient, and immediately
+                    usable.
+                  </li>
+                </ul>
+              </details>
               <div class="price-note" aria-label="Private coaching pricing">
                 <span class="hl price-chip"><strong>30 min</strong> $75</span>
                 <span class="hl price-chip"><strong>1 hour</strong> $130</span>
@@ -1577,28 +1613,31 @@
                 Workshops are held on Zoom and are currently limited to 10
                 people.
               </p>
-              <ul>
-                <li>
-                  How to find better auditions through Actors Access, Backstage,
-                  EPAs, and reps.
-                </li>
-                <li>
-                  Prep systems that stick: memorization methods, line drills,
-                  and fast scene choices.
-                </li>
-                <li>
-                  Self-tape workflow: reader setup, lighting, edits, file
-                  delivery, and submission habits.
-                </li>
-                <li>
-                  In-room and callback strategy: handling adjustments, nerves,
-                  and post-audition reset.
-                </li>
-                <li>
-                  What you leave with: a repeatable framework, tools for
-                  handling anxiety, and live feedback on your work.
-                </li>
-              </ul>
+              <details class="hero-list">
+                <summary class="hero-list-toggle">What we cover</summary>
+                <ul>
+                  <li>
+                    How to find better auditions through Actors Access, Backstage,
+                    EPAs, and reps.
+                  </li>
+                  <li>
+                    Prep systems that stick: memorization methods, line drills,
+                    and fast scene choices.
+                  </li>
+                  <li>
+                    Self-tape workflow: reader setup, lighting, edits, file
+                    delivery, and submission habits.
+                  </li>
+                  <li>
+                    In-room and callback strategy: handling adjustments, nerves,
+                    and post-audition reset.
+                  </li>
+                  <li>
+                    What you leave with: a repeatable framework, tools for
+                    handling anxiety, and live feedback on your work.
+                  </li>
+                </ul>
+              </details>
               <div class="next-workshop-card" aria-label="Next workshop details">
                 <div class="nwc-info">
                   <span class="nwc-label">Next Workshop</span>
@@ -1614,7 +1653,7 @@
         </div>
       </main>
 
-      <section class="expect-section panel" aria-label="What to expect at the workshop">
+      <section class="panel workshop-info" aria-label="Workshop details">
         <details class="collapse">
           <summary class="collapse-summary">
             <div>
@@ -1673,9 +1712,9 @@
             </div>
           </div>
         </details>
-      </section>
 
-      <section class="faq-section panel" aria-label="Frequently asked questions">
+        <div class="collapse-divider"></div>
+
         <details class="collapse">
           <summary class="collapse-summary">
             <div>
@@ -1735,7 +1774,8 @@
         </blockquote>
       </section>
 
-      <section class="credentials" id="about">
+      <section class="panel about-card" id="about">
+        <div class="credentials">
         <div class="credentials-copy">
           <p>
             I graduated from the BFA Acting program at Mason Gross School of the
@@ -1755,9 +1795,10 @@
         <div class="editorial-photo">
           <img src="Avery115final.JPG" alt="Avery Whitted portrait" />
         </div>
-      </section>
+        </div>
 
-      <section class="press panel" aria-label="Selected credits">
+        <div class="collapse-divider"></div>
+
         <details class="collapse">
           <summary class="collapse-summary">
             <div>
