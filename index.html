@@ -941,6 +941,7 @@
       }
       .about-card .credentials { margin-top: 0; align-items: center; }
       .about-card .credentials-copy { padding-top: 0; }
+      .about-card .credentials-copy .about-heading { margin: 0 0 8px; }
       .collapse-divider { border-top: 1px solid var(--line); margin: 30px 0; }
       .press-heading {
         font-family: var(--display);
@@ -1384,6 +1385,8 @@
         box-decoration-break: clone;
         -webkit-box-decoration-break: clone;
       }
+      /* Inline accent-colored word (e.g. hero headline) */
+      .hl-accent { color: var(--a); }
 
       /* Section eyebrows become solid lime tags */
       .tr-eyebrow,
@@ -1562,7 +1565,7 @@
           >
             <div class="hero-content">
               <h2>
-                <span class="hl">Audition</span> coaching for actors in process.
+                Audition coaching for <span class="hl-accent">actors</span>
               </h2>
               <p>
                 Teacher, coach, and creative partner. I work with actors through
@@ -1796,9 +1799,9 @@
       </section>
 
       <section class="panel about-card" id="about">
-        <h3 class="about-heading">About Avery</h3>
         <div class="credentials">
         <div class="credentials-copy">
+          <h3 class="about-heading">About Avery</h3>
           <p>
             I graduated from the BFA Acting program at Mason Gross School of the
             Arts in 2015, and I have been working for over 10 years across film,
