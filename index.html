@@ -1605,17 +1605,14 @@
       .collapse-summary:hover .collapse-icon::after { background: #ffffff; }
       .collapse-body { padding-top: 26px; }
 
-      /* Subtle reveal when a section is expanded */
+      /* Expand/collapse height is animated in JS (see script); a plain
+         fallback fade covers no-JS and reduced-motion cases. */
       @keyframes revealDown {
         from { opacity: 0; transform: translateY(-8px); }
         to { opacity: 1; transform: translateY(0); }
       }
-      details[open] > .collapse-body { animation: revealDown 0.3s ease; }
-      details.hero-list[open] > ul { animation: revealDown 0.3s ease; }
-      @media (prefers-reduced-motion: reduce) {
-        details[open] > .collapse-body,
-        details.hero-list[open] > ul { animation: none; }
-      }
+      html:not(.js) details[open] > .collapse-body,
+      html:not(.js) details.hero-list[open] > ul { animation: revealDown 0.3s ease; }
 
       /* Scroll-reveal on section enter (only when JS is active) */
       .js .reveal {
@@ -2437,6 +2434,46 @@
         const sync = () => lists.forEach(d => { d.open = !mq.matches; });
         sync();
         mq.addEventListener("change", sync);
+      })();
+
+      // ── Smooth expand/collapse for <details> ──
+      (function () {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const DUR = 300, EASE = "cubic-bezier(0.33, 0, 0.2, 1)";
+        const run = (details, content, opening) => {
+          details._animating = true;
+          content.style.overflow = "hidden";
+          if (opening) details.open = true;
+          const full = content.scrollHeight;
+          content.style.height = (opening ? 0 : full) + "px";
+          content.style.opacity = opening ? 0 : 1;
+          void content.offsetHeight; // reflow so the start value sticks
+          content.style.transition = "height " + DUR + "ms " + EASE + ", opacity " + DUR + "ms ease";
+          content.style.height = (opening ? full : 0) + "px";
+          content.style.opacity = opening ? 1 : 0;
+          let finished = false;
+          const done = () => {
+            if (finished) return;
+            finished = true;
+            if (!opening) details.open = false;
+            content.style.transition = content.style.height = content.style.overflow = content.style.opacity = "";
+            details._animating = false;
+          };
+          content.addEventListener("transitionend", function h(ev) {
+            if (ev.target === content && ev.propertyName === "height") { content.removeEventListener("transitionend", h); done(); }
+          });
+          setTimeout(done, DUR + 120);
+        };
+        document.querySelectorAll("details.collapse, details.hero-list").forEach(details => {
+          const summary = details.querySelector("summary");
+          const content = summary && summary.nextElementSibling;
+          if (!summary || !content) return;
+          summary.addEventListener("click", e => {
+            e.preventDefault();
+            if (details._animating) return;
+            run(details, content, !details.open);
+          });
+        });
       })();
 
       // ── Hamburger menu ──
