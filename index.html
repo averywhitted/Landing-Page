@@ -97,11 +97,17 @@
         background: linear-gradient(180deg, #ffffff 0%, #ffffff 22%, #eef1fd 68%, #dfe6fb 100%);
         background-repeat: no-repeat;
         background-size: 100% 100%;
-        overflow-x: hidden;
+        overflow-x: clip;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
       a { color: inherit; text-decoration: none; }
+      /* Keyboard focus visibility (does not affect mouse/touch) */
+      :focus-visible {
+        outline: 3px solid var(--a);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
       .wrap {
         max-width: var(--max);
         margin: 0 auto;
@@ -110,13 +116,30 @@
 
       /* ── Header ── */
       header {
+        position: sticky;
+        top: 0;
+        z-index: 50;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding: 10px 0 22px;
         border-bottom: 1px solid var(--line);
+        transition: padding 0.25s ease, background 0.25s ease;
       }
+      header.scrolled {
+        background: rgba(246, 247, 249, 0.92);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      header.scrolled .brand h1 { font-size: 28px; }
+      header.scrolled .brand p { display: none; }
+      /* Offset anchor jumps for the sticky header */
+      #coaching, #workshops, #about, #podcast, #reach-out { scroll-margin-top: 96px; }
+      /* Header Book-a-Session CTA (shown only at hamburger widths) */
+      .btn.header-cta { display: none; }
       .brand { display: flex; align-items: center; }
       .brand h1 {
         font-family: var(--display);
@@ -210,6 +233,17 @@
         border-color: var(--a);
         color: var(--a);
       }
+      .pill-cta {
+        background: var(--a);
+        border-color: var(--a);
+        color: #ffffff;
+      }
+      .pill-cta:hover {
+        transform: translateY(-1px);
+        background: var(--a-dark);
+        border-color: var(--a-dark);
+        color: #ffffff;
+      }
       .pill--abi {
         font-family: "JetBrains Mono", ui-monospace, monospace;
         font-size: 11px;
@@ -293,6 +327,8 @@
         letter-spacing: 0.005em;
         line-height: 0.98;
       }
+      /* Fixed three-line headline layout at every width */
+      .hero-content h2 .hln { display: block; white-space: nowrap; }
       .hero-content h3 {
         font-family: var(--display);
         text-transform: uppercase;
@@ -652,22 +688,47 @@
       }
 
       @media (max-width: 983px) {
-        header { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 0 0; }
-        .brand { flex: 1; justify-content: flex-start; text-align: left; width: auto; }
-        .hamburger { display: flex; }
+        .wrap { padding-bottom: 96px; }
+        header { position: static; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 12px 0 16px; }
+        .brand { flex: 1; justify-content: flex-start; text-align: left; width: auto; min-width: 0; }
+        .btn.header-cta { display: inline-flex; flex-shrink: 0; width: auto; padding: 10px 14px; font-size: 11px; }
+
+        /* Floating circular sticky hamburger */
+        .hamburger {
+          display: flex;
+          position: fixed;
+          bottom: 20px;
+          right: 18px;
+          z-index: 210;
+          width: 54px;
+          height: 54px;
+          padding: 18px 13px;
+          box-sizing: border-box;
+          border-radius: 50%;
+          background: var(--a);
+          box-shadow: 0 8px 22px rgba(20, 28, 40, 0.3);
+          transition: background 0.2s ease, transform 0.2s ease;
+        }
+        .hamburger:hover { transform: translateY(-2px); }
+        .hamburger[aria-expanded="true"] { background: var(--text); }
+        .hamburger-line { background: #ffffff; }
+
+        /* Full-screen nav overlay */
         nav {
           display: none;
+          position: fixed;
+          inset: 0;
+          z-index: 200;
           flex-direction: column;
-          width: 100%;
-          gap: 8px;
-          padding: 16px 22px 20px;
-          border-top: 1px solid var(--line);
-          margin-top: 10px;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+          padding: 24px 22px 96px;
+          background: rgba(246, 247, 249, 0.98);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
         }
-        nav.open {
-          display: flex;
-          animation: navSlideDown 0.2s ease forwards;
-        }
+        nav.open { display: flex; animation: navSlideDown 0.2s ease forwards; }
         nav.open .pill {
           opacity: 0;
           animation: pillFadeUp 0.18s ease forwards;
@@ -678,7 +739,7 @@
         nav.open .pill:nth-child(4) { animation-delay: 0.16s; }
         nav.open .pill:nth-child(5) { animation-delay: 0.20s; }
         nav.open .pill:nth-child(6) { animation-delay: 0.24s; }
-        .pill { justify-content: center; font-size: 12px; padding: 10px 14px; min-width: 0; width: 100%; }
+        .pill { justify-content: center; font-size: 13px; padding: 13px 16px; min-width: 0; width: 100%; max-width: 340px; }
       }
 
       @media (max-width: 860px) {
@@ -701,14 +762,14 @@
       }
 
       @media (max-width: 640px) {
-        .wrap { padding: 18px 12px 44px; }
+        .wrap { padding: 18px 12px 96px; }
         .brand h1 { font-size: 32px; line-height: 0.95; }
         .brand p { font-size: 16px; }
         .hero-panel { min-height: 320px; padding: 18px 14px; align-items: flex-end; }
         .hero-panel.left, .hero-panel.right { justify-content: center; }
         .hero-content { width: min(86%, 100%); padding: 16px 16px 14px; }
         .price-note { justify-content: center; }
-        .hero-content h2 { font-size: clamp(23px, 7.4vw, 34px); }
+        .hero-content h2 { font-size: clamp(20px, 6.6vw, 30px); }
         .hero-content h3 { font-size: clamp(22px, 6.6vw, 28px); }
         .hero-content p { font-size: 16px; }
         .hero-content ul { font-size: 15px; padding-left: 18px; }
@@ -943,6 +1004,47 @@
       .about-card .credentials-copy { padding-top: 0; }
       .about-card .credentials-copy .about-heading { margin: 0 0 8px; }
       .collapse-divider { border-top: 1px solid var(--line); margin: 30px 0; }
+
+      /* ── Logo / credits strip ── */
+      .logo-strip {
+        margin-top: 30px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        padding: 6px 0;
+      }
+      .logo-strip-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+      .logo-strip-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 12px 34px;
+      }
+      .logo-strip-list li {
+        font-family: var(--display);
+        font-size: 22px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: var(--muted);
+        opacity: 0.72;
+        transition: opacity 0.2s ease;
+      }
+      .logo-strip-list li:hover { opacity: 1; }
+      @media (max-width: 640px) {
+        .logo-strip-list { gap: 10px 22px; }
+        .logo-strip-list li { font-size: 17px; }
+      }
       .press-heading {
         font-family: var(--display);
         font-size: 38px;
@@ -1488,6 +1590,26 @@
         details.hero-list[open] > ul { animation: none; }
       }
 
+      /* Scroll-reveal on section enter (only when JS is active) */
+      .js .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity 0.6s ease, transform 0.6s ease;
+      }
+      .js .reveal.is-visible { opacity: 1; transform: none; }
+
+      /* Active section highlight in the nav */
+      .pill.active {
+        background: var(--a-soft);
+        border-color: var(--a);
+        color: var(--a);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .js .reveal { opacity: 1; transform: none; transition: none; }
+        html { scroll-behavior: auto; }
+      }
+
       /* ── Mobile refinements ── */
       @media (max-width: 640px) {
         /* Tighter monospace so long copy doesn't become a wall */
@@ -1527,6 +1649,31 @@
         .hero-list[open] > ul { margin-top: 14px; }
       }
     </style>
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "Avery Whitted",
+        "url": "https://averywhitted.com/",
+        "image": "https://averywhitted.com/Avery%20Whitted-SEO-image.png",
+        "jobTitle": "Actor and Acting Coach",
+        "description": "Audition coaching and acting workshops for actors — practical tools for auditioning, self-tapes, and confidence in the room.",
+        "sameAs": [
+          "https://www.imdb.com/name/nm10031930/",
+          "https://www.instagram.com/avery_whitted",
+          "https://www.broadwayworld.com/people/Avery-Whitted/"
+        ],
+        "knowsAbout": ["Acting", "Auditioning", "Self-tapes", "Scene study"],
+        "makesOffer": [
+          { "@type": "Offer", "name": "Private coaching — 30 minutes", "price": "75", "priceCurrency": "USD" },
+          { "@type": "Offer", "name": "Private coaching — 1 hour", "price": "130", "priceCurrency": "USD" },
+          { "@type": "Offer", "name": "Private coaching — 90 minutes", "price": "195", "priceCurrency": "USD" }
+        ]
+      }
+    </script>
   </head>
 
   <body>
@@ -1539,12 +1686,14 @@
           </div>
         </div>
 
-        <button class="hamburger" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <a class="btn primary header-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+        <button class="hamburger" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="main-nav">
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
         </button>
         <nav id="main-nav">
+          <a class="pill pill-cta nav-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
           <a class="pill" href="#coaching">Coaching</a>
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#about">About</a>
@@ -1565,7 +1714,9 @@
           >
             <div class="hero-content">
               <h2>
-                Coaching for <span class="hl">actors</span> in <span class="hl-accent">process</span>
+                <span class="hln">Coaching</span>
+                <span class="hln">for <span class="hl">actors</span></span>
+                <span class="hln">in <span class="hl-accent">process</span></span>
               </h2>
               <p>
                 Teacher, coach, and creative partner. I work with actors through
@@ -1614,9 +1765,9 @@
                 </ul>
               </details>
               <div class="price-note" aria-label="Private coaching pricing">
-                <span class="hl price-chip"><strong>30 min</strong> $75</span>
-                <span class="hl price-chip"><strong>1 hour</strong> $130</span>
-                <span class="hl price-chip"><strong>90 min</strong> $195</span>
+                <span><strong>30 min</strong> $75</span>
+                <span><strong>1 hour</strong> $130</span>
+                <span><strong>90 min</strong> $195</span>
               </div>
               <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
             </div>
@@ -1677,7 +1828,18 @@
         </div>
       </main>
 
-      <section class="panel workshop-info" aria-label="Workshop details">
+      <section class="logo-strip reveal" aria-label="Selected film, TV, and theater work">
+        <span class="logo-strip-label">Featured work</span>
+        <ul class="logo-strip-list">
+          <li>Netflix</li>
+          <li>CBS</li>
+          <li>A24</li>
+          <li>Off-Broadway</li>
+          <li>Mint Theater</li>
+        </ul>
+      </section>
+
+      <section class="panel workshop-info reveal" aria-label="Workshop details">
         <details class="collapse">
           <summary class="collapse-summary">
             <div>
@@ -1786,7 +1948,7 @@
         </details>
       </section>
 
-      <section class="testimonials" aria-label="Student testimonials">
+      <section class="testimonials reveal" aria-label="Student testimonials">
         <blockquote class="testimonial">
           <p class="testimonial-quote">&ldquo;My audition went well! The work we did really helped me feel calm and assured while in the room. The casting director was super nice, and she laughed after I said my last line.&rdquo;</p>
           <footer class="testimonial-attr">Private coaching student</footer>
@@ -1798,7 +1960,7 @@
         </blockquote>
       </section>
 
-      <section class="panel about-card" id="about">
+      <section class="panel about-card reveal" id="about">
         <div class="credentials">
         <div class="credentials-copy">
           <h3 class="about-heading">About Avery</h3>
@@ -1905,7 +2067,7 @@
         </details>
       </section>
 
-      <section class="podcast-section panel" id="podcast" aria-label="90% of the Job podcast">
+      <section class="podcast-section panel reveal" id="podcast" aria-label="90% of the Job podcast">
         <div class="podcast-cols">
           <div>
             <p class="podcast-eyebrow">New Podcast</p>
@@ -1979,7 +2141,7 @@
       </section>
       -->
 
-      <section class="contact-section" id="reach-out">
+      <section class="contact-section reveal" id="reach-out">
         <div class="panel">
           <h3>Reach Out</h3>
           <p>
@@ -2251,17 +2413,71 @@
       // ── Hamburger menu ──
       const navToggle = document.getElementById("nav-toggle");
       const mainNav   = document.getElementById("main-nav");
-      navToggle.addEventListener("click", () => {
-        const open = mainNav.classList.toggle("open");
+      const setNav = open => {
+        mainNav.classList.toggle("open", open);
         navToggle.setAttribute("aria-expanded", open);
-      });
+        document.body.style.overflow = open ? "hidden" : "";
+      };
+      navToggle.addEventListener("click", () => setNav(!mainNav.classList.contains("open")));
       // Close menu when a nav link is clicked
       mainNav.querySelectorAll("a").forEach(link => {
-        link.addEventListener("click", () => {
-          mainNav.classList.remove("open");
-          navToggle.setAttribute("aria-expanded", "false");
-        });
+        link.addEventListener("click", () => setNav(false));
       });
+      // Close the overlay on Escape
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && mainNav.classList.contains("open")) setNav(false);
+      });
+
+      // ── Condensing sticky header (desktop only) ──
+      (function () {
+        const header = document.querySelector("header");
+        const desktop = window.matchMedia("(min-width: 984px)");
+        const onScroll = () => {
+          if (desktop.matches && window.scrollY > 24) header.classList.add("scrolled");
+          else header.classList.remove("scrolled");
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        desktop.addEventListener("change", onScroll);
+        onScroll();
+      })();
+
+      // ── Active section highlighting in the nav ──
+      (function () {
+        const links = [...document.querySelectorAll('#main-nav a[href^="#"]')];
+        const map = new Map();
+        links.forEach(a => {
+          const el = document.querySelector(a.getAttribute("href"));
+          if (el) map.set(el, a);
+        });
+        if (!map.size) return;
+        const spy = new IntersectionObserver(entries => {
+          entries.forEach(en => {
+            if (en.isIntersecting) {
+              links.forEach(a => { a.classList.remove("active"); a.removeAttribute("aria-current"); });
+              const link = map.get(en.target);
+              link.classList.add("active");
+              link.setAttribute("aria-current", "true");
+            }
+          });
+        }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
+        map.forEach((a, el) => spy.observe(el));
+      })();
+
+      // ── Scroll reveal ──
+      (function () {
+        const items = document.querySelectorAll(".reveal");
+        if (!("IntersectionObserver" in window) ||
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          items.forEach(el => el.classList.add("is-visible"));
+          return;
+        }
+        const io = new IntersectionObserver((entries, obs) => {
+          entries.forEach(en => {
+            if (en.isIntersecting) { en.target.classList.add("is-visible"); obs.unobserve(en.target); }
+          });
+        }, { rootMargin: "0px 0px -12% 0px", threshold: 0.08 });
+        items.forEach(el => io.observe(el));
+      })();
 
       // Email notification modal
       const modal = document.getElementById("email-modal");
