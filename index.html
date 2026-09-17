@@ -128,11 +128,25 @@
         transition: padding 0.25s ease, background 0.25s ease;
       }
       header.scrolled {
-        background: rgba(246, 247, 249, 0.92);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
         padding-top: 8px;
         padding-bottom: 8px;
+        border-bottom-color: transparent;
+      }
+      /* Full-bleed bar behind the condensed header so edges aren't cut off */
+      header.scrolled::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100vw;
+        z-index: -1;
+        background: rgba(246, 247, 249, 0.9);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--line);
+        box-shadow: 0 8px 24px rgba(20, 28, 40, 0.05);
       }
       header.scrolled .brand h1 { font-size: 28px; }
       header.scrolled .brand p { display: none; }
