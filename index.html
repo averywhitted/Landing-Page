@@ -221,11 +221,13 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.06em;
+        white-space: nowrap;
         transition:
           transform 0.12s ease,
           background 0.12s ease,
           border-color 0.12s ease,
-          color 0.12s ease;
+          color 0.12s ease,
+          box-shadow 0.12s ease;
       }
       .pill:hover {
         transform: translateY(-1px);
@@ -237,12 +239,15 @@
         background: var(--a);
         border-color: var(--a);
         color: #ffffff;
+        padding: 8px 18px;
+        box-shadow: 0 4px 16px rgba(31, 71, 245, 0.45);
       }
       .pill-cta:hover {
         transform: translateY(-1px);
         background: var(--a-dark);
         border-color: var(--a-dark);
         color: #ffffff;
+        box-shadow: 0 6px 22px rgba(31, 71, 245, 0.6);
       }
       .pill--abi {
         font-family: "JetBrains Mono", ui-monospace, monospace;
