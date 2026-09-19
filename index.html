@@ -1000,6 +1000,9 @@
         .podcast-section.panel { padding: 28px 32px; }
         .podcast-cols { grid-template-columns: 1fr; gap: 28px; }
         .podcast-title { font-size: 34px; }
+        /* Apple's box player is ~175px tall; trim the iframe so the card
+           hugs it instead of leaving empty space below the player */
+        .podcast-embed iframe { height: 175px !important; }
       }
       @media (max-width: 640px) {
         .podcast-section.panel { padding: 22px; }
@@ -1738,6 +1741,7 @@
           >
             <div class="hero-content">
               <h2>
+                <span class="hln">Audition</span>
                 <span class="hln">Coaching</span>
                 <span class="hln">for <span class="hl">actors</span></span>
                 <span class="hln">in <span class="hl-accent">process</span></span>
