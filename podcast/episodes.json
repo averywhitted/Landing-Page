@@ -1,0 +1,78 @@
+{
+  "show": {
+    "title": "90% of the Job",
+    "tagline": "Surviving Auditions as a Working Actor",
+    "description": [
+      "Most of the life of an actor isn't spent on stage or in front of a camera. It's spent scrolling casting notices, memorizing lines, uploading self-tapes, juggling day jobs, and waiting for something to click.",
+      "It's hard out here, but you don't have to go it alone. Join host and fellow working actor Avery Whitted for conversations, stories, and honest advice that demystify the grind and make each audition a little easier."
+    ],
+    "meta_description": "90% of the Job is a podcast about surviving auditions as a working actor, hosted by Avery Whitted. Conversations, stories, and honest advice.",
+    "apple_show_id": "6811251314",
+    "apple_show_slug": "90-of-the-job-surviving-auditions-as-a-working-actor",
+    "rss": "https://anchor.fm/s/1171d7398/podcast/rss"
+  },
+  "episodes": [
+    {
+      "season": 1,
+      "number": 1,
+      "slug": "erik-gratton",
+      "title": "Erik Gratton: Falling Flat on Your Face",
+      "guest": "Erik Gratton",
+      "headline": "Falling Flat on Your Face",
+      "guid": "15942962-dd28-4f39-aad9-739ff0fbdff9",
+      "published": "2026-09-12T01:08:58Z",
+      "duration_seconds": 2827,
+      "apple_episode_id": "1000789123151",
+      "apple_episode_slug": "erik-gratton-falling-flat-on-your-face",
+      "summary": "25 year veteran Erik Gratton (Elf national tour, Marvelous Mrs. Maisel, Unbreakable Kimmy Schmidt, and a million other things) talks about the worst audition he ever had, how he fell flat on his face, and how he picked himself back up and tried again.",
+      "meta_description": "Erik Gratton (Elf national tour, Marvelous Mrs. Maisel) on his worst audition, falling flat, and getting back up. 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Erik on Instagram",
+          "text": "@erikfallsdown",
+          "url": "https://www.instagram.com/erikfallsdown"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted"
+        },
+        {
+          "text": "Lady Hotspur by Tessa Gratton",
+          "url": "https://www.goodreads.com/book/show/39863295-lady-hotspur"
+        },
+        {
+          "text": "Natalie C. Parker",
+          "url": "https://www.goodreads.com/author/show/5831672.Natalie_C_Parker?from_search=true&from_srp=true"
+        }
+      ]
+    },
+    {
+      "season": 1,
+      "number": 2,
+      "slug": "devon-meddock",
+      "title": "Devon Meddock: They Asked You to be There",
+      "guest": "Devon Meddock",
+      "headline": "They Asked You to be There",
+      "guid": "9403cf45-bdd9-4d70-8176-e0c0e76e42ef",
+      "published": "2026-09-18T04:00:00Z",
+      "duration_seconds": 1962,
+      "apple_episode_id": "1000790446560",
+      "apple_episode_slug": "devon-meddock-they-asked-you-to-be-there",
+      "summary": "Actor, singer, trumpet player, and NYU educator Devon Meddock talks about tough auditions, learning to trust herself, and how to stay present when things don’t go as planned. She shares stories about a disastrous French audition, performing off-Broadway in The Imbible, and the simple mindset shift that helped her most.",
+      "meta_description": "Devon Meddock on tough auditions, trusting yourself, and staying present when things go sideways. 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Devon on Instagram",
+          "text": "@devmeddock",
+          "url": "https://www.instagram.com/devmeddock/"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted/"
+        }
+      ]
+    }
+  ]
+}

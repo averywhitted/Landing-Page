@@ -4,8 +4,22 @@
     <loc>https://averywhitted.com/</loc>
     <priority>1.0</priority>
   </url>
+  <!-- podcast:start -->
   <url>
-    <loc>https://averywhitted.com/other-work.html</loc>
-    <priority>0.8</priority>
+    <loc>https://averywhitted.com/podcast/</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://averywhitted.com/podcast/devon-meddock/</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://averywhitted.com/podcast/erik-gratton/</loc>
+    <priority>0.6</priority>
+  </url>
+  <!-- podcast:end -->
+  <url>
+    <loc>https://averywhitted.com/policies.html</loc>
+    <priority>0.3</priority>
   </url>
 </urlset>
