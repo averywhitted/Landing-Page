@@ -148,7 +148,7 @@
         border-bottom: 1px solid var(--line);
         box-shadow: 0 8px 24px rgba(20, 28, 40, 0.05);
       }
-      header.scrolled .brand h1 { font-size: 28px; }
+      header.scrolled .brand h1 { font-size: 1.75rem; }
       header.scrolled .brand p { display: none; }
       /* Offset anchor jumps for the sticky header */
       #coaching, #workshops, #about, #podcast, #reach-out { scroll-margin-top: 96px; }
@@ -157,7 +157,7 @@
       .brand { display: flex; align-items: center; }
       .brand h1 {
         font-family: var(--display);
-        font-size: clamp(28px, 4vw, 40px);
+        font-size: clamp(1.75rem, 4vw, 2.5rem);
         text-transform: uppercase;
         margin: 0;
         letter-spacing: 0.005em;
@@ -166,7 +166,7 @@
       }
       .brand p {
         margin: 6px 0 0;
-        font-size: 12px;
+        font-size: 0.75rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.14em;
@@ -231,7 +231,7 @@
         border-radius: 999px;
         background: #ffffff;
         color: var(--muted);
-        font-size: 11.5px;
+        font-size: 0.7188rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -265,7 +265,7 @@
       }
       .pill--abi {
         font-family: "JetBrains Mono", ui-monospace, monospace;
-        font-size: 11px;
+        font-size: 0.6875rem;
         letter-spacing: 0.1em;
         background: #08080a;
         border-color: rgba(92, 255, 119, 0.28);
@@ -342,7 +342,7 @@
         font-family: var(--display);
         text-transform: uppercase;
         margin: 0 0 16px;
-        font-size: clamp(32px, 4.6vw, 52px);
+        font-size: clamp(2rem, 4.6vw, 3.25rem);
         letter-spacing: 0.005em;
         line-height: 0.98;
       }
@@ -353,20 +353,20 @@
         text-transform: uppercase;
         letter-spacing: 0.005em;
         margin: 0 0 12px;
-        font-size: clamp(30px, 4vw, 40px);
+        font-size: clamp(1.875rem, 4vw, 2.5rem);
         line-height: 0.98;
       }
       .hero-content p {
         margin: 0 0 14px;
         color: rgba(255, 255, 255, 0.96);
-        font-size: 18px;
+        font-size: 1.125rem;
         line-height: 1.6;
       }
       .hero-content ul {
         margin: 0;
         padding-left: 20px;
         color: rgba(255, 255, 255, 0.96);
-        font-size: 17px;
+        font-size: 1.0625rem;
         line-height: 1.7;
       }
       /* Hero bullet lists: open on desktop, collapsible on mobile (JS-synced) */
@@ -380,7 +380,7 @@
         gap: 8px;
         font-family: var(--body);
         font-weight: 700;
-        font-size: 11.5px;
+        font-size: 0.7188rem;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         color: #ffffff;
@@ -392,7 +392,7 @@
       .hero-list-toggle::-webkit-details-marker { display: none; }
       .hero-list-toggle::after {
         content: "+";
-        font-size: 15px;
+        font-size: 0.9375rem;
         line-height: 1;
         font-weight: 700;
       }
@@ -400,23 +400,27 @@
       /* ── Price note ── */
       .price-note {
         display: flex;
-        gap: 18px;
+        gap: 16px;
         flex-wrap: wrap;
         margin-top: 18px;
         padding-top: 14px;
         border-top: 1px solid rgba(255, 255, 255, 0.26);
         color: rgba(255, 255, 255, 0.98);
-        font-size: 15px;
+        font-size: 1.125rem;
         line-height: 1.4;
       }
       .price-note strong {
         font-weight: 700;
       }
+      .price-note span:not(:first-child) {
+        padding-left: 16px;
+        border-left: 1px solid rgba(255, 255, 255, 0.4);
+      }
       .price-chip {
         display: inline-block;
         padding: 9px 17px;
         border-radius: 8px;
-        font-size: 13.5px;
+        font-size: 0.8438rem;
       }
       .price-chip strong { font-weight: 800; }
       /* ── Next workshop card ── */
@@ -440,7 +444,7 @@
         gap: 4px;
       }
       .nwc-label {
-        font-size: 10px;
+        font-size: 0.625rem;
         font-weight: 700;
         letter-spacing: 0.12em;
         text-transform: uppercase;
@@ -449,14 +453,14 @@
       }
       .nwc-date {
         font-family: var(--display);
-        font-size: 26px;
+        font-size: 1.625rem;
         font-weight: 600;
         color: #ffffff;
         line-height: 1.1;
         text-shadow: none;
       }
       .nwc-price {
-        font-size: 16px;
+        font-size: 1rem;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.8);
         text-shadow: none;
@@ -491,7 +495,7 @@
       }
       .credentials-copy p {
         margin: 0;
-        font-size: 20px;
+        font-size: 1.25rem;
         line-height: 1.65;
         color: var(--muted);
       }
@@ -539,7 +543,7 @@
         color: var(--text);
         font-family: var(--body);
         font-weight: 700;
-        font-size: 12.5px;
+        font-size: 0.7812rem;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         cursor: pointer;
@@ -589,7 +593,7 @@
       .contact-section h3 {
         font-family: var(--display);
         margin: 0 0 6px;
-        font-size: 38px;
+        font-size: 2.375rem;
         line-height: 0.95;
         letter-spacing: 0;
       }
@@ -597,7 +601,7 @@
       .contact-section p {
         margin: 0 0 14px;
         color: var(--muted);
-        font-size: 16px;
+        font-size: 1rem;
         line-height: 1.6;
       }
 
@@ -615,7 +619,7 @@
       label {
         display: grid;
         gap: 6px;
-        font-size: 12px;
+        font-size: 0.75rem;
         color: var(--faint);
       }
       .label-text {
@@ -630,7 +634,7 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        font-size: 14px;
+        font-size: 0.875rem;
         color: var(--muted);
       }
       .checkbox-row input[type="checkbox"] {
@@ -672,7 +676,7 @@
         margin-top: 4px;
       }
       .fineprint {
-        font-size: 12px;
+        font-size: 0.75rem;
         color: var(--muted);
         margin: 6px 0 0;
         line-height: 1.5;
@@ -696,10 +700,10 @@
       /* ── Responsive ── */
       @media (max-width: 1100px) {
         .wrap { padding: 24px 16px 56px; }
-        .brand h1 { font-size: 36px; }
-        .brand p { font-size: 12px; }
+        .brand h1 { font-size: 2.25rem; }
+        .brand p { font-size: 0.75rem; }
         .section h3,
-        .contact-section h3 { font-size: 34px; }
+        .contact-section h3 { font-size: 2.125rem; }
       }
 
       @media (max-width: 920px) {
@@ -710,7 +714,7 @@
         .wrap { padding-bottom: 96px; }
         header { position: static; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 12px 0 16px; }
         .brand { flex: 1; justify-content: flex-start; text-align: left; width: auto; min-width: 0; }
-        .btn.header-cta { display: inline-flex; flex-shrink: 0; width: auto; padding: 10px 14px; font-size: 11px; }
+        .btn.header-cta { display: inline-flex; flex-shrink: 0; width: auto; padding: 10px 14px; font-size: 0.6875rem; }
 
         /* Floating circular sticky hamburger */
         .hamburger {
@@ -758,18 +762,19 @@
         nav.open .pill:nth-child(4) { animation-delay: 0.16s; }
         nav.open .pill:nth-child(5) { animation-delay: 0.20s; }
         nav.open .pill:nth-child(6) { animation-delay: 0.24s; }
-        .pill { justify-content: center; font-size: 13px; padding: 13px 16px; min-width: 0; width: 100%; max-width: 340px; }
+        .pill { justify-content: center; font-size: 0.8125rem; padding: 13px 16px; min-width: 0; width: 100%; max-width: 340px; }
       }
 
       @media (max-width: 860px) {
         .editorial { padding: 22px 2px 8px; }
         .hero-panel { min-height: 360px; padding: 24px; }
         .hero-content { width: min(82%, 720px); }
-        .hero-content h2 { font-size: clamp(28px, 6vw, 44px); }
-        .hero-content h3 { font-size: 28px; }
-        .hero-content p { font-size: 17px; }
-        .hero-content ul { font-size: 16px; }
-        .price-note { font-size: 14px; gap: 14px; }
+        .hero-content h2 { font-size: clamp(1.75rem, 6vw, 2.75rem); }
+        .hero-content h3 { font-size: 1.75rem; }
+        .hero-content p { font-size: 1.0625rem; }
+        .hero-content ul { font-size: 1rem; }
+        .price-note { font-size: 1rem; gap: 12px; }
+        .price-note span:not(:first-child) { padding-left: 12px; }
         .credentials { grid-template-columns: 1fr; gap: 16px; }
         .editorial-photo { max-width: 340px; width: 78%; justify-self: center; }
         .next-workshop-card { display: flex; flex-direction: column; width: 100%; align-items: center; gap: 14px; }
@@ -777,28 +782,29 @@
         .btn.nwc-cta { align-self: stretch; justify-content: center; }
         .btn.book-session-btn { width: 100%; }
         .testimonial { padding: 28px 32px; }
-        .testimonial-quote { font-size: 23px; }
+        .testimonial-quote { font-size: 1.4375rem; }
       }
 
       @media (max-width: 640px) {
         .wrap { padding: 18px 12px 96px; }
-        .brand h1 { font-size: clamp(22px, 6.4vw, 30px); line-height: 0.95; }
-        .brand p { font-size: 10.5px; letter-spacing: 0.08em; }
+        .brand h1 { font-size: clamp(1.375rem, 6.4vw, 1.875rem); line-height: 0.95; }
+        .brand p { font-size: 0.6562rem; letter-spacing: 0.08em; }
         .hero-panel { min-height: 320px; padding: 18px 14px; align-items: flex-end; }
         .hero-panel.left, .hero-panel.right { justify-content: center; }
         .hero-content { width: min(86%, 100%); padding: 16px 16px 14px; }
         .price-note { justify-content: center; }
-        .hero-content h2 { font-size: clamp(20px, 6.6vw, 30px); }
-        .hero-content h3 { font-size: clamp(22px, 6.6vw, 28px); }
-        .hero-content p { font-size: 16px; }
-        .hero-content ul { font-size: 15px; padding-left: 18px; }
-        .price-note { font-size: 13px; gap: 10px; }
-        .credentials-copy p { font-size: 17px; line-height: 1.55; }
+        .hero-content h2 { font-size: clamp(1.25rem, 6.6vw, 1.875rem); }
+        .hero-content h3 { font-size: clamp(1.375rem, 6.6vw, 1.75rem); }
+        .hero-content p { font-size: 1rem; }
+        .hero-content ul { font-size: 0.9375rem; padding-left: 18px; }
+        .price-note { font-size: 0.9375rem; gap: 8px; }
+        .price-note span:not(:first-child) { padding-left: 8px; }
+        .credentials-copy p { font-size: 1.0625rem; line-height: 1.55; }
         .editorial-photo { max-width: 280px; width: 72%; justify-self: center; }
         .section .panel,
         .contact-section .panel { padding: 16px; }
         .section h3,
-        .contact-section h3 { font-size: 32px; }
+        .contact-section h3 { font-size: 2rem; }
         .row { grid-template-columns: 1fr; }
         .btn { width: 100%; }
         .coaching-panel .embed { min-height: 500px; }
@@ -806,22 +812,27 @@
         .footer { flex-direction: column; align-items: center; text-align: center; }
         .next-workshop-card { display: flex; width: 100%; padding: 14px 16px; align-items: center; }
         .nwc-info { align-items: center; text-align: center; width: 100%; }
-        .nwc-date { font-size: 22px; }
+        .nwc-date { font-size: 1.375rem; }
         .testimonials { margin-top: 32px; }
         .testimonial { padding: 22px; }
-        .testimonial-quote { font-size: 21px; }
+        .testimonial-quote { font-size: 1.3125rem; }
       }
       /* ── Footer ── */
       .footer {
         margin-top: 22px;
         padding: 18px 0 0;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 0.75rem;
         display: flex;
         justify-content: space-between;
         gap: 10px;
         flex-wrap: wrap;
       }
+      .footer-link {
+        color: var(--muted);
+        text-underline-offset: 3px;
+      }
+      .footer-link:hover { color: var(--text); text-decoration: underline; }
       .social-icon {
         width: 44px;
         height: 44px;
@@ -875,7 +886,7 @@
       }
       .tr-app-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
       .tr-eyebrow {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 700;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -884,14 +895,14 @@
       }
       .tr-title {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         font-weight: 600;
         line-height: 0.95;
         color: var(--text);
         margin: 0;
       }
       .tr-desc {
-        font-size: 15px;
+        font-size: 0.9375rem;
         color: var(--muted);
         line-height: 1.65;
         margin: 0;
@@ -915,14 +926,14 @@
         align-items: flex-start;
       }
       .tr-feature-icon {
-        font-size: 17px;
+        font-size: 1.0625rem;
         flex-shrink: 0;
         margin-top: 1px;
       }
-      .tr-feature-text { font-size: 14px; color: var(--muted); line-height: 1.55; }
+      .tr-feature-text { font-size: 0.875rem; color: var(--muted); line-height: 1.55; }
       .tr-feature-text strong { color: var(--text); font-weight: 600; }
       .tr-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-      .tr-note { font-size: 12px; color: var(--faint); }
+      .tr-note { font-size: 0.75rem; color: var(--faint); }
       @media (max-width: 860px) {
         .table-read-panel { grid-template-columns: 1fr; }
         .tr-left { border-right: none; border-bottom: 1px solid var(--line); padding: 32px 28px 28px; }
@@ -931,7 +942,7 @@
       @media (max-width: 640px) {
         .tr-left { padding: 24px 20px 22px; }
         .tr-right { padding: 22px 20px 26px; }
-        .tr-title { font-size: 32px; }
+        .tr-title { font-size: 2rem; }
         .tr-cta { flex-direction: column; align-items: flex-start; }
         .tr-cta .btn { width: 100%; justify-content: center; }
       }
@@ -946,7 +957,7 @@
         align-items: center;
       }
       .podcast-eyebrow {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 700;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -955,7 +966,7 @@
       }
       .podcast-title {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         font-weight: 600;
         line-height: 0.95;
         margin: 0 0 6px;
@@ -964,19 +975,19 @@
       .podcast-tagline {
         font-family: var(--body);
         font-weight: 500;
-        font-size: 18px;
+        font-size: 1.125rem;
         color: var(--muted);
         margin: 0 0 16px;
       }
       .podcast-body p {
-        font-size: 16px;
+        font-size: 1rem;
         line-height: 1.7;
         color: var(--muted);
         margin: 0 0 14px;
       }
       .podcast-body p:last-child { margin-bottom: 20px; }
       .podcast-note {
-        font-size: 13px;
+        font-size: 0.8125rem;
         color: var(--faint);
         margin: 14px 0 0;
         line-height: 1.5;
@@ -999,11 +1010,11 @@
       @media (max-width: 860px) {
         .podcast-section.panel { padding: 28px 32px; }
         .podcast-cols { grid-template-columns: 1fr; gap: 28px; }
-        .podcast-title { font-size: 34px; }
+        .podcast-title { font-size: 2.125rem; }
       }
       @media (max-width: 640px) {
         .podcast-section.panel { padding: 22px; }
-        .podcast-title { font-size: 30px; }
+        .podcast-title { font-size: 1.875rem; }
       }
 
       /* ── Press / credits ── */
@@ -1013,7 +1024,7 @@
       .about-card { margin-top: var(--section-gap); padding: 36px 44px; }
       .about-heading {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         font-weight: 600;
         line-height: 0.95;
         color: var(--text);
@@ -1034,7 +1045,7 @@
         padding: 6px 0;
       }
       .logo-strip-label {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 700;
         letter-spacing: 0.16em;
         text-transform: uppercase;
@@ -1052,14 +1063,12 @@
       }
       .logo-strip-list li {
         font-family: var(--display);
-        font-size: 22px;
+        font-size: 1.375rem;
         text-transform: uppercase;
         letter-spacing: 0.02em;
         color: var(--muted);
         opacity: 0.72;
-        transition: opacity 0.2s ease;
       }
-      .logo-strip-list li:hover { opacity: 1; }
       .logo-strip-logo { display: inline-flex; align-items: center; opacity: 1; }
       .logo-netflix { height: 34px; width: auto; display: block; }
       .logo-img { width: auto; display: block; }
@@ -1067,14 +1076,14 @@
       .logo-a24 { height: 56px; }
       @media (max-width: 640px) {
         .logo-strip-list { gap: 12px 26px; }
-        .logo-strip-list li { font-size: 17px; }
+        .logo-strip-list li { font-size: 1.0625rem; }
         .logo-netflix { height: 28px; }
         .logo-cbs { height: 40px; }
         .logo-a24 { height: 46px; }
       }
       .press-heading {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         font-weight: 600;
         line-height: 0.95;
         color: var(--text);
@@ -1101,7 +1110,7 @@
       }
       .poster-title {
         font-family: var(--body);
-        font-size: 13px;
+        font-size: 0.8125rem;
         font-weight: 700;
         color: var(--text);
         line-height: 1.25;
@@ -1113,7 +1122,7 @@
         justify-content: center;
       }
       .poster-meta {
-        font-size: 11px;
+        font-size: 0.6875rem;
         color: var(--faint);
         margin: 0;
         line-height: 1.45;
@@ -1130,12 +1139,12 @@
       }
       .expect-heading {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         line-height: 0.95;
         margin: 0 0 20px;
       }
       .expect-body p {
-        font-size: 16px;
+        font-size: 1rem;
         line-height: 1.7;
         color: var(--muted);
         margin: 0 0 14px;
@@ -1158,7 +1167,7 @@
       }
       .expect-detail:first-child { border-top: 1px solid var(--line); }
       .expect-detail-label {
-        font-size: 11px;
+        font-size: 0.6875rem;
         font-weight: 700;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -1166,7 +1175,7 @@
       }
       .expect-detail-value {
         font-family: var(--display);
-        font-size: 20px;
+        font-size: 1.25rem;
         color: var(--text);
         line-height: 1.2;
       }
@@ -1176,12 +1185,12 @@
       .faq-section.panel { padding: 36px 44px; }
       .faq-heading {
         font-family: var(--display);
-        font-size: 38px;
+        font-size: 2.375rem;
         line-height: 0.95;
         margin: 0 0 6px;
       }
       .faq-intro {
-        font-size: 16px;
+        font-size: 1rem;
         color: var(--muted);
         margin: 0 0 28px;
         line-height: 1.6;
@@ -1191,6 +1200,7 @@
         grid-template-columns: 1fr 1fr;
         gap: 0 40px;
       }
+      .faq-cols dl { margin: 0; }
       .faq-item {
         padding: 18px 0;
         border-bottom: 1px solid var(--line);
@@ -1198,7 +1208,7 @@
       .faq-item:first-child { border-top: 1px solid var(--line); }
       .faq-q {
         font-family: var(--body);
-        font-size: 18px;
+        font-size: 1.125rem;
         font-weight: 700;
         color: var(--text);
         margin: 0 0 7px;
@@ -1206,7 +1216,7 @@
         letter-spacing: -0.01em;
       }
       .faq-a {
-        font-size: 15px;
+        font-size: 0.9375rem;
         color: var(--muted);
         line-height: 1.6;
         margin: 0;
@@ -1264,27 +1274,27 @@
         border-radius: 999px;
         cursor: pointer;
         color: #ffffff;
-        font-size: 22px;
+        font-size: 1.375rem;
         line-height: 1;
         transition: background 0.15s ease, transform 0.15s ease;
       }
       .modal-close:hover { background: rgba(14, 17, 22, 0.82); color: #ffffff; transform: scale(1.05); }
       .modal-heading {
         font-family: var(--display);
-        font-size: 32px;
+        font-size: 2rem;
         line-height: 0.95;
         margin: 0 0 10px;
         color: var(--text);
       }
       .modal-body {
-        font-size: 15px;
+        font-size: 0.9375rem;
         color: var(--muted);
         margin: 0 0 20px;
         line-height: 1.55;
       }
       .modal-form { display: flex; flex-direction: column; gap: 10px; }
       .modal-fineprint {
-        font-size: 12px;
+        font-size: 0.75rem;
         color: var(--faint);
         margin: 4px 0 0;
         line-height: 1.5;
@@ -1319,7 +1329,7 @@
         gap: 6px;
       }
       .credit-modal-type {
-        font-size: 10px;
+        font-size: 0.625rem;
         font-weight: 700;
         letter-spacing: 0.12em;
         text-transform: uppercase;
@@ -1328,33 +1338,33 @@
       }
       .credit-modal-title {
         font-family: var(--display);
-        font-size: 28px;
+        font-size: 1.75rem;
         font-weight: 600;
         line-height: 1.05;
         margin: 0;
         color: var(--text);
       }
       .credit-modal-role {
-        font-size: 14px;
+        font-size: 0.875rem;
         font-weight: 600;
         color: var(--text);
         margin: 4px 0 0;
       }
       .credit-modal-meta {
-        font-size: 13px;
+        font-size: 0.8125rem;
         color: var(--faint);
         margin: 0;
         line-height: 1.5;
       }
       .credit-modal-desc {
-        font-size: 14px;
+        font-size: 0.875rem;
         line-height: 1.65;
         color: var(--muted);
         margin: 10px 0 0;
       }
       .credit-modal-review {
         font-family: var(--body);
-        font-size: 14px;
+        font-size: 0.875rem;
         font-style: italic;
         line-height: 1.55;
         color: var(--faint);
@@ -1403,17 +1413,21 @@
         .about-card { padding: 28px 32px; }
         .expect-cols,
         .faq-cols { grid-template-columns: 1fr; gap: 28px; }
+        /* Stacked single column: the previous column's last item already
+           supplies the divider, so drop the next column's leading border
+           to avoid a doubled-up line. */
+        .faq-cols > div:not(:first-child) dl .faq-item:first-child { border-top: none; }
         .expect-heading,
         .faq-heading,
         .press-heading,
-        .about-heading { font-size: 34px; }
+        .about-heading { font-size: 2.125rem; }
         .poster-grid { grid-template-columns: repeat(4, 1fr); }
       }
       @media (max-width: 640px) {
         .workshop-info,
         .about-card { padding: 22px; }
         .expect-heading,
-        .faq-heading { font-size: 30px; }
+        .faq-heading { font-size: 1.875rem; }
         .modal { padding: 28px 24px; }
         .poster-grid { grid-template-columns: repeat(3, 1fr); }
       }
@@ -1440,7 +1454,7 @@
         .testimonials { grid-template-columns: 1fr; }
       }
       .testimonial-stars {
-        font-size: 14px;
+        font-size: 0.875rem;
         margin-bottom: 14px;
         letter-spacing: 0.18em;
         color: var(--a);
@@ -1467,7 +1481,7 @@
       .testimonial::before {
         content: "\201C";
         font-family: Georgia, "Times New Roman", serif;
-        font-size: 150px;
+        font-size: 9.375rem;
         font-weight: 700;
         line-height: 1;
         color: var(--a);
@@ -1480,7 +1494,7 @@
       }
       .testimonial-quote {
         font-family: var(--body);
-        font-size: 21px;
+        font-size: 1.3125rem;
         font-weight: 500;
         line-height: 1.5;
         letter-spacing: -0.01em;
@@ -1489,7 +1503,7 @@
         position: relative;
       }
       .testimonial-attr {
-        font-size: 12px;
+        font-size: 0.75rem;
         font-weight: 700;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -1540,7 +1554,7 @@
       .expect-detail-value {
         font-family: var(--body);
         font-weight: 700;
-        font-size: 19px;
+        font-size: 1.1875rem;
         letter-spacing: -0.01em;
         line-height: 1.3;
       }
@@ -1564,14 +1578,14 @@
         font-family: var(--mono);
         letter-spacing: -0.03em;
       }
-      .hero-content p { font-size: 15px; line-height: 1.7; }
-      .hero-content ul { font-size: 14.5px; line-height: 1.75; }
-      .credentials-copy p { font-size: 15px; line-height: 1.75; }
+      .hero-content p { font-size: 0.9375rem; line-height: 1.7; }
+      .hero-content ul { font-size: 0.9062rem; line-height: 1.75; }
+      .credentials-copy p { font-size: 0.9375rem; line-height: 1.75; }
       .section p,
-      .contact-section p { font-size: 14.5px; line-height: 1.7; }
-      .podcast-body p { font-size: 14.5px; line-height: 1.75; }
-      .expect-body p { font-size: 14px; line-height: 1.8; }
-      .faq-a { font-size: 13.5px; line-height: 1.7; }
+      .contact-section p { font-size: 0.9062rem; line-height: 1.7; }
+      .podcast-body p { font-size: 0.9062rem; line-height: 1.75; }
+      .expect-body p { font-size: 0.875rem; line-height: 1.8; }
+      .faq-a { font-size: 0.8438rem; line-height: 1.7; }
 
       /* ── Collapsible sections (What to Expect, Common Questions) ── */
       details.collapse { width: 100%; }
@@ -1646,21 +1660,21 @@
       /* ── Mobile refinements ── */
       @media (max-width: 640px) {
         /* Tighter monospace so long copy doesn't become a wall */
-        .hero-content p { font-size: 13px; line-height: 1.65; }
-        .hero-content ul { font-size: 12.5px; line-height: 1.7; padding-left: 16px; }
+        .hero-content p { font-size: 0.8125rem; line-height: 1.65; }
+        .hero-content ul { font-size: 0.7812rem; line-height: 1.7; padding-left: 16px; }
         .credentials-copy p,
         .podcast-body p,
         .section p,
         .contact-section p,
-        .expect-body p { font-size: 13px; line-height: 1.7; }
-        .faq-a { font-size: 12.5px; line-height: 1.65; }
-        .faq-intro { font-size: 12.5px; }
-        .podcast-note { font-size: 12px; }
+        .expect-body p { font-size: 0.8125rem; line-height: 1.7; }
+        .faq-a { font-size: 0.7812rem; line-height: 1.65; }
+        .faq-intro { font-size: 0.7812rem; }
+        .podcast-note { font-size: 0.75rem; }
         .credentials-copy { padding-top: 0; }
 
         /* Coaching price chips */
-        .price-note { gap: 10px; }
-        .price-chip { font-size: 12px; padding: 8px 14px; }
+        .price-note { gap: 8px; }
+        .price-chip { font-size: 0.75rem; padding: 8px 14px; }
 
         /* Collapsible headers: keep the title clear of the toggle */
         .collapse-summary { gap: 14px; align-items: flex-start; }
@@ -1668,14 +1682,14 @@
         .expect-heading,
         .faq-heading,
         .press-heading,
-        .about-heading { font-size: 25px; }
+        .about-heading { font-size: 1.5625rem; }
         .collapse-icon { width: 30px; height: 30px; margin-top: 2px; }
         .collapse-icon::before { width: 12px; }
         .collapse-icon::after { height: 12px; }
         .collapse-body { padding-top: 20px; }
 
         /* Testimonials */
-        .testimonial-quote { font-size: 17.5px; line-height: 1.5; }
+        .testimonial-quote { font-size: 1.0938rem; line-height: 1.5; }
 
         /* Hero bullet lists collapse on mobile */
         .hero-list > summary { display: inline-flex; margin-top: 6px; }
@@ -1819,7 +1833,7 @@
                 submission to callback, with tools you can use immediately.
               </p>
               <p>
-                Workshops are held on Zoom and are currently limited to 10
+                Workshops are held on Zoom and are currently limited to 8
                 people.
               </p>
               <details class="hero-list" open>
@@ -1919,7 +1933,7 @@
               </li>
               <li class="expect-detail">
                 <span class="expect-detail-label">Group size</span>
-                <span class="expect-detail-value">Max 10 actors</span>
+                <span class="expect-detail-value">Max 8 actors</span>
               </li>
               <li class="expect-detail">
                 <span class="expect-detail-label">What to bring</span>
@@ -1951,11 +1965,11 @@
             <dl>
               <div class="faq-item">
                 <dt class="faq-q">What level of experience do I need?</dt>
-                <dd class="faq-a">This is built for actors who are actively auditioning or working toward it. Whether you're newer to the process or have been at it for years, what matters is that you're doing the work, or trying to.</dd>
+                <dd class="faq-a">This is built for actors who are actively auditioning or working toward it. Whether you're newer to the process or have been at it for years, there is room in the session to work on what you need.</dd>
               </div>
               <div class="faq-item">
                 <dt class="faq-q">Do you work with actors outside New York?</dt>
-                <dd class="faq-a">Yes. Everything is on Zoom, so it doesn't matter where you're based.</dd>
+                <dd class="faq-a">Yes. By default, sessions are on Zoom. However, if you are local to NYC or willing to travel, in-person sessions in a studio space are possible. If you're interested in working together in-person, <a href="#reach-out">reach out</a> and let's talk.</dd>
               </div>
               <div class="faq-item">
                 <dt class="faq-q">Can I book private coaching without doing the workshop first?</dt>
@@ -1971,7 +1985,7 @@
               </div>
               <div class="faq-item">
                 <dt class="faq-q">What if I need to cancel or reschedule?</dt>
-                <dd class="faq-a">You can reschedule through Cal.com up to 24 hours before your session.</dd>
+                <dd class="faq-a">You can reschedule through Cal.com or cancel with a full refund up to 24 hours before your session. Cancellations made less than 24 hours before a session are not eligible for a refund.</dd>
               </div>
               <div class="faq-item">
                 <dt class="faq-q">How do I hear about upcoming workshop dates?</dt>
@@ -2106,7 +2120,7 @@
       <section class="podcast-section panel reveal" id="podcast" aria-label="90% of the Job podcast">
         <div class="podcast-cols">
           <div>
-            <p class="podcast-eyebrow">New Podcast</p>
+            <p class="podcast-eyebrow">New Episode</p>
             <h3 class="podcast-title">90% of the Job</h3>
             <p class="podcast-tagline">Surviving Auditions as a Working Actor</p>
             <div class="podcast-body">
@@ -2181,7 +2195,7 @@
         <div class="panel">
           <h3>Reach Out</h3>
           <p>
-            For questions, private group inquiries, or anything else, send a
+            For questions, group inquiries, or anything else, send a
             message here.
           </p>
 
@@ -2261,7 +2275,7 @@
       </section>
 
       <footer class="footer">
-        <div>© <span id="year"></span> Avery Whitted</div>
+        <div>© <span id="year"></span> Avery Whitted &middot; <a class="footer-link" href="policies.html">Policies</a></div>
         <div>
           <a
             class="social-icon"
@@ -2388,7 +2402,7 @@
           <input type="hidden" name="_template" value="table" />
           <input type="hidden" name="_captcha" value="false" />
           <input type="hidden" name="_next" value="https://averywhitted.com/" />
-          <label style="display:grid;gap:6px;font-size:12px;color:var(--faint)">
+          <label style="display:grid;gap:6px;font-size:0.75rem;color:var(--faint)">
             Email address
             <input type="email" name="email" placeholder="you@email.com" autocomplete="email" required />
           </label>
