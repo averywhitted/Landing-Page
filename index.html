@@ -18,7 +18,7 @@
     <meta property="og:description" content="Actor | Designer | Coach" />
     <meta
       property="og:image"
-      content="https://averywhitted.com/Avery%20Whitted-SEO-image.png"
+      content="https://averywhitted.com/og-image.png"
     />
     <meta property="og:url" content="https://averywhitted.com/" />
     <meta property="og:type" content="website" />
@@ -27,6 +27,7 @@
     <!-- Image sizing hint (recommended for reliability) -->
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Avery Whitted: Acting Workshops + Private Coaching" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -34,11 +35,18 @@
     <meta name="twitter:description" content="Actor | Designer | Coach" />
     <meta
       name="twitter:image"
-      content="https://averywhitted.com/Avery%20Whitted-SEO-image.png"
+      content="https://averywhitted.com/og-image.png"
     />
+    <meta name="twitter:image:alt" content="Avery Whitted: Acting Workshops + Private Coaching" />
 
     <!-- Theme color (affects mobile browser bar color) -->
     <meta name="theme-color" content="#f6f7f9" />
+
+    <!-- Favicon -->
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1702,22 +1710,175 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Person",
-        "name": "Avery Whitted",
-        "url": "https://averywhitted.com/",
-        "image": "https://averywhitted.com/Avery%20Whitted-SEO-image.png",
-        "jobTitle": "Actor and Acting Coach",
-        "description": "Audition coaching and acting workshops for actors — practical tools for auditioning, self-tapes, and confidence in the room.",
-        "sameAs": [
-          "https://www.imdb.com/name/nm10031930/",
-          "https://www.instagram.com/avery_whitted",
-          "https://www.broadwayworld.com/people/Avery-Whitted/"
-        ],
-        "knowsAbout": ["Acting", "Auditioning", "Self-tapes", "Scene study"],
-        "makesOffer": [
-          { "@type": "Offer", "name": "Private coaching — 30 minutes", "price": "75", "priceCurrency": "USD" },
-          { "@type": "Offer", "name": "Private coaching — 1 hour", "price": "130", "priceCurrency": "USD" },
-          { "@type": "Offer", "name": "Private coaching — 90 minutes", "price": "195", "priceCurrency": "USD" }
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://averywhitted.com/#website",
+            "url": "https://averywhitted.com/",
+            "name": "Avery Whitted",
+            "description": "Audition coaching and acting workshops for actors, online worldwide and in person in New York.",
+            "inLanguage": "en-US",
+            "publisher": { "@id": "https://averywhitted.com/#avery" }
+          },
+          {
+            "@type": "Person",
+            "@id": "https://averywhitted.com/#avery",
+            "name": "Avery Whitted",
+            "url": "https://averywhitted.com/",
+            "image": "https://averywhitted.com/Avery115final.JPG",
+            "jobTitle": "Actor and Acting Coach",
+            "description": "New York-based actor and acting coach with credits across film, television, and theater, including the Netflix film In the Tall Grass and guest-starring roles on Magnum P.I. and FBI: Most Wanted. Coaches actors worldwide over Zoom, and in person in New York, on auditioning, self-tapes, and staying grounded in the room.",
+            "workLocation": {
+              "@type": "Place",
+              "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "New York",
+                "addressRegion": "NY",
+                "addressCountry": "US"
+              }
+            },
+            "alumniOf": {
+              "@type": "CollegeOrUniversity",
+              "name": "Mason Gross School of the Arts, Rutgers University"
+            },
+            "sameAs": [
+              "https://www.imdb.com/name/nm10031930/",
+              "https://www.instagram.com/avery_whitted",
+              "https://www.broadwayworld.com/people/Avery-Whitted/"
+            ],
+            "knowsAbout": [
+              "Acting",
+              "Auditioning",
+              "Self-tape production",
+              "Memorization and line work",
+              "Callback strategy",
+              "Audition anxiety"
+            ]
+          },
+          {
+            "@type": "Service",
+            "@id": "https://averywhitted.com/#private-coaching",
+            "name": "Private Acting and Audition Coaching",
+            "serviceType": "Acting and audition coaching",
+            "description": "One-on-one coaching for actors: audition prep, quick-turnaround sides, deeper script work, and self-tape sessions, in 30, 60, or 90 minute sessions. Held on Zoom by default; in-person sessions in a New York studio are possible. Sessions are scheduled in Eastern Time.",
+            "url": "https://averywhitted.com/#coaching",
+            "provider": { "@id": "https://averywhitted.com/#avery" },
+            "audience": { "@type": "Audience", "audienceType": "Actors" },
+            "areaServed": ["Worldwide", { "@type": "City", "name": "New York" }],
+            "availableChannel": [
+              {
+                "@type": "ServiceChannel",
+                "name": "Online via Zoom",
+                "serviceUrl": "https://cal.com/averywhitted",
+                "availableLanguage": "English"
+              },
+              {
+                "@type": "ServiceChannel",
+                "name": "In person (New York studio space)",
+                "serviceLocation": {
+                  "@type": "Place",
+                  "name": "New York studio space",
+                  "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": "New York",
+                    "addressRegion": "NY",
+                    "addressCountry": "US"
+                  }
+                },
+                "availableLanguage": "English"
+              }
+            ],
+            "hasOfferCatalog": {
+              "@type": "OfferCatalog",
+              "name": "Private coaching sessions",
+              "itemListElement": [
+                { "@type": "Offer", "name": "Private coaching: 30 minutes", "price": "75", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" },
+                { "@type": "Offer", "name": "Private coaching: 1 hour", "price": "130", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" },
+                { "@type": "Offer", "name": "Private coaching: 90 minutes", "price": "195", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" }
+              ]
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://averywhitted.com/#audition-survival-workshop",
+            "name": "The Audition Survival Workshop",
+            "serviceType": "Acting workshop",
+            "description": "A two-hour small-group workshop on Zoom covering the full audition cycle: finding better auditions, memorization and prep systems, self-tape workflow, and in-room and callback strategy, with live feedback on your work. Next date to be announced; join the email list to hear first.",
+            "url": "https://averywhitted.com/#workshops",
+            "provider": { "@id": "https://averywhitted.com/#avery" },
+            "audience": { "@type": "Audience", "audienceType": "Actors" },
+            "areaServed": "Worldwide",
+            "availableChannel": {
+              "@type": "ServiceChannel",
+              "name": "Online via Zoom",
+              "serviceUrl": "https://averywhitted.com/#workshops",
+              "availableLanguage": "English"
+            }
+          },
+          {
+            "@type": "PodcastSeries",
+            "@id": "https://averywhitted.com/#podcast",
+            "name": "90% of the Job",
+            "description": "Surviving auditions as a working actor: conversations, stories, and honest advice from host and working actor Avery Whitted that demystify the grind and make each audition a little easier.",
+            "url": "https://averywhitted.com/podcast/",
+            "webFeed": "https://anchor.fm/s/1171d7398/podcast/rss",
+            "sameAs": "https://podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314",
+            "author": { "@id": "https://averywhitted.com/#avery" }
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://averywhitted.com/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What level of experience do I need?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "This is built for actors who are actively auditioning or working toward it. Whether you're newer to the process or have been at it for years, there is room in the session to work on what you need."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Do you work with actors outside New York?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. By default, sessions are on Zoom. However, if you are local to NYC or willing to travel, in-person sessions in a studio space are possible. If you're interested in working together in-person, reach out and let's talk."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I book private coaching without doing the workshop first?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes, they're completely separate. Some actors come in for coaching ahead of a specific audition; others use it for ongoing support between workshops or on its own."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What's the difference between the workshop and private coaching?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The workshop covers the full audition cycle in a structured group format with live feedback. Coaching is one-on-one and goes deeper on whatever you're specifically working through, whether that's a particular role, a recurring habit, or targeted prep ahead of an audition."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What if I need to cancel or reschedule?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "You can reschedule through Cal.com or cancel with a full refund up to 24 hours before your session. Cancellations made less than 24 hours before a session are not eligible for a refund."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do I hear about upcoming workshop dates?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sign up for the email list and you'll get first access when new dates are announced."
+                }
+              }
+            ]
+          }
         ]
       }
     </script>
@@ -2048,63 +2209,63 @@
             <div class="poster-grid">
           <div class="poster-item" data-credit-id="ittg">
             <div class="poster-thumb">
-              <img src="Production%20posters/ITTG%20poster" alt="In the Tall Grass poster" />
+              <img src="Production%20posters/ittg.webp" alt="In the Tall Grass poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">In the Tall Grass</p>
             <p class="poster-meta">Netflix &middot; 2019<br>Starring role</p>
           </div>
           <div class="poster-item" data-credit-id="anycw">
             <div class="poster-thumb">
-              <img src="Production%20posters/ANYCW%20poster.jpg" alt="A New York Christmas Wedding poster" />
+              <img src="Production%20posters/anycw.webp" alt="A New York Christmas Wedding poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">A New York Christmas Wedding</p>
             <p class="poster-meta">Netflix &middot; 2020</p>
           </div>
           <div class="poster-item" data-credit-id="magnum">
             <div class="poster-thumb">
-              <img src="Production%20posters/Magnum%20PI%20poster.jpg" alt="Magnum P.I. poster" />
+              <img src="Production%20posters/magnum-pi.webp" alt="Magnum P.I. poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">Magnum P.I.</p>
             <p class="poster-meta">CBS &middot; Season 3</p>
           </div>
           <div class="poster-item" data-credit-id="fbi">
             <div class="poster-thumb">
-              <img src="Production%20posters/FBI%20MW%20poster.jpg" alt="FBI Most Wanted poster" />
+              <img src="Production%20posters/fbi-most-wanted.webp" alt="FBI Most Wanted poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">FBI: Most Wanted</p>
             <p class="poster-meta">CBS &middot; 2020</p>
           </div>
           <div class="poster-item" data-credit-id="garside">
             <div class="poster-thumb">
-              <img src="Production%20posters/Garside%20poster.jpg" alt="Garside's Career poster" />
+              <img src="Production%20posters/garside.webp" alt="Garside's Career poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">Garside's Career</p>
             <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2025</p>
           </div>
           <div class="poster-item" data-credit-id="candida">
             <div class="poster-thumb">
-              <img src="Production%20posters/Candida%20poster.webp" alt="Candida poster" />
+              <img src="Production%20posters/candida.webp" alt="Candida poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">Candida</p>
             <p class="poster-meta">Gingold Theatrical Group<br>Off-Broadway &middot; 2022</p>
           </div>
           <div class="poster-item" data-credit-id="chains">
             <div class="poster-thumb">
-              <img src="Production%20posters/Chains%20poster.jpg" alt="Chains poster" />
+              <img src="Production%20posters/chains.webp" alt="Chains poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">Chains</p>
             <p class="poster-meta">Mint Theater Company<br>Off-Broadway &middot; 2022</p>
           </div>
           <div class="poster-item" data-credit-id="sherlock">
             <div class="poster-thumb">
-              <img src="Production%20posters/Sherlock%20Carol%20poster.jpg" alt="A Sherlock Carol poster" />
+              <img src="Production%20posters/sherlock-carol.webp" alt="A Sherlock Carol poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">A Sherlock Carol</p>
             <p class="poster-meta">Capital Repertory Theatre<br>2024</p>
           </div>
           <div class="poster-item" data-credit-id="sidney">
             <div class="poster-thumb">
-              <img src="Production%20posters/Sidney%20Hall%20poster.jpg" alt="Sidney Hall poster" />
+              <img src="Production%20posters/sidney-hall.webp" alt="Sidney Hall poster" loading="lazy" decoding="async" />
             </div>
             <p class="poster-title">The Vanishing of Sidney Hall</p>
             <p class="poster-meta">A24 &middot; 2017</p>
@@ -2137,6 +2298,7 @@
                 each audition a little easier.
               </p>
             </div>
+            <a class="btn primary" href="podcast/">Go to episodes &rarr;</a>
             <p class="podcast-note">Also on Spotify — more platforms coming soon.</p>
           </div>
           <div class="podcast-media">
@@ -2598,7 +2760,7 @@
           role: "Cal",
           meta: "Netflix \u00b7 2019 \u00b7 Directed by Vincenzo Natali",
           desc: "Based on the novella by Stephen King and Joe Hill, In the Tall Grass follows a brother and sister who become hopelessly lost in a field of tall grass after following the cries of a young boy — and discover something far more sinister than they expected. Avery played Cal, the older brother, in a starring role alongside Harrison Gilbertson, Laysla De Oliveira, and Patrick Wilson. The film premiered at Fantastic Fest before its Netflix release in October 2019.",
-          poster: "Production%20posters/ITTG%20poster",
+          poster: "Production%20posters/ittg.webp",
           photos: [
             // Add production photo paths here, e.g.: "Production%20posters/photos/ittg-1.jpg"
           ]
@@ -2609,7 +2771,7 @@
           role: "", // Add character name
           meta: "Netflix \u00b7 2020 \u00b7 Directed by Otoja Abit",
           desc: "As her wedding approaches, a bride-to-be is visited by an angel who shows her an alternate life — one in which she followed her heart years earlier. A romantic drama weaving together themes of identity, faith, and second chances set against the backdrop of New York City at Christmas. The film stars Nia Fairweather, Chris Noth, and Cooper Koch.",
-          poster: "Production%20posters/ANYCW%20poster.jpg",
+          poster: "Production%20posters/anycw.webp",
           photos: []
         },
         magnum: {
@@ -2618,7 +2780,7 @@
           role: "Joey",
           meta: "CBS \u00b7 Season 3, Episode 8 \u00b7 \"Someone to Watch Over Me\"",
           desc: "A guest-starring role in the CBS reboot of the classic detective series. Magnum P.I. follows Thomas Magnum, a Navy SEAL veteran turned private investigator working on Oahu, Hawaii. The episode aired February 12, 2021.",
-          poster: "Production%20posters/Magnum%20PI%20poster.jpg",
+          poster: "Production%20posters/magnum-pi.webp",
           photos: []
         },
         fbi: {
@@ -2627,7 +2789,7 @@
           role: "Lucas Earley",
           meta: "CBS \u00b7 Season 1 \u00b7 Episode: \"Execute\" \u00b7 2020",
           desc: "In the episode \"Execute,\" a hacker triggers a deadly car crash killing a family of three, and the FBI's Fugitive Task Force races to stop his ransomware demands from escalating further. Avery played Lucas Earley. The episode aired November 24, 2020.",
-          poster: "Production%20posters/FBI%20MW%20poster.jpg",
+          poster: "Production%20posters/fbi-most-wanted.webp",
           photos: []
         },
         garside: {
@@ -2636,7 +2798,7 @@
           role: "Freddie Mottram",
           meta: "Mint Theater Company \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2025",
           desc: "Harold Brighouse's Garside's Career traces the soaring rise of Peter Garside from working engineer to member of Parliament, driven by a silver tongue and an insatiable hunger for power. Directed by Matt Dickson, this was the New York premiere of a play first produced in 1919 — a promised Broadway production never materialized at the time. The production ran February 1 through March 15 at Theatre Row.",
-          poster: "Production%20posters/Garside%20poster.jpg",
+          poster: "Production%20posters/garside.webp",
           review: "\u201cAvery Whitted gives the standout performance amongst the men.\u201d \u2014 Stage and Cinema",
           photos: []
         },
@@ -2646,7 +2808,7 @@
           role: "Marchbanks",
           meta: "Gingold Theatrical Group \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2022",
           desc: "George Bernard Shaw's Candida, reimagined by the Gingold Theatrical Group in a bold transposition from London 1895 to Harlem 1929. Directed by David Staller, the production starred Avanthika Srinivasan as Candida and R.J. Foster as Morell. Avery played Marchbanks, the passionate young poet who challenges the seemingly perfect Morell household. The run extended October 5 through November 19.",
-          poster: "Production%20posters/Candida%20poster.webp",
+          poster: "Production%20posters/candida.webp",
           review: "\u201cHilarious as Marchbanks, whose over-the-top antics are nearly as impassioned as his declarations of love.\u201d \u2014 TheaterMania",
           photos: []
         },
@@ -2656,7 +2818,7 @@
           role: "Percy",
           meta: "Mint Theater Company \u00b7 Off-Broadway \u00b7 Theatre Row \u00b7 2022",
           desc: "The American premiere of Elizabeth Baker's 1909 drama, directed by Jenn Thompson. Chains is a sharp, compassionate portrait of Edwardian middle-class life — a group of ordinary people held in place by routine, obligation, and quiet resignation. Avery played Percy, Lily's younger brother, an optimistic young man on the verge of marriage and all the settled life it implies.",
-          poster: "Production%20posters/Chains%20poster.jpg",
+          poster: "Production%20posters/chains.webp",
           photos: []
         },
         sherlock: {
@@ -2665,7 +2827,7 @@
           role: "Dr. Timothy Cratchit",
           meta: "Capital Repertory Theatre \u00b7 Albany, NY \u00b7 2024",
           desc: "A holiday theatrical mashup in which the ghost of Ebenezer Scrooge seeks the help of Sherlock Holmes to clear his name. The production starred Drew McVety as Sherlock Holmes and Allen Gilmore as Scrooge. Avery played the grown-up Dr. Timothy Cratchit alongside several other roles, in a run that stretched November 22 through December 22.",
-          poster: "Production%20posters/Sherlock%20Carol%20poster.jpg",
+          poster: "Production%20posters/sherlock-carol.webp",
           review: "\u201cAvery Whitted as the adult Tiny Tim made an impressive debut at the Rep\u201d \u2014 WAMC",
           photos: []
         },
@@ -2675,7 +2837,7 @@
           role: "", // Add character name
           meta: "A24 \u00b7 2017 \u00b7 Directed by Shawn Christensen",
           desc: "After publishing a bestselling novel based on the death of a high school classmate, the young writer Sidney Hall finds himself catapulted to unexpected fame — and then disappears without a trace. The film unfolds across three periods of Sidney's life in an elliptical, non-linear narrative. It stars Logan Lerman, Elle Fanning, Michelle Monaghan, Nathan Lane, and Kyle Chandler, and premiered at Sundance 2017.",
-          poster: "Production%20posters/Sidney%20Hall%20poster.jpg",
+          poster: "Production%20posters/sidney-hall.webp",
           photos: []
         }
       };
