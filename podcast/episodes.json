@@ -73,6 +73,37 @@
           "url": "https://www.instagram.com/avery_whitted/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 3,
+      "slug": "eli-pauley",
+      "title": "Eli Pauley: You Are Who You Are",
+      "guest": "Eli Pauley",
+      "headline": "You Are Who You Are",
+      "guid": "3e424a28-915f-49e5-96a5-3d9c08071086",
+      "published": "2026-09-25T04:00:00Z",
+      "duration_seconds": 2947,
+      "apple_episode_id": "1000791564317",
+      "apple_episode_slug": "eli-pauley-you-are-who-you-are",
+      "summary": "Director, actor and teacher Eli Pauley joins to talk about what auditioning is like from both sides of the casting table. She shares stories of auditioning for an ASL version of Hamlet, a disastrous Crest commercial, and how to let go of the pressure to perform.",
+      "meta_description": "Director, actor and teacher Eli Pauley joins to talk about what auditioning is like from both sides of the casting table. She... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Eli on Instagram",
+          "text": "@theeelest",
+          "url": "https://www.instagram.com/theeelest/"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted/"
+        },
+        {
+          "text": "The House of Bernarda Alba at Mason Gross School of the Arts",
+          "url": "https://secure.masongross.rutgers.edu/25329/"
+        }
+      ]
     }
   ]
 }
