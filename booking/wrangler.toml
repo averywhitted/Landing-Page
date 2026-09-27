@@ -11,3 +11,9 @@ routes = [{ pattern = "book.averywhitted.com", custom_domain = true }]
 binding = "DB"
 database_name = "averywhitted-booking"
 database_id = "6055038c-44cb-4682-824e-751176c5f923"
+migrations_dir = "migrations"
+
+# Not secret. The app-specific password is stored separately with:
+#   npm run cf -- secret put ICLOUD_APP_PASSWORD
+[vars]
+ICLOUD_APPLE_ID = "averywhitted@me.com"
