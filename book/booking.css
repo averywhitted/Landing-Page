@@ -54,6 +54,7 @@ html.bk-lock { overflow: hidden; }
 
 .bk-close {
   position: absolute;
+  z-index: 5;
   top: 16px;
   right: 16px;
   width: 38px;
@@ -81,6 +82,7 @@ html.bk-lock { overflow: hidden; }
   text-transform: uppercase;
   color: var(--bk-a);
 }
+.bk-title:focus { outline: none; }
 .bk-title {
   margin: 0;
   font-family: var(--bk-display);
@@ -198,7 +200,6 @@ html.bk-lock { overflow: hidden; }
   transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
 }
 .bk-svc:hover { transform: translateY(-2px); border-color: var(--bk-a); box-shadow: 0 16px 34px rgba(31, 71, 245, 0.12); }
-.bk-svc[aria-pressed="true"] { border-color: var(--bk-a); box-shadow: 0 0 0 2px var(--bk-a) inset; }
 .bk-svc-num {
   width: 64px;
   height: 64px;
@@ -282,7 +283,7 @@ html.bk-lock { overflow: hidden; }
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 10px 4px 9px;
+  padding: 11px 4px 12px;
   border: 1px solid var(--bk-line);
   border-radius: 14px;
   background: #ffffff;
@@ -293,13 +294,74 @@ html.bk-lock { overflow: hidden; }
 .bk-day-num { font-family: var(--bk-display); font-size: 1.375rem; line-height: 1; }
 .bk-day-count { font-family: var(--bk-mono); font-size: 0.625rem; letter-spacing: -0.02em; color: var(--bk-faint); }
 .bk-day:hover:not([disabled]) { transform: translateY(-1px); border-color: var(--bk-a); }
-.bk-day[aria-pressed="true"] { background: var(--bk-text); border-color: var(--bk-text); color: #ffffff; }
-.bk-day[aria-pressed="true"] .bk-day-dow,
-.bk-day[aria-pressed="true"] .bk-day-count { color: var(--bk-lime); }
+.bk-day[aria-pressed="true"] { background: var(--bk-a); border-color: var(--bk-a); color: #ffffff; box-shadow: 0 6px 18px rgba(31, 71, 245, 0.3); }
+.bk-day[aria-pressed="true"] .bk-day-dow { color: rgba(255, 255, 255, 0.85); }
 .bk-day[disabled] { cursor: not-allowed; background: transparent; border-style: dashed; }
 .bk-day[disabled] .bk-day-num { color: var(--bk-faint); opacity: 0.6; }
 
-.bk-slots-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.bk-slots-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+
+/* Grid / List slider */
+.bk-view { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--bk-line); border-radius: 999px; background: var(--bk-bg1); }
+.bk-view-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(20, 28, 40, 0.12);
+  transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.bk-view[data-view="list"] .bk-view-thumb { transform: translateX(100%); }
+.bk-view button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bk-faint);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.bk-view button[aria-checked="true"] { color: var(--bk-text); }
+.bk-view button:hover { color: var(--bk-a); }
+
+/* List layout: larger rows grouped by part of day */
+.bk-list { display: grid; gap: 16px; }
+.bk-list-group { display: grid; gap: 8px; }
+.bk-list-label { margin: 0; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--bk-a); }
+.bk-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--bk-line);
+  border-radius: 14px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+.bk-row-time { font-family: var(--bk-mono); font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.02em; }
+.bk-row-end { font-family: var(--bk-mono); font-size: 0.8125rem; letter-spacing: -0.02em; color: var(--bk-faint); }
+.bk-row-mark { width: 20px; height: 20px; border: 1.5px solid var(--bk-line); border-radius: 999px; }
+.bk-row:hover { transform: translateY(-1px); border-color: var(--bk-a); background: var(--bk-a-soft); }
+.bk-row:hover .bk-row-mark { border-color: var(--bk-a); }
+.bk-row[aria-pressed="true"] { border-color: var(--bk-a); background: var(--bk-a); color: #ffffff; }
+.bk-row[aria-pressed="true"] .bk-row-end { color: rgba(255, 255, 255, 0.8); }
+.bk-row[aria-pressed="true"] .bk-row-mark { border-color: #ffffff; background: #ffffff; box-shadow: inset 0 0 0 4px var(--bk-a); }
 .bk-label { margin: 0; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--bk-faint); }
 .bk-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .bk-slot {
@@ -434,6 +496,8 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
   .bk-tz { justify-content: space-between; }
   .bk-tz-select { max-width: 70%; }
   .bk-form { grid-template-columns: 1fr; }
+  .bk-slots-head { flex-wrap: wrap; }
+  .bk-cart { width: 38px; height: 38px; margin-left: 0; }
   .bk-summary .bk-price { margin-left: 0; }
 }
 
@@ -444,3 +508,62 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 /* ── Homepage hook: price chips in the Coaching section open that session ── */
 .price-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); text-underline-offset: 4px; transition: text-decoration-color 0.12s ease; }
 .price-link:hover { text-decoration-color: currentColor; }
+
+/* ── Saved-booking cart button (added to the site header when a booking is unfinished) ── */
+.bk-cart {
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #1f47f5;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(31, 71, 245, 0.45);
+  cursor: pointer;
+  animation: bk-cart-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.bk-cart:hover { transform: translateY(-1px); background: #1637d4; }
+.bk-cart:focus-visible { outline: 3px solid #1f47f5; outline-offset: 3px; }
+.bk-cart-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #e3f24d;
+  color: #14161a;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+@keyframes bk-cart-in { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .bk-cart { animation: none; } .bk-view-thumb { transition: none; } }
+
+/* Homepage below 984px: the nav lives in a floating menu button (bottom right),
+   so the cart floats just above it instead of crowding the header. */
+@media (max-width: 983px) {
+  header:has(> .hamburger) > .bk-cart {
+    position: fixed;
+    right: 22px;
+    bottom: 86px;
+    z-index: 209;
+    width: 46px;
+    height: 46px;
+    margin: 0;
+    box-shadow: 0 8px 22px rgba(20, 28, 40, 0.3);
+  }
+}

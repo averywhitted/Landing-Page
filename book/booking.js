@@ -104,6 +104,8 @@
       day: null,
       slot: null,          // UTC ms
       form: {},
+      view: store.get("bk-view") === "list" ? "list" : "grid",
+      resumeTo: null,      // slot to jump back to when restoring a saved booking
       submitting: false,
       message: null,       // { kind: "error" | "info", text }
     };
@@ -157,7 +159,7 @@
       }
       if (!state.services) return `<div class="bk-skel">${'<div class="bk-skel-row" style="height:88px"></div>'.repeat(4)}</div>`;
       return `<ul class="bk-svcs">${state.services.map((s) => `
-        <li><button type="button" class="bk-svc${s.kind === "intro" ? " is-intro" : ""}" data-action="service" data-id="${esc(s.id)}" aria-pressed="${state.service && state.service.id === s.id}">
+        <li><button type="button" class="bk-svc${s.kind === "intro" ? " is-intro" : ""}" data-action="service" data-id="${esc(s.id)}">
           <span class="bk-svc-num" aria-hidden="true">${s.durationMinutes}<small>MIN</small></span>
           <span>
             <span class="bk-svc-name">${s.kind === "intro" ? esc(s.name) : esc(sessionTitle(s.durationMinutes))}</span>
@@ -208,7 +210,6 @@
             aria-label="${esc(keyToLabel(k, { weekday: "long", month: "long", day: "numeric" }))}, ${n ? `${n} open time${n > 1 ? "s" : ""}` : "no open times"}">
           <span class="bk-day-dow">${esc(keyToLabel(k, { weekday: "short" }))}</span>
           <span class="bk-day-num">${esc(keyToLabel(k, { day: "numeric" }))}</span>
-          <span class="bk-day-count">${n ? `${n} open` : "none"}</span>
         </button>`;
       }).join("");
 
@@ -220,12 +221,16 @@
         const tzShort = tzName(state.tz, daySlots[0] || Date.now(), "short");
         slotsHtml = `
           <div class="bk-slots-head">
-            <p class="bk-label">${esc(keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" }))}</p>
-            <p class="bk-label">${esc(tzShort)}</p>
+            <p class="bk-label">${esc(keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" }))} &middot; ${esc(tzShort)}</p>
+            <div class="bk-view" role="radiogroup" aria-label="Show times as" data-view="${state.view}">
+              <span class="bk-view-thumb" aria-hidden="true"></span>
+              <button type="button" role="radio" data-action="view" data-view="grid" aria-checked="${state.view === "grid"}">
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1h4v4H1zM7 1h4v4H7zM1 7h4v4H1zM7 7h4v4H7z" fill="currentColor"/></svg>Grid</button>
+              <button type="button" role="radio" data-action="view" data-view="list" aria-checked="${state.view === "list"}">
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 2h10M1 6h10M1 10h10" stroke="currentColor" stroke-width="1.6"/></svg>List</button>
+            </div>
           </div>
-          <div class="bk-slots">${daySlots.map((ms) => `
-            <button type="button" class="bk-slot" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}">${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(ms))}</button>`).join("")}
-          </div>`;
+          <div class="bk-times">${renderSlotLayout(daySlots)}</div>`;
       }
 
       const notes = [];
@@ -234,6 +239,31 @@
 
       return summary(false) + toolbar + `<div class="bk-days${days.length > 7 ? " is-8" : ""}" role="group" aria-label="Days">${dayButtons}</div>` + slotsHtml
         + notes.map((n) => `<p class="bk-callout">${n}</p>`).join("");
+    }
+
+    function renderSlotLayout(daySlots) {
+      const time = (ms) => esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(ms));
+      if (state.view === "grid") {
+        return `<div class="bk-slots">${daySlots.map((ms) => `
+          <button type="button" class="bk-slot" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}">${time(ms)}</button>`).join("")}</div>`;
+      }
+      // List: bigger rows grouped by part of the day, each showing its end time.
+      const groups = [["Morning", []], ["Afternoon", []], ["Evening", []]];
+      for (const ms of daySlots) {
+        const h = +fmt(state.tz, { hour: "numeric", hourCycle: "h23" }).format(ms);
+        groups[h < 12 ? 0 : h < 17 ? 1 : 2][1].push(ms);
+      }
+      const len = state.service.durationMinutes * 60000;
+      return `<div class="bk-list">${groups.filter(([, list]) => list.length).map(([label, list]) => `
+        <div class="bk-list-group">
+          <p class="bk-list-label">${label}</p>
+          ${list.map((ms) => `
+            <button type="button" class="bk-row" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}">
+              <span class="bk-row-time">${time(ms)}</span>
+              <span class="bk-row-end">to ${time(ms + len)}</span>
+              <span class="bk-row-mark" aria-hidden="true"></span>
+            </button>`).join("")}
+        </div>`).join("")}</div>`;
     }
 
     function groupByDay(slots) {
@@ -261,7 +291,7 @@
       const intro = s.kind === "intro";
       const policy = intro
         ? "I understand I can reschedule or cancel up to 24 hours before our call."
-        : "I understand I can reschedule or cancel up to 24 hours before my session. Refunds for cancellations are issued by Avery and can take a few business days to appear.";
+        : "I understand I can reschedule or cancel up to 24 hours before my session. Refunds for cancellations may take a few business days to appear.";
       return summary(true) + `
         <form class="bk-form" id="bk-form" novalidate>
           <div class="bk-field"><label for="bk-name">Name</label>
@@ -285,7 +315,9 @@
 
     function renderFoot() {
       const inPerson = `Sessions are on Zoom. Want to meet in person? <a href="mailto:${CONTACT}">Reach out</a> before booking.`;
-      if (state.step === 0) return `<p class="bk-note">${inPerson}</p>`;
+      if (state.step === 0) {
+        return `<p class="bk-note">${inPerson}</p>${readDraft() ? '<button type="button" class="bk-btn ghost" data-action="start-over">Start over</button>' : ""}`;
+      }
       const back = `<button type="button" class="bk-btn ghost" data-action="back">&larr; Back</button>`;
       if (state.step === 1) {
         return `${back}<button type="button" class="bk-btn primary" data-action="to-details"${state.slot ? "" : " disabled"}>Continue &rarr;</button>`;
@@ -315,6 +347,12 @@
         const days = dayList(byDay);
         if (!state.day || !(byDay.get(state.day) || []).length) state.day = days.find((k) => (byDay.get(k) || []).length) || days[0];
         if (state.slot && !data.slots.some((iso) => Date.parse(iso) === state.slot)) state.slot = null;
+        if (state.resumeTo) {
+          const stillOpen = state.slot === state.resumeTo;
+          state.resumeTo = null;
+          state.week = { data };
+          if (stillOpen) { go(2); return; }
+        }
       } catch {
         if (token !== loadToken) return;
         state.week = { error: true };
@@ -341,6 +379,9 @@
       for (const el of form.elements) {
         if (!el.name) continue;
         state.form[el.name] = el.type === "checkbox" ? el.checked : el.value;
+      }
+      if (/^\S+@\S+\.\S+$/.test(state.form.email || "")) {
+        writeDraft({ serviceId: state.service.id, slot: state.slot, tz: state.tz, form: state.form });
       }
     }
 
@@ -410,7 +451,24 @@
       else if (a === "day") { state.day = t.dataset.date; render(); }
       else if (a === "slot") { state.slot = +t.dataset.start; render(); }
       else if (a === "to-details") { if (state.slot) go(2); }
+      else if (a === "view") setView(t.dataset.view);
+      else if (a === "start-over") { clearDraft(); state.form = {}; state.service = null; state.slot = null; state.week = null; render(); }
     });
+    // Switch Grid/List without re-rendering the toggle, so the thumb slides.
+    function setView(view) {
+      if (view !== "grid" && view !== "list") return;
+      state.view = view;
+      store.set("bk-view", view);
+      const toggle = $body.querySelector(".bk-view");
+      if (toggle) {
+        toggle.dataset.view = view;
+        for (const b of toggle.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.view === view));
+      }
+      const wrap = $body.querySelector(".bk-times");
+      const byDay = state.week && state.week.data ? groupByDay(state.week.data.slots) : new Map();
+      if (wrap) wrap.innerHTML = renderSlotLayout(byDay.get(state.day) || []);
+    }
+
     root.addEventListener("change", (e) => {
       if (e.target.matches(".bk-tz-select")) {
         state.tz = e.target.value;
@@ -449,10 +507,80 @@
           if (!same) selectService(serviceId);
         }
       },
+      // Bring back a saved booking: same session, time zone, and answers.
+      async resume(draft) {
+        await ready;
+        const s = state.services && state.services.find((x) => x.id === draft.serviceId);
+        if (!s) return;
+        state.service = s;
+        state.form = { ...draft.form };
+        if (draft.tz && isValidTz(draft.tz)) state.tz = draft.tz;
+        const future = draft.slot && draft.slot > Date.now();
+        state.slot = future ? draft.slot : null;
+        state.resumeTo = state.slot;
+        state.weekStart = future ? dateKey(draft.slot, AVERY_TZ) : today;
+        if (state.weekStart < today) state.weekStart = today;
+        state.day = future ? dateKey(draft.slot, state.tz) : null;
+        go(1);
+        loadWeek();
+      },
       focus() { $title.focus({ preventScroll: true }); },
       close: onClose,
     };
   }
+
+  /* ── Saved booking ("cart") ──
+     Kept only in this browser (localStorage), never sent anywhere until the
+     visitor continues to payment. Expires after 7 days. */
+  const DRAFT_KEY = "bk-draft";
+  const DRAFT_DAYS = 7;
+  function readDraft() {
+    try {
+      const d = JSON.parse(store.get(DRAFT_KEY) || "null");
+      if (!d || !d.serviceId || !d.form || Date.now() - d.savedAt > DRAFT_DAYS * 86400000) return null;
+      return d;
+    } catch { return null; }
+  }
+  function writeDraft(d) {
+    store.set(DRAFT_KEY, JSON.stringify({ ...d, savedAt: Date.now() }));
+    updateCart();
+  }
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    updateCart();
+  }
+
+  let cartBtn = null;
+  function updateCart() {
+    const draft = readDraft();
+    const header = document.querySelector("header");
+    if (!draft || !header) { if (cartBtn) { cartBtn.remove(); cartBtn = null; } return; }
+    if (!cartBtn) {
+      cartBtn = document.createElement("button");
+      cartBtn.type = "button";
+      cartBtn.className = "bk-cart";
+      cartBtn.setAttribute("aria-label", "Finish your booking");
+      cartBtn.title = "Finish your booking";
+      cartBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 4h2.2l2.1 10.2a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.2L20 8H6.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="9.5" cy="19.5" r="1.4" fill="currentColor"/><circle cx="17" cy="19.5" r="1.4" fill="currentColor"/>
+        </svg><span class="bk-cart-badge" aria-hidden="true">1</span>`;
+      cartBtn.addEventListener("click", () => {
+        const d = readDraft();
+        if (!d) return updateCart();
+        if (inlineWidget) {
+          inlineHost.scrollIntoView({ behavior: "smooth", block: "start" });
+          inlineWidget.resume(d);
+        } else {
+          openModal(null);
+          getModal().widget.resume(d);
+        }
+      });
+      header.appendChild(cartBtn); // far right of the header, after the nav
+    }
+  }
+  window.addEventListener("storage", (e) => { if (e.key === DRAFT_KEY) updateCart(); });
 
   /* ── Pop-up ── */
   let modal;
@@ -498,6 +626,8 @@
     const pre = new URLSearchParams(location.search).get("service");
     if (pre) inlineWidget.start(pre);
   }
+
+  updateCart();
 
   document.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
