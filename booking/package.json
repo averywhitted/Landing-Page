@@ -1,0 +1,18 @@
+{
+  "name": "averywhitted-booking",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "./scripts/wrangler.sh deploy",
+    "cf": "./scripts/wrangler.sh"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260925.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

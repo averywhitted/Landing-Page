@@ -1,0 +1,5 @@
+# GitHub Pages settings.
+# Keep the booking service's source code out of the published website.
+exclude:
+  - booking
+  - "sidetrack-*.md"
