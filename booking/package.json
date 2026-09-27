@@ -9,7 +9,7 @@
     "dev:local": "wrangler dev --local --port 8787 --test-scheduled --var LOCAL_FAKES:1 --var STRIPE_API_BASE:http://localhost:8799 --var STRIPE_SECRET_KEY:sk_test_fake --var STRIPE_WEBHOOK_SECRET:whsec_localtest --var SITE_URL:http://localhost:8743 --var REMINDERS_ENABLED:1 --var ICLOUD_APP_PASSWORD:unused",
     "fake-stripe": "python3 scripts/fake-stripe.py",
     "test": "esbuild test/booking.test.ts --bundle --platform=node --format=esm --outfile=.test-build/booking.test.mjs --loader:.png=binary --log-level=warning && node --test --test-reporter=spec .test-build/booking.test.mjs",
-    "preview-emails": "esbuild scripts/preview-emails.ts --bundle --platform=node --format=esm --outfile=.test-build/preview-emails.mjs --log-level=warning && node .test-build/preview-emails.mjs"
+    "preview-emails": "esbuild scripts/preview-emails.ts --bundle --platform=node --format=esm --outfile=.test-build/preview-emails.mjs --loader:.png=binary --log-level=warning && node .test-build/preview-emails.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0"

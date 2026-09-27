@@ -7,6 +7,7 @@ import { calendarFor } from "./calendar";
 import { openSlots } from "./availability";
 import { zonedToUtc } from "./time";
 import wordmark from "../assets/email-wordmark.png";
+import { HEADING_BYTES } from "./email-headings";
 import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
@@ -31,6 +32,13 @@ app.get("/", (c) => c.text("Hello from the averywhitted.com booking service."));
 app.get("/email/wordmark.png", () => new Response(wordmark, {
   headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000, immutable" },
 }));
+
+// Email headings drawn in Horizon (see tools/render-headings.html).
+app.get("/email/h/:file", (c) => {
+  const bytes = HEADING_BYTES[c.req.param("file")];
+  if (!bytes) return c.notFound();
+  return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+});
 
 // Public list of services and prices, read from services.ts.
 app.get("/api/services", (c) => c.json(SERVICES));

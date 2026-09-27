@@ -31,10 +31,18 @@ push ZOOM_CLIENT_ID         zoom-client-id
 push ZOOM_CLIENT_SECRET     zoom-client-secret
 push TURNSTILE_SECRET_KEY   turnstile-secret-key
 
-# A random value used to scramble visitors' IP addresses before storing them.
-if openssl rand -hex 32 | ./scripts/wrangler.sh secret put HASH_SALT >/dev/null 2>&1; then
-  echo "  saved   HASH_SALT (new random value)"
-else
-  echo "  FAILED  HASH_SALT"
-fi
+# Random values the service generates once and must keep:
+#   HASH_SALT           scrambles visitors' IP addresses before storing them
+#   MANAGE_LINK_SECRET  signs clients' reschedule/cancel links (changing it
+#                       would break every link already emailed)
+existing=$(./scripts/wrangler.sh secret list 2>/dev/null)
+for name in HASH_SALT MANAGE_LINK_SECRET; do
+  if printf '%s' "$existing" | grep -q "\"$name\""; then
+    echo "  kept    $name (already set)"
+  elif openssl rand -hex 32 | ./scripts/wrangler.sh secret put "$name" >/dev/null 2>&1; then
+    echo "  saved   $name (new random value)"
+  else
+    echo "  FAILED  $name"
+  fi
+done
 echo "Done. (ICLOUD_APP_PASSWORD was saved earlier.)"

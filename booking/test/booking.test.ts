@@ -503,6 +503,18 @@ test("free intro call can be cancelled, with no refund wording", async () => {
   assert.doesNotMatch(admin.subject, /refund/i);
 });
 
+test("every fixed email heading has a Horizon image, and it's served", async () => {
+  const { HEADING_TITLES } = await import("../src/templates");
+  const { HEADING_IMAGES } = await import("../src/email-headings");
+  for (const t of HEADING_TITLES) {
+    assert.ok(HEADING_IMAGES[t], `missing heading image for "${t}"`);
+    const r = await api.call("GET", `/email/h/${HEADING_IMAGES[t].file}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("content-type"), "image/png");
+  }
+  assert.equal((await api.call("GET", "/email/h/../../secrets")).status, 404);
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

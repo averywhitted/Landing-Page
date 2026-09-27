@@ -29,18 +29,29 @@ const ics = buildIcs({ uid: "sample@averywhitted.com", sequence: 0, start, end: 
 
 const out = new URL("../.email-previews/", import.meta.url);
 mkdirSync(out, { recursive: true });
+const manage = "https://averywhitted.com/book/manage/?b=sample&t=sample";
+const book = "https://averywhitted.com/book/?service=coaching-60";
+const earlier = start - 2 * 86400000;
 const pages: [string, { subject: string; html: string }][] = [
-  ["1-client-confirmation", T.clientConfirmation(sample, ics)],
-  ["2-client-confirmation-no-zoom", T.clientConfirmation({ ...sample, zoomUrl: null }, ics)],
-  ["3-intro-confirmation", T.clientConfirmation(intro, ics)],
-  ["4-admin-notification", T.adminNotification(sample, { zoomMissing: false, calendarFailed: false })],
-  ["5-admin-notification-warnings", T.adminNotification({ ...sample, zoomUrl: null }, { zoomMissing: true, calendarFailed: true })],
-  ["6-checkout-reminder", T.checkoutReminder(sample, "https://averywhitted.com/book/?service=coaching-60")],
-  ["7-slot-taken-refund", T.slotTakenRefund(sample, "https://averywhitted.com/book/?service=coaching-60")],
+  ["01-client-confirmation", T.clientConfirmation(sample, ics, manage)],
+  ["02-client-confirmation-no-zoom", T.clientConfirmation({ ...sample, zoomUrl: null }, ics, manage)],
+  ["03-intro-confirmation", T.clientConfirmation(intro, ics, manage)],
+  ["04-client-rescheduled", T.clientRescheduled(sample, earlier, ics, manage)],
+  ["05-client-cancelled", T.clientCancelled(sample, ics, "https://averywhitted.com/book/")],
+  ["06-checkout-reminder", T.checkoutReminder(sample, book)],
+  ["07-slot-taken-refund", T.slotTakenRefund(sample, book)],
+  ["08-admin-new-booking", T.adminNotification(sample, { zoomMissing: false, calendarFailed: false })],
+  ["09-admin-new-booking-warnings", T.adminNotification({ ...sample, zoomUrl: null }, { zoomMissing: true, calendarFailed: true })],
+  ["10-admin-rescheduled", T.adminRescheduled(sample, earlier, { calendarFailed: false })],
+  ["11-admin-cancelled", T.adminCancelled(sample, "https://dashboard.stripe.com/test/payments/pi_sample")],
 ];
 const index: string[] = [];
 for (const [name, email] of pages) {
-  writeFileSync(new URL(`${name}.html`, out), email.html);
+  // Point images at the local copies so previews work before a deploy.
+  const local = email.html
+    .replace(/https:\/\/book\.averywhitted\.com\/email\/wordmark\.png/g, "/booking/assets/email-wordmark.png")
+    .replace(/https:\/\/book\.averywhitted\.com\/email\/h\//g, "/booking/assets/headings/");
+  writeFileSync(new URL(`${name}.html`, out), local);
   index.push(`<li><a href="${name}.html">${name}</a>: <em>${email.subject.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</em></li>`);
   if (/—/.test(email.html + email.subject)) throw new Error(`${name} contains an em dash`);
 }
