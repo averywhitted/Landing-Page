@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Book a Session | Avery Whitted</title>
+    <meta name="description" content="Book private acting and audition coaching with Avery Whitted: 30, 60, or 90 minute sessions on Zoom, or a free 15 minute intro call." />
+    <meta name="author" content="Avery Whitted" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://averywhitted.com/book/" />
+    <meta name="theme-color" content="#f6f7f9" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:title" content="Book a Session | Avery Whitted" />
+    <meta property="og:description" content="Private acting and audition coaching on Zoom: 30, 60, or 90 minutes, or a free 15 minute intro call." />
+    <meta property="og:image" content="https://averywhitted.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Avery Whitted: Acting Workshops + Private Coaching" />
+    <meta property="og:url" content="https://averywhitted.com/book/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Avery Whitted" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Shared site chrome (header, pills, buttons, panels, footer) -->
+    <link rel="stylesheet" href="/podcast/podcast.css" />
+    <link rel="stylesheet" href="/book/booking.css" />
+    <style>
+      .book-hero { margin-top: 32px; padding: 40px 44px; }
+      .book-hero .show-title { margin-bottom: 14px; }
+      .book-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; margin-top: 24px; }
+      .book-aside { position: sticky; top: 112px; display: grid; gap: 16px; }
+      .book-aside .panel { padding: 22px 24px; }
+      .book-aside h2 { margin: 0 0 12px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+      .book-aside ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+      .book-aside li { font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.8125rem; line-height: 1.6; color: var(--muted); }
+      .book-aside li strong { font-family: var(--body); letter-spacing: 0; color: var(--text); }
+      .book-aside a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      @media (max-width: 900px) {
+        .book-layout { grid-template-columns: 1fr; }
+        .book-aside { position: static; }
+      }
+      @media (max-width: 640px) {
+        .book-hero { padding: 26px 22px; margin-top: 22px; }
+      }
+    </style>
+    <script>document.documentElement.classList.add("js");</script>
+    <script src="/book/booking.js" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <a href="/">
+            <span class="brand-name">Avery Whitted</span>
+            <span class="brand-sub">Acting Workshops + Private Coaching</span>
+          </a>
+        </div>
+        <nav aria-label="Site">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/podcast/">Podcast</a>
+          <a class="pill is-active" href="/book/" aria-current="page">Book a Session</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="panel book-hero" aria-labelledby="book-title">
+          <p class="tag">Private Coaching</p>
+          <h1 class="show-title" id="book-title">Book a Session</h1>
+          <div class="prose">
+            <p>Focused, one-on-one support for audition prep, self-tapes, and script work. Pick a session length, choose a time that works for you, and you&#x27;re set. New here? Start with a free 15 minute intro call.</p>
+          </div>
+        </section>
+
+        <div class="book-layout">
+          <div data-booking-inline>
+            <noscript>
+              <p class="bk-note" style="padding:24px">Booking needs JavaScript. You can also email <a href="mailto:info@averywhitted.com">info@averywhitted.com</a> to set up a session.</p>
+            </noscript>
+          </div>
+
+          <aside class="book-aside" aria-label="Booking details">
+            <div class="panel">
+              <h2>Good to know</h2>
+              <ul>
+                <li><strong>On Zoom.</strong> Every session includes a Zoom link in your confirmation email.</li>
+                <li><strong>In person?</strong> <a href="mailto:info@averywhitted.com">Reach out</a> before booking and we&#x27;ll find a time in New York.</li>
+                <li><strong>Changes.</strong> Reschedule or cancel up to 24 hours before your session.</li>
+                <li><strong>Times.</strong> Shown in your own time zone. Avery is based in New York.</li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <div>&copy; <span id="year"></span> Avery Whitted &middot; <a class="footer-link" href="/">Home</a> &middot; <a class="footer-link" href="/policies.html">Policies</a></div>
+        <div>
+          <a class="social-icon" href="https://www.broadwayworld.com/people/Avery-Whitted/" target="_blank" rel="noreferrer" aria-label="BroadwayWorld (BW)">
+            <svg width="22" height="22" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="41" height="41" rx="20.5" stroke="currentColor" stroke-width="2" />
+              <text x="24" y="28" text-anchor="middle" font-family="Source Sans 3, Arial, sans-serif" font-size="13" font-weight="700" fill="currentColor">BW</text>
+            </svg>
+          </a>
+          <a class="social-icon" href="https://www.imdb.com/name/nm10031930/" target="_blank" rel="noreferrer" aria-label="IMDb">
+            <svg width="24" height="24" viewBox="0 0 64 40" fill="none" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="59" height="35" rx="8" stroke="currentColor" stroke-width="3" />
+              <text x="32" y="26" text-anchor="middle" font-family="Source Sans 3, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing=".06em" fill="currentColor">IMDb</text>
+            </svg>
+          </a>
+          <a class="social-icon" href="https://www.instagram.com/avery_whitted" target="_blank" rel="noreferrer" aria-label="Instagram">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" />
+            </svg>
+          </a>
+        </div>
+      </footer>
+    </div>
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>

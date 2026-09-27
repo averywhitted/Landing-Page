@@ -55,6 +55,11 @@
       rel="stylesheet"
     />
 
+    <!-- Booking pop-up (opens from any "Book a Session" link) -->
+    <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
+    <link rel="stylesheet" href="/book/booking.css" />
+    <script src="/book/booking.js" defer></script>
+
     <style>
       /* Horizon — self-hosted display face (from the flyer branding) */
       @font-face {
@@ -1894,14 +1899,14 @@
           </div>
         </div>
 
-        <a class="btn primary header-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+        <a class="btn primary header-cta" href="/book/">Book a Session</a>
         <button class="hamburger" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="main-nav">
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
         </button>
         <nav id="main-nav">
-          <a class="pill pill-cta nav-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+          <a class="pill pill-cta nav-cta" href="/book/">Book a Session</a>
           <a class="pill" href="#coaching">Coaching</a>
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#about">About</a>
@@ -1974,11 +1979,11 @@
                 </ul>
               </details>
               <div class="price-note" aria-label="Private coaching pricing">
-                <span><strong>30 min</strong> $75</span>
-                <span><strong>1 hour</strong> $130</span>
-                <span><strong>90 min</strong> $195</span>
+                <span><a class="price-link" href="/book/?service=coaching-30"><strong>30 min</strong> $75</a></span>
+                <span><a class="price-link" href="/book/?service=coaching-60"><strong>1 hour</strong> $130</a></span>
+                <span><a class="price-link" href="/book/?service=coaching-90"><strong>90 min</strong> $195</a></span>
               </div>
-              <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+              <a class="btn primary book-session-btn" style="margin-top:16px" href="/book/">Book a Session</a>
             </div>
           </section>
 

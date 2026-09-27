@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { SERVICES, findService } from "./services";
 import { RULES } from "./settings";
 import { getBusy, type ICloudEnv } from "./icloud";
@@ -8,6 +9,15 @@ import { zonedToUtc } from "./time";
 type Env = ICloudEnv & { DB: D1Database };
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Only averywhitted.com (and local previews on this Mac) may call the API from a browser.
+const ALLOWED_ORIGINS = ["https://averywhitted.com", "https://www.averywhitted.com"];
+app.use("/api/*", cors({
+  origin: (origin) =>
+    ALLOWED_ORIGINS.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : null,
+  allowMethods: ["GET", "POST"],
+  maxAge: 86400,
+}));
 
 app.get("/", (c) => c.text("Hello from the averywhitted.com booking service."));
 
@@ -43,7 +53,8 @@ app.get("/api/availability", async (c) => {
   const cache = caches.default;
   const cacheKey = new Request(new URL(c.req.url).toString());
   const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  // Rebuild through Hono so this request's own CORS headers are applied.
+  if (cached) return c.newResponse(cached.body, 200, Object.fromEntries(cached.headers));
 
   const from = zonedToUtc(+m[1], +m[2], +m[3], 0, 0, RULES.timeZone);
   const to = from + days * 86400000;
@@ -77,7 +88,10 @@ app.get("/api/availability", async (c) => {
     ...(farAhead && { notice: "Sessions booked more than two months ahead may need to be rescheduled." }),
   });
   res.headers.set("Cache-Control", "public, max-age=60");
-  c.executionCtx.waitUntil(cache.put(cacheKey, res.clone()));
+  // Cache a copy without CORS headers; those depend on who is asking.
+  const toCache = new Response(res.clone().body, res);
+  for (const h of [...toCache.headers.keys()]) if (h.startsWith("access-control-")) toCache.headers.delete(h);
+  c.executionCtx.waitUntil(cache.put(cacheKey, toCache));
   return res;
 });
 
