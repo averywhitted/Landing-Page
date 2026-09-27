@@ -21,6 +21,7 @@ SITE_URL = "https://averywhitted.com"
 EMAIL_FROM = "Avery Whitted <info@averywhitted.com>"
 EMAIL_REPLY_TO = "info@averywhitted.com"
 ADMIN_EMAIL = "avery@averywhitted.com"
+ZOOM_USER = "whitted.avery@protonmail.com"
 # "Finish your booking" emails after an unpaid checkout (max one per person per week).
 REMINDERS_ENABLED = "1"
 

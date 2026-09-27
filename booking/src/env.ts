@@ -13,6 +13,7 @@ export type Env = {
   ADMIN_EMAIL: string;       // where new-booking notices go
   REMINDERS_ENABLED?: string; // "1" turns on "finish your booking" emails
   ZOOM_FALLBACK_URL?: string; // used if Zoom isn't connected or fails
+  ZOOM_USER?: string;         // Zoom login the meetings are created under
 
   // Secrets
   ICLOUD_APP_PASSWORD: string;

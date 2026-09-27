@@ -26,7 +26,8 @@ export async function createMeeting(env: Env, p: { topic: string; start: number;
   // One retry for brief network hiccups.
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const res = await fetch("https://api.zoom.us/v2/users/me/meetings", {
+      const user = encodeURIComponent(env.ZOOM_USER || "me");
+      const res = await fetch(`https://api.zoom.us/v2/users/${user}/meetings`, {
         method: "POST",
         headers: { Authorization: `Bearer ${await token(env)}`, "Content-Type": "application/json" },
         body: JSON.stringify({
