@@ -19,11 +19,12 @@ import { calendarFor } from "./calendar";
 import { blocksFor, openSlots } from "./availability";
 import { iso, isValidTimeZone, zonedDate, zonedToUtc } from "./time";
 import * as stripe from "./stripe";
-import { createMeeting } from "./zoom";
+import { createMeeting, deleteMeeting, updateMeeting } from "./zoom";
 import { sendEmail } from "./email";
 import { buildIcs } from "./ics";
 import * as T from "./templates";
 import { verifyHuman } from "./turnstile";
+import { manageUrl, validManageToken } from "./manage";
 
 const AVERY_TZ = RULES.timeZone;
 const MIN = 60000;
@@ -96,16 +97,18 @@ function describeTime(start: number, tz: string): string {
 const UNIQUE_CLAIM = /UNIQUE constraint failed: slot_claims/i;
 
 // Is this exact start time still offered right now (live calendar + bookings)?
-export async function isStillOpen(env: Env, service: Service, start: number, now: number): Promise<boolean> {
+// `ignore` skips one booking's own blocks and calendar event (used when moving it).
+export async function isStillOpen(env: Env, service: Service, start: number, now: number,
+  ignore?: { bookingId: string; uid: string }): Promise<boolean> {
   const [y, m, d] = zonedDate(start, AVERY_TZ);
   const from = zonedToUtc(y, m, d, 0, 0, AVERY_TZ);
   const to = from + 24 * 60 * MIN;
-  const busy = await calendarFor(env).getBusy(from, to);
+  const busy = (await calendarFor(env).getBusy(from, to)).filter((b) => !ignore || b.uid !== ignore.uid);
   const rows = await env.DB.prepare(
     `SELECT sc.slot_start FROM slot_claims sc JOIN bookings b ON b.id = sc.booking_id
-     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2
+     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND b.id <> ?4
        AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3))`,
-  ).bind(iso(from - 60 * MIN), iso(to + 60 * MIN), iso(now)).all<{ slot_start: string }>();
+  ).bind(iso(from - 60 * MIN), iso(to + 60 * MIN), iso(now), ignore?.bookingId ?? "").all<{ slot_start: string }>();
   const claimed = new Set(rows.results.map((r) => r.slot_start));
   return openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed }).includes(iso(start));
 }
@@ -217,6 +220,7 @@ type BookingRow = {
   client_time_zone: string | null; cancel_reason: string | null; confirmed_at: string | null;
   client_email_sent_at: string | null; admin_email_sent_at: string | null; reminder_sent_at: string | null;
   refunded_at: string | null; name: string; email: string; pronouns: string | null;
+  reschedule_count: number; previous_start_utc: string | null;
 };
 
 async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
@@ -291,7 +295,7 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
     const bookUrl = `${env.SITE_URL}/book/?service=${row.service_id}`;
     await sendEmail(env, "slot_taken_refund", row.id, T.slotTakenRefund(v, bookUrl));
     const note = T.adminNotification(v, {
-      zoomMissing: false, calendarFailed: false,
+      zoomMissing: false, calendarFailed: false, title: "Auto-refunded",
       notice: "Not booked: this client paid after their hold ran out and someone else had taken the time. They were refunded in full automatically and asked to pick a new time. Nothing was added to your calendar.",
     });
     await sendEmail(env, "admin_slot_taken_refund", row.id, {
@@ -304,6 +308,37 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
 }
 
 /* ── Follow-up after confirming ── */
+
+// The event written to Avery's Coaching calendar, with intake answers for prep.
+function averyEventIcs(row: BookingRow, v: T.BookingView): string {
+  const service = findService(row.service_id)!;
+  const lines = [
+    `${row.name}${row.pronouns ? ` (${row.pronouns})` : ""}`, row.email, "",
+    ...(v.zoomUrl ? [`Zoom: ${v.zoomUrl}`, ""] : []),
+    ...(v.goal ? [`${service.kind === "intro" ? "Wants to talk about" : "Goal"}: ${v.goal}`] : []),
+    ...(v.material ? [`Material: ${v.material}`] : []),
+    ...(v.link ? [`Link: ${v.link}`] : []),
+    ...(v.notes ? [`Notes: ${v.notes}`] : []),
+    "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD` : "Free",
+  ];
+  return buildIcs({
+    uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end,
+    summary: service.kind === "intro" ? `Intro call: ${row.name}` : `Coaching: ${row.name} (${v.serviceName.replace(/ session$/, "")})`,
+    description: lines.join("\n"), location: v.zoomUrl ?? "Zoom",
+  });
+}
+
+// The invite attached to the client's emails (same UID for the booking's whole life).
+function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "REQUEST" | "CANCEL"): string {
+  return buildIcs({
+    uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end, method, cancelled: method === "CANCEL",
+    summary: v.kind === "intro" ? "Intro call with Avery Whitted" : "Private coaching with Avery Whitted",
+    description: `${v.zoomUrl ? `Join on Zoom: ${v.zoomUrl}\n\n` : ""}Reschedule or cancel up to 24 hours before using the link in your confirmation email.`,
+    location: v.zoomUrl ?? "Zoom (link to follow)",
+    organizer: { name: "Avery Whitted", email: env.EMAIL_REPLY_TO },
+    attendee: { name: row.name, email: row.email },
+  });
+}
 
 export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   let row = await loadBooking(env, "id", bookingId);
@@ -330,21 +365,8 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   // 2. Avery's Coaching calendar (includes the intake answers for prep)
   let calendarFailed = false;
   if (!row.calendar_event_url) {
-    const lines = [
-      `${row.name}${row.pronouns ? ` (${row.pronouns})` : ""}`, row.email, "",
-      ...(v.zoomUrl ? [`Zoom: ${v.zoomUrl}`, ""] : []),
-      ...(v.goal ? [`${service.kind === "intro" ? "Wants to talk about" : "Goal"}: ${v.goal}`] : []),
-      ...(v.material ? [`Material: ${v.material}`] : []),
-      ...(v.link ? [`Link: ${v.link}`] : []),
-      ...(v.notes ? [`Notes: ${v.notes}`] : []),
-      "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD` : "Free",
-    ];
     try {
-      const url = await calendarFor(env).putEvent(row.ics_uid, buildIcs({
-        uid: row.ics_uid, sequence: row.ics_sequence, start, end,
-        summary: service.kind === "intro" ? `Intro call: ${row.name}` : `Coaching: ${row.name} (${v.serviceName.replace(/ session$/, "")})`,
-        description: lines.join("\n"), location: v.zoomUrl ?? "Zoom",
-      }));
+      const url = await calendarFor(env).putEvent(row.ics_uid, averyEventIcs(row, v));
       await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
     } catch (err) {
       calendarFailed = true;
@@ -354,15 +376,8 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
 
   // 3. Client confirmation with calendar invite
   if (!row.client_email_sent_at) {
-    const ics = buildIcs({
-      uid: row.ics_uid, sequence: row.ics_sequence, start, end, method: "REQUEST",
-      summary: service.kind === "intro" ? "Intro call with Avery Whitted" : "Private coaching with Avery Whitted",
-      description: `${v.zoomUrl ? `Join on Zoom: ${v.zoomUrl}\n\n` : ""}To reschedule or cancel, reply to your confirmation email at least 24 hours before.`,
-      location: v.zoomUrl ?? "Zoom (link to follow)",
-      organizer: { name: "Avery Whitted", email: env.EMAIL_REPLY_TO },
-      attendee: { name: row.name, email: row.email },
-    });
-    if (await sendEmail(env, "client_confirmation", row.id, T.clientConfirmation(v, ics))) {
+    const ics = clientIcs(env, row, v, "REQUEST");
+    if (await sendEmail(env, "client_confirmation", row.id, T.clientConfirmation(v, ics, await manageUrl(env, row.id)))) {
       await env.DB.prepare("UPDATE bookings SET client_email_sent_at = ?1 WHERE id = ?2").bind(iso(Date.now()), row.id).run();
     }
   }
@@ -484,4 +499,140 @@ export async function publicStatus(env: Env, by: "booking" | "session", value: s
     timeZone: row.client_time_zone || AVERY_TZ,
     firstName: row.name.trim().split(/\s+/)[0],
   };
+}
+
+/* ── Client self-service: view, cancel, reschedule (from the manage link) ── */
+
+export const CHANGE_CUTOFF_HOURS = 24;
+export const MAX_RESCHEDULES = 3;
+
+async function loadManaged(env: Env, bookingId: unknown, token: unknown): Promise<BookingRow> {
+  // Same answer for a wrong link and a missing booking, so links can't be probed.
+  if (!(await validManageToken(env, bookingId, token))) throw new BookingError(404, "We couldn't find that booking. Please use the link in your confirmation email.");
+  const row = await loadBooking(env, "id", bookingId as string);
+  if (!row) throw new BookingError(404, "We couldn't find that booking. Please use the link in your confirmation email.");
+  return row;
+}
+
+const canChange = (row: BookingRow, now: number) =>
+  row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN;
+
+export async function manageView(env: Env, bookingId: unknown, token: unknown, now: number) {
+  const row = await loadManaged(env, bookingId, token);
+  const service = findService(row.service_id)!;
+  const past = Date.parse(row.end_utc) <= now;
+  return {
+    status: row.status === "confirmed" ? (past ? "past" : "confirmed") : row.status === "cancelled" ? "cancelled" : "pending",
+    canChange: canChange(row, now),
+    canReschedule: canChange(row, now) && row.reschedule_count < MAX_RESCHEDULES,
+    cutoffHours: CHANGE_CUTOFF_HOURS,
+    serviceId: row.service_id,
+    service: serviceLabel(service),
+    kind: service.kind,
+    durationMinutes: service.durationMinutes,
+    start: row.start_utc,
+    end: row.end_utc,
+    timeZone: row.client_time_zone || AVERY_TZ,
+    firstName: row.name.trim().split(/\s+/)[0],
+    zoomUrl: row.status === "confirmed" ? row.zoom_join_url : null,
+    amountCents: row.amount_cents,
+  };
+}
+
+function stripePaymentUrl(env: Env, pi: string | null): string | null {
+  if (!pi) return null;
+  const test = /^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "");
+  return `https://dashboard.stripe.com/${test ? "test/" : ""}payments/${encodeURIComponent(pi)}`;
+}
+
+export async function cancelBooking(env: Env, bookingId: unknown, token: unknown, ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const row = await loadManaged(env, bookingId, token);
+  if (row.status === "cancelled") throw new BookingError(409, "This session is already cancelled.");
+  if (row.status !== "confirmed") throw new BookingError(409, "This booking can't be cancelled online. Please email info@averywhitted.com.");
+  if (!canChange(row, ctx.now)) {
+    throw new BookingError(403, `Sessions can only be changed online until ${CHANGE_CUTOFF_HOURS} hours before they start. Please email info@averywhitted.com.`);
+  }
+  const res = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE bookings SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1,
+         ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+    ).bind(iso(ctx.now), row.id),
+    env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
+  ]);
+  if (!res[0].meta.changes) throw new BookingError(409, "This session is already cancelled.");
+  ctx.waitUntil(afterCancel(env, row.id));
+  return { ok: true };
+}
+
+async function afterCancel(env: Env, bookingId: string): Promise<void> {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row) return;
+  const v = view(row);
+  if (row.calendar_event_url) {
+    try { await calendarFor(env).deleteEvent(row.calendar_event_url); }
+    catch (err) { console.error("afterCancel: calendar delete failed:", (err as Error).message); }
+  }
+  if (row.zoom_meeting_id) {
+    try { await deleteMeeting(env, row.zoom_meeting_id); }
+    catch (err) { console.error("afterCancel: zoom delete failed:", (err as Error).message); }
+  }
+  await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), `${env.SITE_URL}/book/`));
+  await sendEmail(env, "admin_cancelled", row.id, { ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
+}
+
+export async function rescheduleBooking(env: Env, bookingId: unknown, token: unknown, newStartRaw: unknown,
+  ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const row = await loadManaged(env, bookingId, token);
+  if (row.status !== "confirmed") throw new BookingError(409, "This session can't be rescheduled because it isn't active.");
+  if (!canChange(row, ctx.now)) {
+    throw new BookingError(403, `Sessions can only be changed online until ${CHANGE_CUTOFF_HOURS} hours before they start. Please email info@averywhitted.com.`);
+  }
+  if (row.reschedule_count >= MAX_RESCHEDULES) {
+    throw new BookingError(403, "This session has already been moved a few times. Please email info@averywhitted.com to change it again.");
+  }
+  const service = findService(row.service_id)!;
+  const newStart = Date.parse(String(newStartRaw ?? ""));
+  if (!Number.isFinite(newStart)) throw new BookingError(400, "Please pick a new time.");
+  if (newStart === Date.parse(row.start_utc)) throw new BookingError(400, "That's already your session time.");
+  if (!(await isStillOpen(env, service, newStart, ctx.now, { bookingId: row.id, uid: row.ics_uid }))) {
+    throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
+  }
+  const newEnd = newStart + service.durationMinutes * MIN;
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
+      ...blocksFor(newStart, service.durationMinutes).map((blk) =>
+        env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
+      env.DB.prepare(
+        `UPDATE bookings SET previous_start_utc = start_utc, start_utc = ?1, end_utc = ?2, ics_sequence = ics_sequence + 1,
+           reschedule_count = reschedule_count + 1, updated_at = ?3 WHERE id = ?4 AND status = 'confirmed'`,
+      ).bind(iso(newStart), iso(newEnd), iso(ctx.now), row.id),
+    ]);
+  } catch (err) {
+    if (UNIQUE_CLAIM.test((err as Error).message)) throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
+    throw err;
+  }
+  ctx.waitUntil(afterReschedule(env, row.id));
+  return { ok: true, start: iso(newStart), end: iso(newEnd) };
+}
+
+async function afterReschedule(env: Env, bookingId: string): Promise<void> {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row || !row.previous_start_utc) return;
+  const v = view(row);
+  const previous = Date.parse(row.previous_start_utc);
+  if (row.zoom_meeting_id) {
+    try { await updateMeeting(env, row.zoom_meeting_id, { start: v.start, durationMinutes: v.durationMinutes }); }
+    catch (err) { console.error("afterReschedule: zoom update failed:", (err as Error).message); }
+  }
+  let calendarFailed = false;
+  try {
+    const url = await calendarFor(env).putEvent(row.ics_uid, averyEventIcs(row, v), row.calendar_event_url);
+    if (url !== row.calendar_event_url) await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
+  } catch (err) {
+    calendarFailed = true;
+    console.error("afterReschedule: calendar update failed:", (err as Error).message);
+  }
+  await sendEmail(env, "client_rescheduled", row.id, T.clientRescheduled(v, previous, clientIcs(env, row, v, "REQUEST"), await manageUrl(env, row.id)));
+  await sendEmail(env, "admin_rescheduled", row.id, { ...T.adminRescheduled(v, previous, { calendarFailed }), to: env.ADMIN_EMAIL });
 }

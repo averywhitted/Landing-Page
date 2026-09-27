@@ -9,9 +9,10 @@ import { zonedToUtc } from "./time";
 import wordmark from "../assets/email-wordmark.png";
 import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
-  BookingError, afterConfirm, confirmPaid, createBooking, expireHolds, publicStatus,
-  releaseForSession, retryConfirmations, sendReminders,
+  BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
+  releaseForSession, rescheduleBooking, retryConfirmations, sendReminders,
 } from "./bookings";
+import { validManageToken } from "./manage";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -78,12 +79,19 @@ app.get("/api/availability", async (c) => {
     return c.json({ error: "Availability is temporarily unavailable. Please try again shortly." }, 503);
   }
 
+  // When rescheduling (?b=&t= from the manage link), the booking being moved
+  // shouldn't block times next to itself.
+  const moving = (await validManageToken(c.env, c.req.query("b"), c.req.query("t")))
+    ? await c.env.DB.prepare("SELECT id, ics_uid FROM bookings WHERE id = ?1").bind(c.req.query("b")).first<{ id: string; ics_uid: string }>()
+    : null;
+  if (moving) busy = busy.filter((b) => b.uid !== moving.ics_uid);
+
   // Blocks already taken by confirmed bookings or unexpired holds.
   const rows = await c.env.DB.prepare(
     `SELECT sc.slot_start FROM slot_claims sc JOIN bookings b ON b.id = sc.booking_id
-     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2
+     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND b.id <> ?4
        AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3))`,
-  ).bind(new Date(from - 86400000).toISOString(), new Date(to + 86400000).toISOString(), new Date(now).toISOString())
+  ).bind(new Date(from - 86400000).toISOString(), new Date(to + 86400000).toISOString(), new Date(now).toISOString(), moving?.id ?? "")
     .all<{ slot_start: string }>();
   const claimed = new Set(rows.results.map((r) => r.slot_start));
 
@@ -135,6 +143,34 @@ app.get("/api/confirmation", async (c) => {
   if (!result) return c.json({ error: "Booking not found." }, 404);
   c.header("Cache-Control", "no-store");
   return c.json(result);
+});
+
+// Client self-service from the private link in their emails.
+function bookingErrorResponse(c: any, err: unknown) {
+  if (err instanceof BookingError) return c.json({ error: err.message }, err.status);
+  console.error("manage: unexpected error:", (err as Error).message);
+  return c.json({ error: "Something went wrong. Please try again, or email info@averywhitted.com." }, 500);
+}
+
+app.get("/api/manage", async (c) => {
+  try {
+    c.header("Cache-Control", "no-store");
+    return c.json(await manageView(c.env, c.req.query("b"), c.req.query("t"), Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/manage/cancel", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await cancelBooking(c.env, body.b, body.t, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/manage/reschedule", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await rescheduleBooking(c.env, body.b, body.t, body.start, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
 });
 
 // Stripe's notifications. Signed, checked, and handled once each.

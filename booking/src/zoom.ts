@@ -59,3 +59,12 @@ export async function updateMeeting(env: Env, id: string, p: { start: number; du
   });
   if (!res.ok) throw new Error(`Zoom update failed (${res.status})`);
 }
+
+export async function deleteMeeting(env: Env, id: string): Promise<void> {
+  if (usingFakes(env) || !zoomConfigured(env)) return;
+  const res = await fetch(`https://api.zoom.us/v2/meetings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${await token(env)}` },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Zoom delete failed (${res.status})`);
+}

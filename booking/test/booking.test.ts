@@ -387,6 +387,122 @@ test("email wordmark image is served", async () => {
   assert.equal(r.headers.get("content-type"), "image/png");
 });
 
+/* ── Reschedule and cancel (manage link) ── */
+
+async function confirmedBooking(service = "coaching-60", slotIndex = 0) {
+  const slots = await openSlots(service);
+  const res = await book(service, slots[slotIndex], service === "intro-15" ? { material: "" } : {});
+  assert.equal(res.status, 201, JSON.stringify(res.data));
+  if (service !== "intro-15") await api.webhook("checkout.session.completed", paid(sessionFor(res.data.bookingId)));
+  const email = world.state.emails.find((e) => /You're booked/.test(e.subject))!;
+  const m = email.text.match(/book\/manage\/\?b=([0-9a-f-]{36})&t=([\w-]{32})/);
+  assert.ok(m, "confirmation email has a manage link");
+  world.state.emails.length = 0;
+  return { id: res.data.bookingId as string, b: m![1], t: m![2], slots };
+}
+
+test("manage link: shows the booking; a wrong or altered link shows nothing", async () => {
+  const { b, t } = await confirmedBooking();
+  const ok = await api.call("GET", `/api/manage?b=${b}&t=${t}`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.status, "confirmed");
+  assert.equal(ok.data.canChange, true);
+  assert.equal(ok.data.firstName, "Jamie");
+  assert.equal(ok.data.email, undefined);
+  assert.equal((await api.call("GET", `/api/manage?b=${b}&t=${"x".repeat(32)}`)).status, 404);
+  const other = "00000000-0000-4000-8000-000000000000";
+  assert.equal((await api.call("GET", `/api/manage?b=${other}&t=${t}`)).status, 404, "a link can't be pointed at another booking");
+});
+
+test("cancel: frees the time, removes the calendar event, emails both with a refund prompt", async () => {
+  const { id, b, t, slots } = await confirmedBooking();
+  const eventUrl = row(id).calendar_event_url;
+  assert.ok(world.state.calendarEvents.has(eventUrl));
+  const r = await api.call("POST", "/api/manage/cancel", { body: { b, t } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const after = row(id);
+  assert.equal(after.status, "cancelled");
+  assert.equal(after.cancel_reason, "client_cancelled");
+  assert.equal(claims(id), 0);
+  assert.ok(!world.state.calendarEvents.has(eventUrl), "removed from the Coaching calendar");
+  assert.ok((await openSlots()).includes(slots[0]), "time is bookable again");
+
+  const [client, admin] = world.state.emails;
+  assert.match(client.subject, /^Cancelled: 1 hour session/);
+  const ics = Buffer.from(client.attachments[0].content, "base64").toString();
+  assert.match(ics, /METHOD:CANCEL/);
+  assert.match(ics, /SEQUENCE:1/);
+  assert.match(ics, new RegExp(`UID:${row(id).ics_uid}`));
+  assert.match(admin.subject, /\(refund \$130\)$/);
+  assert.match(admin.html, /dashboard\.stripe\.com\/test\/payments\/pi_/);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 409, "can't cancel twice");
+});
+
+test("cancel and reschedule are refused inside 24 hours", async () => {
+  const { id, b, t, slots } = await confirmedBooking();
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?")
+    .run(new Date(Date.now() + 10 * 3600000).toISOString(), new Date(Date.now() + 11 * 3600000).toISOString(), id);
+  const view = await api.call("GET", `/api/manage?b=${b}&t=${t}`);
+  assert.equal(view.data.canChange, false);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 403);
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots.at(-1) } })).status, 403);
+  assert.equal(row(id).status, "confirmed");
+});
+
+test("reschedule: moves blocks, updates the same calendar event, emails an updated invite", async () => {
+  const { id, b, t } = await confirmedBooking();
+  const before = row(id);
+  // Avery's own Coaching event for this booking shows up as busy in iCloud; it must not block the move.
+  world.state.busy.push({ calendar: "Coaching", ics: `BEGIN:VEVENT\r\nUID:${before.ics_uid}\r\nDTSTART:${before.start_utc.replace(/[-:]/g, "")}\r\nDTEND:${before.end_utc.replace(/[-:]/g, "")}\r\nEND:VEVENT` });
+  const nextDoor = new Date(Date.parse(before.start_utc) + 30 * 60000).toISOString().replace(/\.000Z$/, "Z");
+
+  const avail = await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.parse(before.start_utc))}&days=1&b=${b}&t=${t}`);
+  assert.ok(avail.data.slots.includes(nextDoor), "with the manage link, times next to the current one are offered");
+
+  const r = await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: nextDoor } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const after = row(id);
+  assert.equal(after.start_utc, nextDoor);
+  assert.equal(after.previous_start_utc, before.start_utc);
+  assert.equal(after.ics_sequence, 1);
+  assert.equal(after.reschedule_count, 1);
+  assert.equal(claims(id), 5);
+  assert.equal(after.calendar_event_url, before.calendar_event_url, "same event, updated in place");
+  const eventIcs = world.state.calendarEvents.get(after.calendar_event_url)!;
+  assert.match(eventIcs, new RegExp(`DTSTART:${nextDoor.replace(/[-:]/g, "")}`));
+  assert.match(eventIcs, /SEQUENCE:1/);
+
+  const [client, admin] = world.state.emails;
+  assert.match(client.subject, /^Rescheduled: 1 hour session now on /);
+  const ics = Buffer.from(client.attachments[0].content, "base64").toString();
+  assert.match(ics, /METHOD:REQUEST/);
+  assert.match(ics, /SEQUENCE:1/);
+  assert.match(client.text, /book\/manage\/\?b=/, "new manage link included");
+  assert.match(admin.subject, /^Rescheduled: Jamie Rivera moved to /);
+  for (const e of world.state.emails) assert.ok(noEmDash(e.html + e.text + e.subject));
+});
+
+test("reschedule: taken, invalid, same, or too-many moves are refused", async () => {
+  const { b, t, slots } = await confirmedBooking("coaching-30");
+  const other = await book("coaching-30", slots.at(-1)!, { email: "other@example.com" });
+  assert.equal(other.status, 201);
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots.at(-1) } })).status, 409, "held by someone else");
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: "2020-01-01T15:00:00Z" } })).status, 409);
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots[0] } })).status, 400, "same time");
+  for (const i of [4, 8, 12]) {
+    assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots[i] } })).status, 200);
+  }
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots[16] } })).status, 403, "fourth move needs an email");
+});
+
+test("free intro call can be cancelled, with no refund wording", async () => {
+  const { b, t } = await confirmedBooking("intro-15");
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 200);
+  const [client, admin] = world.state.emails;
+  assert.doesNotMatch(client.html, /refund/i);
+  assert.doesNotMatch(admin.subject, /refund/i);
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

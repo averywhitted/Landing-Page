@@ -6,7 +6,7 @@ import { CALENDARS, RULES } from "./settings";
 import { isValidTimeZone, zonedToUtc } from "./time";
 
 export type ICloudEnv = { ICLOUD_APPLE_ID: string; ICLOUD_APP_PASSWORD: string };
-export type Interval = { start: number; end: number };
+export type Interval = { start: number; end: number; uid?: string };
 
 const ROOT = "https://caldav.icloud.com/";
 
@@ -83,7 +83,8 @@ function busyFromIcs(text: string): Interval[] {
         ? start.ms + ((+(dur[1] ?? 0) * 24 + +(dur[2] ?? 0)) * 60 + +(dur[3] ?? 0)) * 60000
         : start.ms + (start.allDay ? 86400000 : 0);
     }
-    if (end > start.ms) out.push({ start: start.ms, end });
+    const uid = body.match(/^UID:(.+)$/m)?.[1]?.trim();
+    if (end > start.ms) out.push({ start: start.ms, end, uid });
   }
   return out;
 }

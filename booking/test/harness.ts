@@ -190,6 +190,7 @@ export function makeEnv(d1: D1Database, overrides: Partial<Env> = {}): Env {
     STRIPE_WEBHOOK_SECRET: "whsec_harness",
     RESEND_API_KEY: "re_test_harness",
     HASH_SALT: "salt",
+    MANAGE_LINK_SECRET: "manage-secret",
     ...overrides,
   };
 }
