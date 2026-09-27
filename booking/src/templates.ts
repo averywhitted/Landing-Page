@@ -48,20 +48,27 @@ function timeRange(b: BookingView, tz: string) {
 // ── Shared pieces ──
 
 const FONT = "Helvetica,Arial,sans-serif";
+// Horizon where the email app allows web fonts (Apple Mail, iOS); Arial Black elsewhere.
+const DISPLAY = "'Horizon','Arial Black',Helvetica,Arial,sans-serif";
+const WORDMARK_URL = "https://book.averywhitted.com/email/wordmark.png";
 const MONO = "Menlo,Consolas,'Courier New',monospace";
 
 function layout(p: { preheader: string; tag: string; title: string; body: string }): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.title)}</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light">
+<title>${esc(p.title)}</title>
+<style>@font-face{font-family:'Horizon';src:url('https://averywhitted.com/fonts/horizon.otf') format('opentype');font-weight:400 900;font-style:normal;}</style>
+</head>
 <body style="margin:0;padding:0;background:#f6f7f9;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;">${esc(p.preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-  <tr><td style="padding:0 4px 18px;font:900 24px/1 'Arial Black',${FONT};letter-spacing:0.5px;text-transform:uppercase;color:#0e1116;">Avery Whitted</td></tr>
+  <tr><td style="padding:0 4px 18px;"><img src="${WORDMARK_URL}" width="321" height="22" alt="AVERY WHITTED" style="display:block;border:0;outline:none;width:321px;max-width:100%;height:auto;font:900 22px/1 'Arial Black',${FONT};color:#0e1116;"></td></tr>
   <tr><td style="background:#ffffff;border:1px solid #e1e3e8;border-radius:18px;padding:32px 30px;">
     <span style="display:inline-block;padding:5px 9px 4px;border-radius:4px;background:#e3f24d;color:#14161a;font:700 11px/1.2 ${FONT};letter-spacing:1.1px;text-transform:uppercase;">${esc(p.tag)}</span>
-    <h1 style="margin:16px 0 18px;font:900 26px/1.05 'Arial Black',${FONT};text-transform:uppercase;color:#0e1116;">${esc(p.title)}</h1>
+    <h1 style="margin:16px 0 18px;font-family:${DISPLAY};font-weight:900;font-size:26px;line-height:1.05;text-transform:uppercase;color:#0e1116;">${esc(p.title)}</h1>
     ${p.body}
   </td></tr>
   <tr><td style="padding:18px 4px 0;font:12px/1.6 ${FONT};color:#6b727b;">Avery Whitted &middot; Acting Workshops + Private Coaching &middot; <a href="https://averywhitted.com" style="color:#6b727b;">averywhitted.com</a></td></tr>

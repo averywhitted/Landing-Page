@@ -16,6 +16,12 @@ database_name = "averywhitted-booking"
 database_id = "6055038c-44cb-4682-824e-751176c5f923"
 migrations_dir = "migrations"
 
+# Bundle images (the email wordmark) into the service as raw bytes.
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true
+
 # Not secret. The app-specific password is stored separately with:
 #   npm run cf -- secret put ICLOUD_APP_PASSWORD
 [vars]

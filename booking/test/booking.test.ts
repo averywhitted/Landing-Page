@@ -381,6 +381,12 @@ test("Turnstile: bookings need a valid human-check token once it's switched on",
   assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "good-token" })).status, 201);
 });
 
+test("email wordmark image is served", async () => {
+  const r = await api.call("GET", "/email/wordmark.png");
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("content-type"), "image/png");
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

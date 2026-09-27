@@ -6,6 +6,7 @@ import { RULES } from "./settings";
 import { calendarFor } from "./calendar";
 import { openSlots } from "./availability";
 import { zonedToUtc } from "./time";
+import wordmark from "../assets/email-wordmark.png";
 import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, confirmPaid, createBooking, expireHolds, publicStatus,
@@ -24,6 +25,11 @@ app.use("/api/*", cors({
 }));
 
 app.get("/", (c) => c.text("Hello from the averywhitted.com booking service."));
+
+// The "AVERY WHITTED" wordmark (in Horizon) shown at the top of every email.
+app.get("/email/wordmark.png", () => new Response(wordmark, {
+  headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000, immutable" },
+}));
 
 // Public list of services and prices, read from services.ts.
 app.get("/api/services", (c) => c.json(SERVICES));
