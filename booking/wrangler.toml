@@ -21,8 +21,8 @@ SITE_URL = "https://averywhitted.com"
 EMAIL_FROM = "Avery Whitted <info@averywhitted.com>"
 EMAIL_REPLY_TO = "info@averywhitted.com"
 ADMIN_EMAIL = "avery@averywhitted.com"
-# "Finish your booking" emails. Off until Avery confirms.
-REMINDERS_ENABLED = "0"
+# "Finish your booking" emails after an unpaid checkout (max one per person per week).
+REMINDERS_ENABLED = "1"
 
 # Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
 [triggers]
