@@ -112,11 +112,13 @@
     return servicesPromise;
   }
   const slotCache = new Map();
-  async function loadSlots(serviceId, from) {
-    const key = `${serviceId}|${from}`;
+  // `extra` carries the manage link (b, t) when rescheduling, so the booking
+  // being moved doesn't block the times next to it.
+  async function loadSlots(serviceId, from, extra = "") {
+    const key = `${serviceId}|${from}|${extra}`;
     const hit = slotCache.get(key);
     if (hit && Date.now() - hit.at < 60000) return hit.data;
-    const r = await fetch(`${API}/api/availability?service=${encodeURIComponent(serviceId)}&from=${from}&days=7`);
+    const r = await fetch(`${API}/api/availability?service=${encodeURIComponent(serviceId)}&from=${from}&days=7${extra}`);
     if (!r.ok) throw new Error(String(r.status));
     const data = await r.json();
     slotCache.set(key, { at: Date.now(), data });
@@ -124,14 +126,17 @@
   }
 
   /* ── Widget ── */
-  function createWidget(root, { inModal = false, onClose } = {}) {
+  // `reschedule` (manage page only): { serviceId, b, t, currentStart, timeZone, onConfirm(slot), onCancel() }
+  // shows just the time step for moving an existing booking.
+  function createWidget(root, { inModal = false, onClose, reschedule = null } = {}) {
     const today = dateKey(Date.now(), AVERY_TZ);
+    const moveExtra = reschedule ? `&b=${encodeURIComponent(reschedule.b)}&t=${encodeURIComponent(reschedule.t)}` : "";
     const state = {
-      step: 0,
+      step: reschedule ? 1 : 0,
       services: null,
       servicesError: false,
       service: null,
-      tz: detectTz(),
+      tz: reschedule && reschedule.timeZone && isValidTz(reschedule.timeZone) && !store.get("bk-tz") ? reschedule.timeZone : detectTz(),
       weekStart: today,
       week: null,          // { loading, error, data }
       day: null,
@@ -160,7 +165,8 @@
 
     /* Rendering */
     function render() {
-      $title.textContent = [inModal ? "Book a session" : "Choose a session", "Pick a time", "Your details"][state.step];
+      $title.textContent = reschedule ? "Pick a new time" : [inModal ? "Book a session" : "Choose a session", "Pick a time", "Your details"][state.step];
+      $steps.hidden = !!reschedule;
       $steps.innerHTML = STEPS.map((name, i) => {
         const current = i === state.step ? ' aria-current="step"' : "";
         const done = i < state.step ? " is-done" : "";
@@ -179,6 +185,11 @@
 
     function summary(withTime) {
       const s = state.service;
+      if (reschedule) {
+        const now = reschedule.currentStart;
+        return `<div class="bk-summary"><strong>Moving your ${esc(lengthLabel(s.durationMinutes))} ${s.kind === "intro" ? "intro call" : "session"}</strong><span class="bk-sep">&middot;</span><span>Now: ${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(now))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(now))} ${esc(tzName(state.tz, now, "short"))}</span></div>`
+          + (state.message ? `<p class="bk-msg is-${state.message.kind}" role="alert" style="margin:0 0 14px">${state.message.text}</p>` : "");
+      }
       const title = s.kind === "intro" ? esc(s.name) : "Private Coaching";
       const when = withTime && state.slot
         ? `<span class="bk-sep">&middot;</span><span>${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(state.slot))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(state.slot))} ${esc(tzName(state.tz, state.slot, "short"))}</span>`
@@ -213,6 +224,11 @@
     }
 
     function renderTimes() {
+      if (!state.service) {
+        return state.servicesError
+          ? `<div class="bk-empty is-error">Open times couldn't load. Check your connection and try again.<button type="button" class="bk-btn" data-action="retry-services">Try again</button></div>`
+          : `<div class="bk-skel">${'<div class="bk-skel-row"></div>'.repeat(4)}</div>`;
+      }
       const weekEnd = addDays(state.weekStart, 6);
       const rangeLabel = `${keyToLabel(state.weekStart, { month: "short", day: "numeric" })} to ${keyToLabel(weekEnd, { month: "short", day: "numeric" })}`;
       const toolbar = `
@@ -274,11 +290,13 @@
         + notes.map((n) => `<p class="bk-callout">${n}</p>`).join("");
     }
 
+    const isCurrent = (ms) => !!reschedule && ms === reschedule.currentStart;
+
     function renderSlotLayout(daySlots) {
       const time = (ms) => esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(ms));
       if (state.view === "grid") {
         return `<div class="bk-slots">${daySlots.map((ms) => `
-          <button type="button" class="bk-slot" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}">${time(ms)}</button>`).join("")}</div>`;
+          <button type="button" class="bk-slot${isCurrent(ms) ? " is-current" : ""}" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}"${isCurrent(ms) ? ' disabled title="Your current time"' : ""}>${time(ms)}</button>`).join("")}</div>`;
       }
       // List: bigger rows grouped by part of the day, each showing its end time.
       const groups = [["Morning", []], ["Afternoon", []], ["Evening", []]];
@@ -291,9 +309,9 @@
         <div class="bk-list-group">
           <p class="bk-list-label">${label}</p>
           ${list.map((ms) => `
-            <button type="button" class="bk-row" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}">
+            <button type="button" class="bk-row${isCurrent(ms) ? " is-current" : ""}" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}"${isCurrent(ms) ? " disabled" : ""}>
               <span class="bk-row-time">${time(ms)}</span>
-              <span class="bk-row-end">to ${time(ms + len)}</span>
+              <span class="bk-row-end">${isCurrent(ms) ? "your current time" : `to ${time(ms + len)}`}</span>
               <span class="bk-row-mark" aria-hidden="true"></span>
             </button>`).join("")}
         </div>`).join("")}</div>`;
@@ -353,6 +371,10 @@
       if (state.step === 0) {
         return `<p class="bk-note">${inPerson}</p>${readDraft() ? '<button type="button" class="bk-btn ghost" data-action="start-over">Start over</button>' : ""}`;
       }
+      if (reschedule) {
+        return `<button type="button" class="bk-btn ghost" data-action="keep">Keep current time</button>`
+          + `<button type="button" class="bk-btn primary" data-action="confirm-move"${state.slot && !state.submitting ? "" : " disabled"}>${state.submitting ? '<span class="bk-spin" aria-hidden="true"></span>Moving' : "Confirm new time"}</button>`;
+      }
       const back = `<button type="button" class="bk-btn ghost" data-action="back">&larr; Back</button>`;
       if (state.step === 1) {
         return `${back}<button type="button" class="bk-btn primary" data-action="to-details"${state.slot ? "" : " disabled"}>Continue &rarr;</button>`;
@@ -375,7 +397,7 @@
       state.week = { loading: true };
       render();
       try {
-        const data = await loadSlots(state.service.id, state.weekStart);
+        const data = await loadSlots(state.service.id, state.weekStart, moveExtra);
         if (token !== loadToken) return;
         state.week = { data };
         const byDay = groupByDay(data.slots);
@@ -498,8 +520,25 @@
       else if (a === "slot") { state.slot = +t.dataset.start; render(); }
       else if (a === "to-details") { if (state.slot) { go(2); loadTurnstile().catch(() => {}); } }
       else if (a === "view") setView(t.dataset.view);
+      else if (a === "keep" && reschedule) reschedule.onCancel();
+      else if (a === "confirm-move" && reschedule && state.slot && !state.submitting) confirmMove();
       else if (a === "start-over") { clearDraft(); state.form = {}; state.service = null; state.slot = null; state.week = null; render(); }
     });
+    async function confirmMove() {
+      state.submitting = true;
+      state.message = null;
+      render();
+      try {
+        await reschedule.onConfirm(state.slot);
+      } catch (err) {
+        state.submitting = false;
+        state.message = { kind: "error", text: esc(err.message || "Something went wrong. Please try again.") };
+        state.slot = null;
+        slotCache.clear();
+        loadWeek();
+      }
+    }
+
     // Switch Grid/List without re-rendering the toggle, so the thumb slides.
     function setView(view) {
       if (view !== "grid" && view !== "list") return;
@@ -538,6 +577,12 @@
         state.services = await loadServices();
       } catch {
         state.servicesError = true;
+      }
+      if (reschedule && state.services) {
+        state.service = state.services.find((s) => s.id === reschedule.serviceId) || null;
+        // Open on the day of their current session (or the first open day after today).
+        state.day = dateKey(reschedule.currentStart, state.tz);
+        if (state.service) return loadWeek();
       }
       render();
     }
@@ -663,6 +708,15 @@
     if (el.dataset.service) return el.dataset.service;
     try { return new URL(el.href, location.href).searchParams.get("service"); } catch { return null; }
   }
+
+  // Used by /book/manage/ to show the time picker for moving a booking.
+  window.AWBooking = {
+    mountReschedule(el, opts) {
+      el.classList.add("bk", "bk-inline");
+      return createWidget(el, { reschedule: opts });
+    },
+    api: API,
+  };
 
   const inlineHost = document.querySelector("[data-booking-inline]");
   let inlineWidget = null;

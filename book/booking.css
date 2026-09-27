@@ -565,3 +565,7 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 .bk-privacy a { color: var(--bk-a); text-decoration: underline; text-underline-offset: 3px; }
 .bk-ts { grid-column: 1 / -1; }
 .bk-ts:empty { display: none; }
+
+/* Rescheduling: the booking's current time is shown but can't be picked */
+.bk-slot.is-current, .bk-row.is-current { border-style: dashed; background: transparent; color: var(--bk-faint); cursor: default; transform: none; }
+.bk-slot.is-current::after { content: " (now)"; font-size: 0.6875rem; }
