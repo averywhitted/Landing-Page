@@ -353,6 +353,25 @@ test("confirmation lookup ignores junk ids", async () => {
   assert.equal((await api.call("GET", "/api/confirmation")).status, 404);
 });
 
+test("hidden line breaks in a name can't inject calendar fields", async () => {
+  const [slot] = await openSlots();
+  const res = await book("coaching-60", slot, { name: "Jamie\r\nATTENDEE:mailto:evil@example.com" });
+  assert.equal(res.status, 201);
+  await api.webhook("checkout.session.completed", paid(sessionFor(res.data.bookingId)));
+  const ics = world.state.calendarEvents.get(row(res.data.bookingId).calendar_event_url)!;
+  assert.doesNotMatch(ics, /\r\nATTENDEE/, "no injected line");
+  assert.ok(!world.state.emails.some((e) => /[\r\n]/.test(e.subject)), "no line breaks in subjects");
+});
+
+test("only one reminder per person per week", async () => {
+  const slots = await openSlots();
+  const a = await book("coaching-60", slots[0]);
+  await expireHold(a.data.bookingId);
+  const b = await book("coaching-60", slots.at(-1)!);
+  await expireHold(b.data.bookingId);
+  assert.equal(world.state.emails.filter((e) => e.subject === "Your session isn't booked yet").length, 1);
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

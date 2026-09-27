@@ -130,7 +130,7 @@
           if (b.status === "refunded") {
             const w = when(b);
             return show("Refunded", "That time was taken",
-              `<div class="prose"><p>Your payment arrived after ${esc(w.date)} at ${esc(w.time)} had been booked by someone else, so you've been refunded in full. Refunds may take a few business days to appear.</p></div>
+              `<div class="prose"><p>Your payment arrived just after your time (${esc(w.date)}, ${esc(w.time)}) was booked by someone else, so you've been refunded in full. Refunds may take a few business days to appear.</p></div>
                <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/book/">Choose a new time</a></div>`);
           }
           show("Booking", "This booking wasn't completed",

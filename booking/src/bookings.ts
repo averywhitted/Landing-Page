@@ -38,7 +38,14 @@ export type Intake = {
   goal: string; material: string; link: string; notes: string;
 };
 
-const clean = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+// Strips invisible control characters (which could break calendar files or
+// email subjects). One-line fields also lose line breaks.
+const clean = (v: unknown, max: number, multiline = false) => {
+  if (typeof v !== "string") return "";
+  let t = v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F\u2028\u2029]/g, multiline ? " " : "");
+  if (!multiline) t = t.replace(/\n/g, " ");
+  return t.trim().slice(0, max);
+};
 
 export function validateIntake(raw: unknown, service: Service): Intake {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
@@ -46,10 +53,10 @@ export function validateIntake(raw: unknown, service: Service): Intake {
     name: clean(r.name, 120),
     email: clean(r.email, 200).toLowerCase(),
     pronouns: clean(r.pronouns, 40),
-    goal: clean(r.goal, 2000),
-    material: clean(r.material, 2000),
+    goal: clean(r.goal, 2000, true),
+    material: clean(r.material, 2000, true),
     link: clean(r.link, 500),
-    notes: clean(r.notes, 2000),
+    notes: clean(r.notes, 2000, true),
   };
   if (!intake.name) throw new BookingError(400, "Please add your name.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(intake.email)) throw new BookingError(400, "Please check your email address.");
@@ -421,8 +428,11 @@ export async function sendReminders(env: Env, now: number): Promise<number> {
        AND NOT EXISTS (
          SELECT 1 FROM bookings o WHERE o.customer_id = b.customer_id AND o.id <> b.id
            AND o.created_at >= b.created_at AND o.status IN ('held', 'confirmed'))
+       -- At most one reminder per person per week, so nobody can use this to spam an address.
+       AND NOT EXISTS (
+         SELECT 1 FROM bookings r WHERE r.customer_id = b.customer_id AND r.reminder_sent_at >= ?3)
      LIMIT 20`,
-  ).bind(iso(now - 24 * 60 * MIN), iso(now + RULES.minNoticeHours * 60 * MIN)).all<{ id: string }>();
+  ).bind(iso(now - 24 * 60 * MIN), iso(now + RULES.minNoticeHours * 60 * MIN), iso(now - 7 * 24 * 60 * MIN)).all<{ id: string }>();
   let sent = 0;
   for (const { id } of rows.results) {
     const row = await loadBooking(env, "id", id);
