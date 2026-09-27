@@ -108,3 +108,36 @@ export async function getBusy(env: ICloudEnv, from: number, to: number): Promise
   const results = await Promise.all(Object.values(calendars).map((url) => dav(env, "REPORT", url, 1, query)));
   return results.flatMap((r) => busyFromIcs(r.text));
 }
+
+// ── Writing events to the Coaching calendar ──
+
+async function calendarUrl(env: ICloudEnv): Promise<string> {
+  const found = await findCalendars(env, [CALENDARS.booking]);
+  const url = found[CALENDARS.booking];
+  if (!url) throw new Error(`iCloud calendar not found: ${CALENDARS.booking}`);
+  return url.endsWith("/") ? url : url + "/";
+}
+
+// Creates or replaces the event stored at <calendar>/<uid>.ics.
+// Returns the event's address so it can be updated or removed later.
+export async function putEvent(env: ICloudEnv, uid: string, ics: string, existingUrl?: string | null): Promise<string> {
+  const url = existingUrl || new URL(encodeURIComponent(uid) + ".ics", await calendarUrl(env)).href;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Basic " + btoa(`${env.ICLOUD_APPLE_ID}:${env.ICLOUD_APP_PASSWORD}`),
+      "Content-Type": "text/calendar; charset=utf-8",
+    },
+    body: ics,
+  });
+  if (res.status !== 201 && res.status !== 204 && !res.ok) throw new Error(`iCloud PUT failed with status ${res.status}`);
+  return url;
+}
+
+export async function deleteEvent(env: ICloudEnv, url: string): Promise<void> {
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: "Basic " + btoa(`${env.ICLOUD_APPLE_ID}:${env.ICLOUD_APP_PASSWORD}`) },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`iCloud DELETE failed with status ${res.status}`);
+}

@@ -1,12 +1,16 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { Env } from "./env";
 import { SERVICES, findService } from "./services";
 import { RULES } from "./settings";
-import { getBusy, type ICloudEnv } from "./icloud";
+import { calendarFor } from "./calendar";
 import { openSlots } from "./availability";
 import { zonedToUtc } from "./time";
-
-type Env = ICloudEnv & { DB: D1Database };
+import { verifyWebhook, type CheckoutSession } from "./stripe";
+import {
+  BookingError, afterConfirm, confirmPaid, createBooking, expireHolds, publicStatus,
+  releaseForSession, retryConfirmations, sendReminders,
+} from "./bookings";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -62,7 +66,7 @@ app.get("/api/availability", async (c) => {
 
   let busy;
   try {
-    busy = await getBusy(c.env, from, to);
+    busy = await calendarFor(c.env).getBusy(from, to);
   } catch (err) {
     console.error("availability: calendar lookup failed:", (err as Error).message);
     return c.json({ error: "Availability is temporarily unavailable. Please try again shortly." }, 503);
@@ -95,4 +99,86 @@ app.get("/api/availability", async (c) => {
   return res;
 });
 
-export default app;
+// Submit the booking form. Paid sessions get a Stripe checkout link;
+// free intro calls are confirmed right away.
+app.post("/api/bookings", async (c) => {
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  try {
+    const result = await createBooking(c.env, body, {
+      ip: c.req.header("cf-connecting-ip") ?? "local",
+      now: Date.now(),
+      waitUntil: (p) => c.executionCtx.waitUntil(p),
+    });
+    return c.json(result, 201);
+  } catch (err) {
+    if (err instanceof BookingError) return c.json({ error: err.message }, err.status);
+    console.error("bookings: unexpected error:", (err as Error).message);
+    return c.json({ error: "Something went wrong. Please try again." }, 500);
+  }
+});
+
+// What the confirmation page shows: /api/confirmation?session_id=... or ?booking=...
+app.get("/api/confirmation", async (c) => {
+  const session = c.req.query("session_id");
+  const booking = c.req.query("booking");
+  const valid = (v?: string) => !!v && /^[\w-]{8,200}$/.test(v);
+  const result = valid(session) ? await publicStatus(c.env, "session", session!)
+    : valid(booking) ? await publicStatus(c.env, "booking", booking!)
+    : null;
+  if (!result) return c.json({ error: "Booking not found." }, 404);
+  c.header("Cache-Control", "no-store");
+  return c.json(result);
+});
+
+// Stripe's notifications. Signed, checked, and handled once each.
+app.post("/api/stripe/webhook", async (c) => {
+  const raw = await c.req.text();
+  const ok = await verifyWebhook(raw, c.req.header("stripe-signature") ?? null, c.env.STRIPE_WEBHOOK_SECRET ?? "");
+  if (!ok) return c.text("Invalid signature", 400);
+
+  const event = JSON.parse(raw) as { id: string; type: string; data: { object: Record<string, unknown> } };
+  const first = await c.env.DB.prepare("INSERT OR IGNORE INTO processed_webhooks (stripe_event_id) VALUES (?1)").bind(event.id).run();
+  if (!first.meta.changes) return c.json({ received: true, duplicate: true });
+
+  const now = Date.now();
+  try {
+    if (event.type === "checkout.session.completed") {
+      const s = event.data.object as unknown as CheckoutSession;
+      if (s.payment_status === "paid") {
+        const id = await confirmPaid(c.env, s, now);
+        if (id) c.executionCtx.waitUntil(afterConfirm(c.env, id));
+      }
+    } else if (event.type === "checkout.session.expired") {
+      await releaseForSession(c.env, String(event.data.object.id), now);
+    } else if (event.type === "charge.refunded") {
+      const pi = event.data.object.payment_intent;
+      if (typeof pi === "string") {
+        await c.env.DB.prepare("UPDATE bookings SET refunded_at = COALESCE(refunded_at, ?1) WHERE stripe_payment_intent_id = ?2")
+          .bind(new Date(now).toISOString(), pi).run();
+      }
+    }
+  } catch (err) {
+    // Let Stripe retry: forget that we saw this event.
+    await c.env.DB.prepare("DELETE FROM processed_webhooks WHERE stripe_event_id = ?1").bind(event.id).run();
+    console.error(`webhook ${event.type} failed:`, (err as Error).message);
+    return c.text("Temporary error", 500);
+  }
+  return c.json({ received: true });
+});
+
+// Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
+async function scheduled(env: Env): Promise<void> {
+  const now = Date.now();
+  const holds = await expireHolds(env, now);
+  const reminders = await sendReminders(env, now);
+  const retried = await retryConfirmations(env, now);
+  if (holds.released || holds.confirmed || reminders || retried) {
+    console.log(`cron: released ${holds.released}, late-confirmed ${holds.confirmed}, reminders ${reminders}, retried ${retried}`);
+  }
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => { ctx.waitUntil(scheduled(env)); },
+};

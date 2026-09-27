@@ -17,3 +17,13 @@ migrations_dir = "migrations"
 #   npm run cf -- secret put ICLOUD_APP_PASSWORD
 [vars]
 ICLOUD_APPLE_ID = "averywhitted@me.com"
+SITE_URL = "https://averywhitted.com"
+EMAIL_FROM = "Avery Whitted <info@averywhitted.com>"
+EMAIL_REPLY_TO = "info@averywhitted.com"
+ADMIN_EMAIL = "avery@averywhitted.com"
+# "Finish your booking" emails. Off until Avery confirms.
+REMINDERS_ENABLED = "0"
+
+# Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
+[triggers]
+crons = ["*/5 * * * *"]

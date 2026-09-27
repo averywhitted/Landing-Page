@@ -10,6 +10,9 @@ export const RULES = {
   blockMinutes: 15,              // size of each double-booking guard block (see slot_claims)
   farAheadNoticeDays: 60,        // past this, show "sessions this far out may change"
   maxDaysPerRequest: 31,         // how many days one availability lookup can cover
+  holdMinutes: 31,               // slot is held while the client pays (Stripe needs at least 30)
+  maxActiveHoldsPerPerson: 2,    // unpaid holds one email or network can have at once
+  maxUpcomingIntros: 1,          // free intro calls one email can have booked at once
 };
 
 // iCloud calendars. Anything on these blocks booking; new bookings are written to bookingCalendar.

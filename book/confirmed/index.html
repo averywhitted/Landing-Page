@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Booking Confirmed | Avery Whitted</title>
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/podcast/podcast.css" />
+    <link rel="stylesheet" href="/book/booking.css" />
+    <style>
+      .done { margin-top: 32px; padding: 44px; max-width: 720px; }
+      .done .show-title { margin-bottom: 14px; }
+      .done-details {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px 18px;
+        margin: 22px 0 24px;
+        padding: 18px 20px;
+        border-radius: 14px;
+        background: var(--bg1);
+      }
+      .done-details dt { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
+      .done-details dd { margin: 0; font-family: var(--mono); letter-spacing: -0.02em; font-size: 0.9375rem; }
+      .done-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .done-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
+      .done-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
+      @media (max-width: 640px) { .done { padding: 26px 22px; margin-top: 22px; } }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <a href="/">
+            <span class="brand-name">Avery Whitted</span>
+            <span class="brand-sub">Acting Workshops + Private Coaching</span>
+          </a>
+        </div>
+        <nav aria-label="Site">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/podcast/">Podcast</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="panel done" aria-live="polite" id="done">
+          <p class="tag">Booking</p>
+          <h1 class="show-title">One moment</h1>
+          <p class="done-wait"><span class="bk-spin" aria-hidden="true"></span>Confirming your booking...</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div>&copy; <span id="year"></span> Avery Whitted &middot; <a class="footer-link" href="/">Home</a> &middot; <a class="footer-link" href="/policies.html">Policies</a></div>
+      </footer>
+    </div>
+
+    <script>
+      (() => {
+        document.getElementById("year").textContent = new Date().getFullYear();
+        const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+        let API = "https://book.averywhitted.com";
+        try { if (LOCAL && localStorage.getItem("bk-api")) API = localStorage.getItem("bk-api"); } catch {}
+
+        const $ = document.getElementById("done");
+        const q = new URLSearchParams(location.search);
+        const key = q.get("session_id") ? `session_id=${encodeURIComponent(q.get("session_id"))}`
+          : q.get("booking") ? `booking=${encodeURIComponent(q.get("booking"))}` : null;
+        const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+        function show(tag, title, html) {
+          $.innerHTML = `<p class="tag">${esc(tag)}</p><h1 class="show-title">${esc(title)}</h1>${html}`;
+        }
+        function when(b) {
+          const tz = b.timeZone;
+          const f = (o) => new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o });
+          const zone = f({ timeZoneName: "short" }).formatToParts(Date.parse(b.start)).find((p) => p.type === "timeZoneName")?.value || "";
+          return {
+            date: f({ weekday: "long", month: "long", day: "numeric" }).format(Date.parse(b.start)),
+            time: `${f({ hour: "numeric", minute: "2-digit" }).format(Date.parse(b.start))} to ${f({ hour: "numeric", minute: "2-digit" }).format(Date.parse(b.end))} ${zone}`,
+          };
+        }
+        function notFound() {
+          show("Booking", "We couldn't find that booking",
+            `<div class="prose"><p>If you just paid, check your email for a confirmation. Questions? Email <a href="mailto:info@averywhitted.com" style="color:var(--a)">info@averywhitted.com</a>.</p></div>
+             <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/book/">Book a session</a><a class="btn" href="/">Home</a></div>`);
+        }
+
+        if (!key) return notFound();
+        let tries = 0;
+        async function check() {
+          tries++;
+          let b;
+          try {
+            const r = await fetch(`${API}/api/confirmation?${key}`, { cache: "no-store" });
+            if (r.status === 404) return notFound();
+            b = await r.json();
+          } catch { b = { status: "processing" }; }
+
+          if (b.status === "processing") {
+            // Stripe's confirmation usually lands within seconds.
+            if (tries < 20) return setTimeout(check, 1500);
+            return show("Almost there", "Payment received", `<div class="prose"><p>Your booking is being finalized. You'll get a confirmation email shortly. If it doesn't arrive within a few minutes, email <a href="mailto:info@averywhitted.com" style="color:var(--a)">info@averywhitted.com</a>.</p></div>`);
+          }
+          if (b.status === "confirmed") {
+            try { localStorage.removeItem("bk-draft"); } catch {}
+            const w = when(b);
+            return show("You're booked", `See you soon, ${b.firstName || "friend"}`,
+              `<div class="prose"><p>A confirmation email with your Zoom link and a calendar invite is on its way.</p></div>
+               <dl class="done-details">
+                 <dt>Session</dt><dd>${esc(b.service)}</dd>
+                 <dt>Date</dt><dd>${esc(w.date)}</dd>
+                 <dt>Time</dt><dd>${esc(w.time)}</dd>
+                 <dt>Where</dt><dd>Zoom</dd>
+               </dl>
+               <div class="prose"><p>Need to reschedule or cancel? Reply to your confirmation email at least 24 hours before your session.</p></div>
+               <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/">Back to home</a><a class="btn" href="/podcast/">Listen to the podcast</a></div>`);
+          }
+          if (b.status === "refunded") {
+            const w = when(b);
+            return show("Refunded", "That time was taken",
+              `<div class="prose"><p>Your payment arrived after ${esc(w.date)} at ${esc(w.time)} had been booked by someone else, so you've been refunded in full. Refunds may take a few business days to appear.</p></div>
+               <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/book/">Choose a new time</a></div>`);
+          }
+          show("Booking", "This booking wasn't completed",
+            `<div class="prose"><p>The time was released because checkout wasn't finished. You're welcome to book again.</p></div>
+             <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/book/">Book a session</a></div>`);
+        }
+        check();
+      })();
+    </script>
+  </body>
+</html>

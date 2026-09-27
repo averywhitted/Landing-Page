@@ -11,7 +11,11 @@
 (() => {
   "use strict";
 
-  const API = (document.currentScript && document.currentScript.dataset.api) || "https://book.averywhitted.com";
+  // Local testing on this Mac can point at a local copy of the API via
+  // localStorage "bk-api"; everywhere else it's always the live address.
+  const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  const API = (LOCAL && (() => { try { return localStorage.getItem("bk-api"); } catch { return null; } })())
+    || (document.currentScript && document.currentScript.dataset.api) || "https://book.averywhitted.com";
   const AVERY_TZ = "America/New_York";
   const CONTACT = "info@averywhitted.com";
   const STEPS = ["Session", "Time", "Details"];
@@ -623,8 +627,11 @@
   if (inlineHost) {
     inlineHost.classList.add("bk", "bk-inline");
     inlineWidget = createWidget(inlineHost);
-    const pre = new URLSearchParams(location.search).get("service");
-    if (pre) inlineWidget.start(pre);
+    const params = new URLSearchParams(location.search);
+    const saved = readDraft();
+    // Back from Stripe without paying: pick up exactly where they left off.
+    if (params.get("checkout") === "cancelled" && saved) inlineWidget.resume(saved);
+    else if (params.get("service")) inlineWidget.start(params.get("service"));
   }
 
   updateCart();
