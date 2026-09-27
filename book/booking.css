@@ -531,24 +531,16 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 }
 .bk-cart:hover { transform: translateY(-1px); background: #1637d4; }
 .bk-cart:focus-visible { outline: 3px solid #1f47f5; outline-offset: 3px; }
+/* A plain lime dot (no number: there's only ever one booking in progress) */
 .bk-cart-badge {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  top: 0;
+  right: 0;
+  width: 13px;
+  height: 13px;
   border: 2px solid #ffffff;
   border-radius: 999px;
   background: #e3f24d;
-  color: #14161a;
-  font-family: "Inter", system-ui, sans-serif;
-  font-size: 0.625rem;
-  font-weight: 800;
-  line-height: 1;
 }
 @keyframes bk-cart-in { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .bk-cart { animation: none; } .bk-view-thumb { transition: none; } }
