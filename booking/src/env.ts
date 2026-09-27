@@ -24,6 +24,7 @@ export type Env = {
   ZOOM_CLIENT_ID?: string;
   ZOOM_CLIENT_SECRET?: string;
   HASH_SALT?: string;         // random string for hashing IP addresses
+  TURNSTILE_SECRET_KEY?: string; // Cloudflare Turnstile (bot check on the booking form)
 
   // Local testing only. Never set these in wrangler.toml or as secrets.
   // LOCAL_FAKES=1 swaps iCloud, email, and Zoom for stand-ins and lets

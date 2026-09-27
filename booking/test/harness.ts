@@ -124,6 +124,13 @@ export function makeWorld() {
       return json({ error: { message: `unhandled stripe ${method} ${p}` } }, 404);
     }
 
+    /* Cloudflare Turnstile */
+    if (u.host === "challenges.cloudflare.com") {
+      const f = new URLSearchParams(body);
+      const good = f.get("secret") === "turnstile-secret" && f.get("response") === "good-token";
+      return json(good ? { success: true } : { success: false, "error-codes": ["invalid-input-response"] });
+    }
+
     /* Resend */
     if (u.host === "api.resend.com") {
       if (state.resendFailNext > 0) { state.resendFailNext--; return json({ message: "temporary failure" }, 500); }

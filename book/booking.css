@@ -567,3 +567,9 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
     box-shadow: 0 8px 22px rgba(20, 28, 40, 0.3);
   }
 }
+
+/* Privacy note and the (usually invisible) Turnstile check */
+.bk-privacy { grid-column: 1 / -1; margin: -4px 0 0; font-family: var(--bk-mono); letter-spacing: -0.03em; font-size: 0.7188rem; line-height: 1.55; color: var(--bk-faint); }
+.bk-privacy a { color: var(--bk-a); text-decoration: underline; text-underline-offset: 3px; }
+.bk-ts { grid-column: 1 / -1; }
+.bk-ts:empty { display: none; }

@@ -25,6 +25,35 @@
     "Europe/Paris", "Europe/Berlin", "Australia/Sydney",
   ];
 
+  // Cloudflare Turnstile (invisible bot check). The site key is public by design.
+  const TURNSTILE_SITE_KEY = "0x4AAAAAAFFiRSFTRnbCFEdF";
+  let turnstileLoad = null;
+  function loadTurnstile() {
+    turnstileLoad ||= new Promise((resolve, reject) => {
+      window.__bkTurnstileReady = () => resolve(window.turnstile);
+      const s = document.createElement("script");
+      s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=__bkTurnstileReady";
+      s.async = true;
+      s.onerror = () => { turnstileLoad = null; reject(new Error("blocked")); };
+      document.head.appendChild(s);
+    });
+    return turnstileLoad;
+  }
+  // Runs the check in `container` and resolves with a one-time token.
+  async function humanCheck(container) {
+    const ts = await loadTurnstile();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timeout")), 25000);
+      container.innerHTML = "";
+      ts.render(container, {
+        sitekey: TURNSTILE_SITE_KEY,
+        appearance: "interaction-only",
+        callback: (token) => { clearTimeout(timer); resolve(token); },
+        "error-callback": () => { clearTimeout(timer); reject(new Error("failed")); },
+      });
+    });
+  }
+
   /* ── Small helpers ── */
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const store = {
@@ -313,6 +342,8 @@
           <div class="bk-field is-wide"><label for="bk-notes">Anything else I should know? <span class="bk-opt">(optional)</span></label>
             <textarea class="bk-input" id="bk-notes" name="notes" maxlength="2000">${v("notes")}</textarea></div>
           <label class="bk-check"><input type="checkbox" name="policy" required${f.policy ? " checked" : ""}><span>${policy}</span></label>
+          <p class="bk-privacy">Your details are used only to schedule and prepare for your session. <a href="/policies.html#privacy" target="_blank" rel="noopener">How your information is used</a></p>
+          <div class="bk-ts" id="bk-ts"></div>
           ${state.message ? `<p class="bk-msg is-${state.message.kind}" role="${state.message.kind === "error" ? "alert" : "status"}">${state.message.text}</p>` : ""}
         </form>`;
     }
@@ -405,6 +436,16 @@
       state.message = null;
       render();
       const f = state.form;
+      let turnstileToken;
+      try {
+        turnstileToken = await humanCheck(root.querySelector("#bk-ts"));
+      } catch {
+        state.submitting = false;
+        state.message = { kind: "error", text: `We couldn't run a quick security check. If you use an ad or script blocker, try pausing it for this page, or email <a href="mailto:${CONTACT}">${CONTACT}</a> to book.` };
+        render();
+        root.querySelector("#bk-form").classList.add("was-validated");
+        return;
+      }
       try {
         const r = await fetch(`${API}/api/bookings`, {
           method: "POST",
@@ -413,6 +454,7 @@
             serviceId: state.service.id,
             start: new Date(state.slot).toISOString(),
             timeZone: state.tz,
+            turnstileToken,
             intake: {
               name: f.name, email: f.email, pronouns: f.pronouns || "", goal: f.goal,
               material: f.material || "", link: f.link || "", notes: f.notes || "", policyAccepted: !!f.policy,
@@ -454,7 +496,7 @@
       else if (a === "retry-services") init();
       else if (a === "day") { state.day = t.dataset.date; render(); }
       else if (a === "slot") { state.slot = +t.dataset.start; render(); }
-      else if (a === "to-details") { if (state.slot) go(2); }
+      else if (a === "to-details") { if (state.slot) { go(2); loadTurnstile().catch(() => {}); } }
       else if (a === "view") setView(t.dataset.view);
       else if (a === "start-over") { clearDraft(); state.form = {}; state.service = null; state.slot = null; state.week = null; render(); }
     });

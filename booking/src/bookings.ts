@@ -23,12 +23,13 @@ import { createMeeting } from "./zoom";
 import { sendEmail } from "./email";
 import { buildIcs } from "./ics";
 import * as T from "./templates";
+import { verifyHuman } from "./turnstile";
 
 const AVERY_TZ = RULES.timeZone;
 const MIN = 60000;
 
 export class BookingError extends Error {
-  constructor(public status: 400 | 404 | 409 | 429 | 502 | 503, message: string) { super(message); }
+  constructor(public status: 400 | 403 | 404 | 409 | 429 | 502 | 503, message: string) { super(message); }
 }
 
 /* ── Intake form ── */
@@ -121,6 +122,9 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
   if (!Number.isFinite(start)) throw new BookingError(400, "Please pick a time.");
   const clientTz = typeof b.timeZone === "string" && isValidTimeZone(b.timeZone) ? b.timeZone : AVERY_TZ;
   const intake = validateIntake(b.intake, service);
+  if (!(await verifyHuman(env, b.turnstileToken, ctx.ip))) {
+    throw new BookingError(403, "We couldn't confirm you're a real person. Please refresh the page and try again.");
+  }
   const now = ctx.now;
   const ipHash = await sha256(`${env.HASH_SALT ?? "averywhitted-booking"}|${ctx.ip}`);
 

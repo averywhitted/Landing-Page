@@ -372,6 +372,15 @@ test("only one reminder per person per week", async () => {
   assert.equal(world.state.emails.filter((e) => e.subject === "Your session isn't booked yet").length, 1);
 });
 
+test("Turnstile: bookings need a valid human-check token once it's switched on", async () => {
+  env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+  const [slot] = await openSlots();
+  assert.equal((await book("coaching-60", slot)).status, 403, "no token");
+  assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "forged" })).status, 403, "bad token");
+  assert.equal(world.state.stripeSessions.size, 0, "nothing held or charged for failed checks");
+  assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "good-token" })).status, 201);
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {
