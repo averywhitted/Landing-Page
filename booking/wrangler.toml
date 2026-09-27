@@ -3,8 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 account_id = "18e63841cd4225ae1fb0438032557fa2"
 
-# Serve the booking service at book.averywhitted.com.
+# Serve the booking service at book.averywhitted.com only.
 routes = [{ pattern = "book.averywhitted.com", custom_domain = true }]
+# Don't also publish it on a *.workers.dev address or per-version preview URLs.
+workers_dev = false
+preview_urls = false
 
 # The appointment book. The code reaches it as env.DB.
 [[d1_databases]]
