@@ -444,7 +444,7 @@ export async function adminPackageCancelPreview(env: Env, id: string, now: numbe
   const q = await cancelQuote(env, pkg, now);
   const upcoming = await upcomingFromBundle(env, pkg.id, now);
   return {
-    name: pkg.name, bundleName: bundleName(findService(pkg.service_id)!), paidCents: pkg.amount_cents,
+    name: pkg.name, pronouns: pkg.pronouns, bundleName: bundleName(findService(pkg.service_id)!), paidCents: pkg.amount_cents,
     canRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents > 0,
     policyRefundCents: q.refundCents, used: pkg.credits_used - upcoming.length,
     upcoming: upcoming.map((b) => b.start_utc),

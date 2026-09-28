@@ -15,6 +15,9 @@ import { iso } from "./time";
 import { BookingError, CLIENT_COLUMNS, ONCE_ONLY, afterCancelShared, dueCents, issueRefund, loadBooking, serviceLabel } from "./bookings";
 import { SettingsError, defaults, loadScheduling, resetScheduling, saveScheduling, validate } from "./config";
 import { calendarFor } from "./calendar";
+import { scheduling } from "./config";
+import { sendEmail } from "./email";
+import * as T from "./templates";
 
 const MIN = 60000;
 const DAY = 24 * 60 * MIN;
@@ -69,7 +72,13 @@ export async function requireAdmin(env: Env, req: Request): Promise<string> {
 
 /* ── Overview ── */
 
-export async function adminOverview(env: Env, now: number) {
+const stripeUrlFor = (env: Env) => {
+  const test = /^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "");
+  return (pi: string | null) => (pi ? `https://dashboard.stripe.com/${test ? "test/" : ""}payments/${pi}` : null);
+};
+
+// Sessions between two times, as the admin page shows them.
+async function sessionsBetween(env: Env, from: number, to: number, now: number) {
   const bookings = await env.DB.prepare(
     `SELECT b.id, b.service_id, b.start_utc, b.end_utc, b.status, b.cancel_reason, b.amount_cents, b.promo_code,
             b.package_id, COALESCE(g.zoom_join_url, b.zoom_join_url) AS zoom_join_url,
@@ -81,34 +90,11 @@ export async function adminOverview(env: Env, now: number) {
      FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
      ORDER BY b.start_utc`,
-  ).bind(iso(now - 30 * DAY), iso(now + 120 * DAY)).all<Record<string, any>>();
-
-  const packages = await env.DB.prepare(
-    `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
-            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
-            c.id AS customer_id, ${CLIENT_COLUMNS("p")}
-     FROM packages p JOIN customers c ON c.id = p.customer_id
-     WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
-        OR (p.status = 'cancelled' AND p.cancel_reason IN ('client_cancelled', 'avery_cancelled') AND p.cancelled_at >= ?2)
-     ORDER BY p.status, p.expires_at`,
-  ).bind(iso(now - 60 * DAY), iso(now - 30 * DAY)).all<Record<string, any>>();
-
-  const failedEmails = await env.DB.prepare(
-    `SELECT e.kind, e.error, e.created_at, e.booking_id FROM email_log e
-     WHERE e.status = 'failed' AND e.created_at >= ?1 ORDER BY e.created_at DESC LIMIT 30`,
-  ).bind(iso(now - 14 * DAY)).all<Record<string, any>>();
-
-  const holds = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM bookings WHERE status = 'held' AND hold_expires_at > ?1",
-  ).bind(iso(now)).first<{ n: number }>();
-
-  const stripeTest = /^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "");
-  const stripeUrl = (pi: string | null) => (pi ? `https://dashboard.stripe.com/${stripeTest ? "test/" : ""}payments/${pi}` : null);
-
+  ).bind(iso(from), iso(to)).all<Record<string, any>>();
+  const stripeUrl = stripeUrlFor(env);
   return {
-    now: iso(now),
-    mode: stripeTest ? "test" : "live",
-    bookings: bookings.results.map((b) => ({
+    rows: bookings.results,
+    list: bookings.results.map((b) => ({
       id: b.id,
       service: serviceLabel(findService(b.service_id)!),
       serviceId: b.service_id,
@@ -144,6 +130,39 @@ export async function adminOverview(env: Env, now: number) {
       pronouns: b.pronouns,
       intake: b.intake_json ? JSON.parse(b.intake_json) : null,
     })),
+  };
+}
+
+export async function adminOverview(env: Env, now: number) {
+  const { rows, list } = await sessionsBetween(env, now - 30 * DAY, now + 120 * DAY, now);
+  const bookings = { results: rows };
+
+  const packages = await env.DB.prepare(
+    `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
+            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
+            c.id AS customer_id, ${CLIENT_COLUMNS("p")}
+     FROM packages p JOIN customers c ON c.id = p.customer_id
+     WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
+        OR (p.status = 'cancelled' AND p.cancel_reason IN ('client_cancelled', 'avery_cancelled') AND p.cancelled_at >= ?2)
+     ORDER BY p.status, p.expires_at`,
+  ).bind(iso(now - 60 * DAY), iso(now - 30 * DAY)).all<Record<string, any>>();
+
+  const failedEmails = await env.DB.prepare(
+    `SELECT e.kind, e.error, e.created_at, e.booking_id FROM email_log e
+     WHERE e.status = 'failed' AND e.created_at >= ?1 ORDER BY e.created_at DESC LIMIT 30`,
+  ).bind(iso(now - 14 * DAY)).all<Record<string, any>>();
+
+  const holds = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM bookings WHERE status = 'held' AND hold_expires_at > ?1",
+  ).bind(iso(now)).first<{ n: number }>();
+
+  const stripeTest = /^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "");
+  const stripeUrl = stripeUrlFor(env);
+
+  return {
+    now: iso(now),
+    mode: stripeTest ? "test" : "live",
+    bookings: list,
     packages: packages.results.map((p) => ({
       id: p.id,
       bundle: `${findService(p.service_id)?.credits ?? p.credits_total} session bundle`,
@@ -155,6 +174,7 @@ export async function adminOverview(env: Env, now: number) {
       amountCents: p.amount_cents,
       promoCode: p.promo_code,
       name: p.name,
+      pronouns: p.pronouns,
       email: p.email,
       cancelled: p.status === "cancelled",
       refundDueCents: p.refund_due_cents,
@@ -167,16 +187,49 @@ export async function adminOverview(env: Env, now: number) {
     problems: {
       failedEmails: failedEmails.results.map((e) => ({ kind: e.kind, error: e.error, at: e.created_at })),
       stuck: bookings.results.filter((b) => b.status === "confirmed" && Date.parse(b.end_utc) > now && (!b.in_calendar || !b.emailed))
-        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
+        .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
       // Cancelled but still on the Coaching calendar (removal keeps retrying).
       leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.own_calendar && Date.parse(b.end_utc) > now)
-        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, error: b.cleanup_error })),
+        .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, error: b.cleanup_error })),
       // Cancelled sessions whose Zoom meeting couldn't be deleted (keeps retrying).
       zoomLeft: bookings.results.filter((b) => b.status === "cancelled" && b.zoom_left && Date.parse(b.end_utc) > now)
-        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, error: b.cleanup_error })),
+        .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, error: b.cleanup_error })),
       activeHolds: holds?.n ?? 0,
     },
   };
+}
+
+/* ── Calendar view: sessions and blocked time ── */
+
+export async function adminCalendar(env: Env, fromRaw: unknown, toRaw: unknown, now: number) {
+  const from = Date.parse(String(fromRaw ?? ""));
+  const to = Date.parse(String(toRaw ?? ""));
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 45 * DAY) {
+    throw new BookingError(400, "Pick a range of up to 45 days.");
+  }
+  const { list } = await sessionsBetween(env, from - DAY, to, now);
+  // Busy time on the calendars that block booking. Only times are sent, never
+  // titles, and Avery's own coaching sessions are left out (they show as sessions).
+  let busy: { start: string; end: string }[] | null = null;
+  try {
+    const own = new Set((await env.DB.prepare(
+      `SELECT ics_uid FROM bookings WHERE start_utc < ?2 AND end_utc > ?1
+       UNION SELECT ics_uid FROM groups WHERE start_utc < ?2 AND end_utc > ?1`,
+    ).bind(iso(from - DAY), iso(to + DAY)).all<{ ics_uid: string }>()).results.map((r) => r.ics_uid));
+    const events = (await calendarFor(env, await scheduling(env)).getBusy(from, to))
+      .filter((e) => !e.uid || !own.has(e.uid)).sort((a, b) => a.start - b.start);
+    // Merge overlaps so each blocked stretch shows once.
+    const merged: { start: number; end: number }[] = [];
+    for (const e of events) {
+      const last = merged.at(-1);
+      if (last && e.start <= last.end) last.end = Math.max(last.end, e.end);
+      else merged.push({ start: e.start, end: e.end });
+    }
+    busy = merged.map((e) => ({ start: iso(e.start), end: iso(e.end) }));
+  } catch (err) {
+    console.error("admin calendar: busy lookup failed:", (err as Error).message);
+  }
+  return { bookings: list, busy };
 }
 
 /* ── Editable settings ── */
@@ -260,7 +313,8 @@ export async function adminRefundBooking(env: Env, id: string, ctx: { now: numbe
   return { ok, message: ok ? "Refunded." : "Stripe didn't accept the refund yet. It will keep retrying." };
 }
 
-export async function adminAdjustCredits(env: Env, packageId: string, delta: number, note: string, now: number) {
+export async function adminAdjustCredits(env: Env, packageId: string, delta: number, note: string, now: number,
+  notify?: { message: string }) {
   if (delta !== 1 && delta !== -1) throw new BookingError(400, "Credits change one at a time.");
   const pkg = await env.DB.prepare("SELECT credits_total, credits_used, status FROM packages WHERE id = ?1").bind(packageId)
     .first<{ credits_total: number; credits_used: number; status: string }>();
@@ -275,10 +329,22 @@ export async function adminAdjustCredits(env: Env, packageId: string, delta: num
     if (/CHECK constraint failed/i.test((err as Error).message)) throw new BookingError(409, "They've already booked every remaining session, so there's no unused credit to remove.");
     throw err;
   }
+  if (notify) await tellStudentAboutBundle(env, packageId, delta > 0 ? "added" : "removed", notify.message);
   return { ok: true };
 }
 
-export async function adminExtendPackage(env: Env, packageId: string, days: number, now: number) {
+// Emails the student that Avery changed their bundle, with her note.
+async function tellStudentAboutBundle(env: Env, packageId: string, change: "added" | "removed" | "extended", message: string) {
+  const { loadPackage, bundleView } = await import("./packages");
+  const { packageUrl } = await import("./manage");
+  const pkg = await loadPackage(env, "id", packageId);
+  if (!pkg) return;
+  const sent = await sendEmail(env, "bundle_updated", null,
+    T.bundleUpdated(bundleView(pkg), change, message.slice(0, 1000), await packageUrl(env, packageId)));
+  if (!sent) throw new BookingError(502, "The change was saved, but the email to the student couldn't be sent.");
+}
+
+export async function adminExtendPackage(env: Env, packageId: string, days: number, now: number, notify?: { message: string }) {
   if (![7, 14, 30].includes(days)) throw new BookingError(400, "Extend by 7, 14, or 30 days.");
   const pkg = await env.DB.prepare("SELECT expires_at, status FROM packages WHERE id = ?1").bind(packageId).first<{ expires_at: string | null; status: string }>();
   if (!pkg || pkg.status !== "active") throw new BookingError(404, "Bundle not found.");
@@ -288,5 +354,6 @@ export async function adminExtendPackage(env: Env, packageId: string, days: numb
     env.DB.prepare("UPDATE packages SET expires_at = ?1, expiry_notice_sent_at = NULL, updated_at = ?2 WHERE id = ?3").bind(iso(from + days * DAY), iso(now), packageId),
     env.DB.prepare("INSERT INTO credit_ledger (package_id, delta, reason, note) VALUES (?1, 0, 'avery_extended', ?2)").bind(packageId, `+${days} days`),
   ]);
+  if (notify) await tellStudentAboutBundle(env, packageId, "extended", notify.message);
   return { ok: true, expiresAt: iso(from + days * DAY) };
 }

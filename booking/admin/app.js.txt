@@ -11,9 +11,14 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
   let data = null;
-  let tab = (location.hash || "#upcoming").slice(1);
+  let tab = (location.hash || "#sessions").slice(1);
+  if (tab === "upcoming" || tab === "recent") tab = "sessions";
   let view = store.get("admin-view") === "calendar" ? "calendar" : "list";
-  let calMonth = null;          // "YYYY-MM" shown in the calendar
+  let scale = ["day", "week", "month"].includes(store.get("admin-scale")) ? store.get("admin-scale") : "week";
+  let calDate = null;           // "YYYY-MM-DD" the calendar is showing (Eastern)
+  const calData = new Map();    // range -> { bookings, busy }
+  let filters = { past: false, cancelled: false };
+  try { filters = { ...filters, ...JSON.parse(store.get("admin-filters") || "{}") }; } catch { /* default */ }
   let studentOpen = null;       // the student whose details are open (dialogs return there)
   let studentFilter = "";
   const known = new Map();      // booking id -> booking, from the overview and student details
@@ -30,6 +35,16 @@
       .formatToParts(Date.parse(iso)).map((x) => [x.type, x.value]));
     return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
   };
+
+  // A student's name, always with their pronouns right after it. With an id it
+  // opens their profile.
+  const nameTag = (name, pronouns, customerId) => {
+    const inner = `${esc(name)}${pronouns ? ` <span class="pn">(${esc(pronouns)})</span>` : ""}`;
+    return customerId
+      ? `<button type="button" class="name-link" data-student="${esc(customerId)}" title="Open ${esc(name)}'s profile">${inner}</button>`
+      : `<span class="name">${inner}</span>`;
+  };
+  const firstName = (name) => String(name || "").split(/\s+/)[0];
 
   // A button with a hover explanation.
   const btn = (label, attrs, tip, kind = "") =>
@@ -72,6 +87,7 @@
   // After an action: refresh now, and again shortly (refunds and emails finish in the background).
   async function afterAction(message) {
     if (message) toast(message);
+    calData.clear();
     await load();
     if (studentOpen) openStudent(studentOpen); else if ($dlg.open) $dlg.close();
     setTimeout(load, 4000);
@@ -82,12 +98,13 @@
   function showDialog(html, cls = "") {
     $dlg.className = cls;
     $dlg.innerHTML = html;
+    document.documentElement.classList.add("dlg-open");
     if (!$dlg.open) $dlg.showModal();
     $dlg.scrollTop = 0;
     for (const b of $dlg.querySelectorAll("[data-back]")) b.addEventListener("click", back);
   }
   function back() { if (studentOpen) openStudent(studentOpen); else $dlg.close(); }
-  $dlg.addEventListener("close", () => { studentOpen = null; });
+  $dlg.addEventListener("close", () => { studentOpen = null; document.documentElement.classList.remove("dlg-open"); });
   const cancelButton = (label = "Cancel") => `<button type="button" class="btn" data-back>${label}</button>`;
 
   /* ── Tabs ── */
@@ -96,15 +113,15 @@
   const stuckRefunds = () => data.bookings.filter((b) => b.refundStuck || b.refundOwed === "choice");
   function problemsCount() {
     const p = data.problems;
-    return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length;
+    const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past).length;
+    return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow;
   }
 
   function renderTabs() {
     // A group session counts once, however many students it has.
     const upcoming = new Set(data.bookings.filter((b) => b.status === "confirmed" && !b.past).map((b) => b.groupId || b.id)).size;
     const tabs = [
-      ["upcoming", "Upcoming", upcoming],
-      ["recent", "Recent", null],
+      ["sessions", "Sessions", upcoming],
       ["students", "Students", null],
       ["bundles", "Bundles", data.packages.filter((p) => !p.cancelled).length],
       ["attention", "Needs attention", problemsCount()],
@@ -128,6 +145,10 @@
     : b.refundOwed === "auto" ? `<span class="chip${b.refundStuck ? " bad" : ""}">${b.refundStuck ? "Refund stuck" : "Refund in progress"}</span>`
     : b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "";
 
+  const remindBtn = (b, small) => b.dueCents && b.status === "confirmed" && !b.past
+    ? btn(small ? "Remind" : "Send payment reminder", `data-remind="${esc(b.id)}"`, `Email ${firstName(b.name)} a reminder to pay ${money(b.dueCents)}, with the payment link`, small ? "sm" : "")
+    : "";
+
   function bookingCard(b) {
     const live = b.status === "confirmed" && !b.past;
     const chips = [
@@ -140,7 +161,7 @@
       .filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Link" ? `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</dd>`).join("") : "";
     const actions = [
       b.zoomUrl && live ? link("Join Zoom", b.zoomUrl, "Open this session's Zoom meeting", "primary") : "",
-      b.customerId ? btn("Student", `data-student="${esc(b.customerId)}"`, "See this student's details, sessions, and bundles") : "",
+      remindBtn(b),
       b.stripeUrl ? link("Payment", b.stripeUrl, "Open this payment in your Stripe dashboard") : "",
       live ? btn("Change time", `data-move="${esc(b.id)}"`, "Move this session to another date or time. The student gets an updated invite.") : "",
       live ? btn("Resend invite", `data-resend="${esc(b.id)}"`, "Email the student their invite again (with the payment link if they still owe)") : "",
@@ -150,7 +171,7 @@
     return `<div class="card${live ? "" : " muted"}">
       <div class="time">${esc(clock(b.start))}<small>${minutes(b)} min</small></div>
       <div class="who">
-        <strong>${esc(b.name)}</strong>${b.pronouns ? ` <span class="sub" style="display:inline">(${esc(b.pronouns)})</span>` : ""}
+        <strong>${nameTag(b.name, b.pronouns, b.customerId)}</strong>
         <div class="sub"><a href="mailto:${esc(b.email)}">${esc(b.email)}</a> &middot; ${esc(b.service)}</div>
         <div class="chips">${chips}</div>
         ${intake ? `<details class="intake"><summary>Intake answers</summary><dl>${intake}</dl></details>` : ""}
@@ -164,10 +185,10 @@
     const active = seats.filter((s) => s.status === "confirmed");
     const live = active.length && !first.past;
     const rows = seats.map((s) => `<div class="seat">
-        <div class="who-line"><strong>${esc(s.name)}</strong>${s.pronouns ? ` (${esc(s.pronouns)})` : ""}<small><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></small></div>
+        <div class="who-line"><strong>${nameTag(s.name, s.pronouns, s.customerId)}</strong><small><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></small></div>
         <span class="seat-chips">${payChip(s)}${statusChip(s)}${refundChip(s)}</span>
         <span class="seat-actions">
-          ${btn("Student", `data-student="${esc(s.customerId)}"`, "See this student's details", "sm")}
+          ${remindBtn(s, true)}
           ${s.refundOwed === "choice" ? btn(`Refund ${money(s.paid)}`, `data-refund="${esc(s.id)}"`, "Refund this student in full", "sm") : ""}
           ${live && s.status === "confirmed" ? btn("Resend", `data-resend="${esc(s.id)}"`, "Email this student their invite again", "sm")
             + btn("Remove", `data-cancel="${esc(s.id)}"`, "Take this student out of the group. You'll choose whether to refund them.", "sm danger") : ""}
@@ -212,70 +233,171 @@
     return out;
   }
 
-  const viewToggle = () => `<div class="viewbar"><div class="seg" role="group" aria-label="Show sessions as">
-      <button type="button" data-view="list" aria-pressed="${view === "list"}">List</button>
-      <button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">Calendar</button>
-    </div></div>`;
+  // Filters shared by the list and the calendar.
+  const visible = (b) => (filters.cancelled || b.status === "confirmed") && (filters.past || !b.past);
 
-  function renderUpcoming() {
-    if (view === "calendar") return viewToggle() + renderCalendar();
-    const list = data.bookings.filter((b) => b.status === "confirmed" && !b.past);
-    return viewToggle() + (list.length ? byDay(list) : '<p class="empty">No upcoming sessions.</p>');
+  function toolbar() {
+    const seg = (name, items, cur) => `<div class="seg" role="group" aria-label="${name}">${items.map(([v, label, tip]) =>
+      `<button type="button" data-${name}="${v}" aria-pressed="${cur === v}" title="${esc(tip)}">${label}</button>`).join("")}</div>`;
+    const upcomingOnly = !filters.past && !filters.cancelled;
+    const all = filters.past && filters.cancelled;
+    return `<div class="toolbar">
+      <div class="filters">
+        <button type="button" class="fchip" data-filter="upcoming" aria-pressed="${upcomingOnly}" title="Only sessions that haven't happened yet">Upcoming</button>
+        <button type="button" class="fchip" data-filter="all" aria-pressed="${all}" title="Everything, including past and cancelled sessions">All</button>
+        <span class="fsep"></span>
+        <button type="button" class="fchip" data-filter="past" aria-pressed="${filters.past}" title="Show sessions that have already happened">Past</button>
+        <button type="button" class="fchip" data-filter="cancelled" aria-pressed="${filters.cancelled}" title="Show cancelled sessions">Cancelled</button>
+      </div>
+      <div class="views">
+        ${view === "calendar" ? seg("scale", [["day", "Day", "One day"], ["week", "Week", "One week"], ["month", "Month", "A month at a time"]], scale) : ""}
+        ${seg("view", [["list", "List", "Sessions as a list"], ["calendar", "Calendar", "Sessions on a calendar"]], view)}
+      </div>
+    </div>`;
   }
 
-  function renderRecent() {
-    const list = data.bookings.filter((b) => b.past || b.status === "cancelled").reverse();
-    return list.length ? byDay(list) : '<p class="empty">Nothing in the last 30 days.</p>';
+  function renderSessions() {
+    if (view === "calendar") return toolbar() + renderCalendar();
+    const list = data.bookings.filter(visible);
+    const note = filters.past ? '<p class="hint">The list covers the last 30 days and the next 4 months. Use the calendar for further back or ahead.</p>' : "";
+    return toolbar() + note + (list.length ? byDay(list) : `<p class="empty">No ${filters.past || filters.cancelled ? "" : "upcoming "}sessions to show.</p>`);
   }
 
-  /* ── Calendar view (month) ── */
+  /* ── Calendar (day, week, month), with blocked time from your calendars ── */
+
+  const todayNY = () => nyParts(new Date().toISOString()).date;
+  const addDaysTo = (date, n) => { const [y, m, d] = date.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+  const weekdayOf = (date) => { const [y, m, d] = date.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
+  const minsOf = (iso) => { const [h, m] = nyParts(iso).time.split(":").map(Number); return h * 60 + m; };
+  const hourText = (mins) => { const h = Math.floor(mins / 60) % 24; return `${h % 12 || 12}${h < 12 ? "am" : "pm"}`; };
+
+  // The dates on screen for the current scale.
+  function calRange() {
+    if (!calDate) calDate = todayNY();
+    if (scale === "day") return { dates: [calDate], first: calDate };
+    if (scale === "week") {
+      const start = addDaysTo(calDate, -weekdayOf(calDate));
+      return { dates: Array.from({ length: 7 }, (_, i) => addDaysTo(start, i)), first: start };
+    }
+    const monthStart = `${calDate.slice(0, 7)}-01`;
+    const gridStart = addDaysTo(monthStart, -weekdayOf(monthStart));
+    const [y, m] = calDate.split("-").map(Number);
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const gridEnd = addDaysTo(monthEnd, 6 - weekdayOf(monthEnd));
+    const dates = [];
+    for (let d = gridStart; d <= gridEnd; d = addDaysTo(d, 1)) dates.push(d);
+    return { dates, first: gridStart, month: calDate.slice(0, 7) };
+  }
+
+  function calendarData(dates) {
+    const from = `${addDaysTo(dates[0], -1)}T00:00:00Z`;
+    const to = `${addDaysTo(dates.at(-1), 2)}T00:00:00Z`;
+    const key = `${from}|${to}`;
+    if (calData.has(key)) return calData.get(key);
+    calData.set(key, null);
+    api("GET", `/api/admin/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .then((r) => { for (const b of r.bookings) known.set(b.id, b); calData.set(key, r); if (tab === "sessions" && view === "calendar") render(); })
+      .catch((err) => { calData.delete(key); toast(err.message, true); });
+    return null;
+  }
+
+  // Busy time split into per-day pieces: { date, start, end } in minutes.
+  function busyPieces(busy) {
+    const out = [];
+    for (const b of busy || []) {
+      const endIso = new Date(Date.parse(b.end) - 60000).toISOString();
+      const lastDate = nyParts(endIso).date;
+      for (let d = nyParts(b.start).date; d <= lastDate; d = addDaysTo(d, 1)) {
+        const start = d === nyParts(b.start).date ? minsOf(b.start) : 0;
+        const end = d === lastDate ? minsOf(endIso) + 1 : 1440;
+        if (end > start) out.push({ date: d, start, end });
+      }
+    }
+    return out;
+  }
 
   function renderCalendar() {
-    const today = nyParts(new Date().toISOString()).date;
-    if (!calMonth) calMonth = today.slice(0, 7);
-    const [y, m] = calMonth.split("-").map(Number);
-    const first = new Date(Date.UTC(y, m - 1, 1));
-    const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    const lead = first.getUTCDay();
+    const { dates, month } = calRange();
+    const loaded = calendarData(dates);
+    const items = loaded ? sessionsOf(loaded.bookings.filter(visible)) : [];
     const byDate = new Map();
-    for (const it of sessionsOf(data.bookings.filter((b) => b.status === "confirmed"))) {
+    for (const it of items) {
       const d = nyParts(it.start).date;
       if (!byDate.has(d)) byDate.set(d, []);
       byDate.get(d).push(it);
     }
-    const cells = [];
-    for (let i = 0; i < lead; i++) cells.push('<div class="cal-cell empty"></div>');
-    for (let d = 1; d <= daysIn; d++) {
-      const key = `${calMonth}-${String(d).padStart(2, "0")}`;
-      const items = byDate.get(key) || [];
-      cells.push(`<div class="cal-cell${key === today ? " today" : ""}${key < today ? " past" : ""}">
-        <span class="cal-num">${d}</span>
-        ${items.map((it) => {
-          const b = it.one || it.seats[0];
-          const due = it.one ? b.dueCents : it.seats.some((s) => s.dueCents);
-          const label = it.one ? b.name.split(/\s+/)[0] : `Group (${it.seats.filter((s) => s.status === "confirmed").length})`;
-          return `<button type="button" class="cal-item${due ? " due" : ""}" data-session="${esc(b.id)}" title="${esc(`${clock(b.start)} ${it.one ? b.name : "Group session"}, ${minutes(b)} min${due ? ", payment due" : ""}`)}">${esc(clock(b.start).replace(":00", "").replace(" ", "").toLowerCase())} ${esc(label)}</button>`;
-        }).join("")}
-      </div>`);
-    }
-    const title = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(first);
-    return `<div class="panel cal">
-      <div class="cal-head">
-        ${btn("&lsaquo;", 'data-cal="-1"', "Previous month")}
+    const busy = loaded ? busyPieces(loaded.busy) : [];
+    const today = todayNY();
+    const label = (it) => {
+      const b = it.one || it.seats[0];
+      const due = it.one ? b.dueCents : it.seats.some((x) => x.dueCents && x.status === "confirmed");
+      const cancelled = it.one ? b.status === "cancelled" : it.seats.every((x) => x.status === "cancelled");
+      const who = it.one ? b.name : `Group (${it.seats.filter((x) => x.status === "confirmed").length})`;
+      const tip = `${clock(b.start)} to ${clock(b.end)}: ${it.one ? `${b.name}${b.pronouns ? ` (${b.pronouns})` : ""}` : "Group session"}${due ? ", payment due" : ""}${cancelled ? ", cancelled" : ""}`;
+      return { b, due, cancelled, who, tip };
+    };
+    const title = scale === "month"
+      ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(Date.parse(`${month}-01T12:00:00Z`))
+      : scale === "week"
+        ? `${fmt(`${dates[0]}T12:00:00Z`, { month: "short", day: "numeric" })} to ${fmt(`${dates[6]}T12:00:00Z`, { month: "short", day: "numeric", year: "numeric" })}`
+        : fmt(`${dates[0]}T12:00:00Z`, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const head = `<div class="cal-head">
+        ${btn("&lsaquo;", 'data-cal="-1"', `Previous ${scale}`)}
         <strong>${esc(title)}</strong>
-        ${btn("&rsaquo;", 'data-cal="1"', "Next month")}
-        ${btn("Today", 'data-cal="0"', "Back to this month")}
+        ${btn("&rsaquo;", 'data-cal="1"', `Next ${scale}`)}
+        ${btn("Today", 'data-cal="0"', "Back to today")}
+        ${loaded ? "" : '<span class="hint">Loading...</span>'}
+      </div>`;
+    const legend = `<p class="cal-legend"><span class="lg session"></span>Session <span class="lg due"></span>Payment due <span class="lg busy"></span>Blocked on your calendars${loaded && loaded.busy === null ? " (couldn't reach iCloud)" : ""}</p>`;
+
+    if (scale === "month") {
+      const cells = dates.map((d) => {
+        const its = byDate.get(d) || [];
+        const bz = busy.filter((x) => x.date === d);
+        return `<div class="cal-cell${d === today ? " today" : ""}${d < today ? " past" : ""}${d.slice(0, 7) !== month ? " other" : ""}">
+          <button type="button" class="cal-num" data-day="${d}" title="Open this day">${Number(d.slice(8))}</button>
+          ${its.map((it) => { const x = label(it); return `<button type="button" class="cal-item${x.due ? " due" : ""}${x.cancelled ? " cancelled" : ""}" data-session="${esc(x.b.id)}" title="${esc(x.tip)}">${esc(hourText(minsOf(x.b.start)))} ${esc(x.who.split(" ")[0])}</button>`; }).join("")}
+          ${bz.slice(0, 2).map((x) => `<span class="cal-busy" title="Blocked on your calendars">${x.start === 0 && x.end === 1440 ? "Blocked all day" : `Busy ${hourText(x.start)} to ${hourText(x.end)}`}</span>`).join("")}${bz.length > 2 ? `<span class="cal-busy">+${bz.length - 2} more</span>` : ""}
+        </div>`;
+      }).join("");
+      return `<div class="panel cal">${head}
+        <div class="cal-grid">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}${cells}</div>
+        ${legend}</div>`;
+    }
+
+    // Day and week: a time grid. It covers 7am to 10pm, stretched to fit any session.
+    let lo = 7 * 60, hi = 22 * 60;
+    for (const it of items) { lo = Math.min(lo, Math.floor(minsOf(it.start) / 60) * 60); const e = minsOf((it.one || it.seats[0]).end); hi = Math.max(hi, Math.ceil((e || 1440) / 60) * 60); }
+    const PX = 0.8; // pixels per minute
+    const hours = [];
+    for (let m = lo; m < hi; m += 60) hours.push(m);
+    const cols = dates.map((d) => {
+      const bz = busy.filter((x) => x.date === d && x.end > lo && x.start < hi).map((x) => {
+        const top = (Math.max(x.start, lo) - lo) * PX, h = (Math.min(x.end, hi) - Math.max(x.start, lo)) * PX;
+        return `<div class="tg-busy" style="top:${top}px;height:${h}px" title="Blocked on your calendars (${hourText(x.start)} to ${x.end === 1440 ? "midnight" : hourText(x.end)})"></div>`;
+      }).join("");
+      const ss = (byDate.get(d) || []).map((it) => {
+        const x = label(it);
+        const s0 = minsOf(x.b.start), e0 = minsOf(x.b.end) || 1440;
+        return `<button type="button" class="tg-item${x.due ? " due" : ""}${x.cancelled ? " cancelled" : ""}" style="top:${(s0 - lo) * PX}px;height:${Math.max(18, (e0 - s0) * PX - 2)}px" data-session="${esc(x.b.id)}" title="${esc(x.tip)}">
+          <strong>${esc(clock(x.b.start))}</strong> ${esc(x.who)}</button>`;
+      }).join("");
+      return `<div class="tg-col${d === today ? " today" : ""}" style="height:${(hi - lo) * PX}px">${bz}${ss}</div>`;
+    }).join("");
+    return `<div class="panel cal">${head}
+      <div class="tg" style="--cols:${dates.length}">
+        <div class="tg-head"><div></div>${dates.map((d) => `<button type="button" class="tg-day${d === today ? " today" : ""}" data-day="${d}" title="Open this day">${esc(fmt(`${d}T12:00:00Z`, { weekday: "short" }))} <b>${Number(d.slice(8))}</b></button>`).join("")}</div>
+        <div class="tg-body"><div class="tg-times">${hours.map((m) => `<span style="height:${60 * PX}px">${hourText(m)}</span>`).join("")}</div>${cols}</div>
       </div>
-      <div class="cal-grid">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}${cells.join("")}</div>
-      <p class="hint" style="font-size:.75rem;margin:10px 0 0">Click a session for details and actions. Red means a payment is still due. Shows sessions from the last 30 days to 4 months ahead.</p>
-    </div>`;
+      ${legend}</div>`;
   }
 
   // A session's card in a dialog (from the calendar).
   function openSession(id) {
     const b = known.get(id);
     if (!b) return;
-    const it = b.groupId ? { seats: data.bookings.filter((x) => x.groupId === b.groupId) } : { one: b };
+    const pool = [...known.values()];
+    const it = b.groupId ? { seats: pool.filter((x) => x.groupId === b.groupId && x.start === b.start) } : { one: b };
     showDialog(`<p class="day" style="margin-top:0">${esc(dayLabel(b.start))}</p><div class="dlg-card">${cardFor(it)}</div><div class="row">${cancelButton("Close")}</div>`, "wide");
   }
 
@@ -287,21 +409,50 @@
     return students;
   }
 
+  let studentSort = { key: "next", dir: 1 };
+  let studentShow = "all";
+  const pips = (total, used) => `<span class="pips" aria-label="${total - used} of ${total} left">${Array.from({ length: total }, (_, i) => `<span class="dot${i >= total - used ? " used" : ""}"></span>`).join("")}</span>`;
+
   function renderStudents() {
     if (!students) {
       loadStudents().then(() => { if (tab === "students") render(); }).catch((err) => { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; });
       return '<p class="empty">Loading students...</p>';
     }
     const q = studentFilter.trim().toLowerCase();
-    const list = students.filter((s) => !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q));
-    return `<div class="viewbar"><input type="search" id="student-search" placeholder="Search by name or email" value="${esc(studentFilter)}" aria-label="Search students"></div>
-      ${list.length ? `<div class="panel student-list">${list.map((s) => `<button type="button" class="student-row" data-student="${esc(s.id)}">
-        <span class="sr-name"><strong>${esc(s.name)}</strong><small>${esc(s.email)}</small></span>
-        <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
-        <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
-        <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}</span>
-        <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${x.remaining} of ${x.total} left`).join(", ") : "None"}</span>
-      </button>`).join("")}</div>` : `<p class="empty">${q ? "No students match that search." : "No students yet."}</p>`}`;
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000).toISOString();
+    const shows = {
+      all: ["All", () => true],
+      upcoming: ["Has upcoming", (s) => s.upcoming > 0],
+      owes: ["Owes money", (s) => s.owedCents > 0],
+      bundle: ["Has a bundle", (s) => s.bundles.length > 0],
+      quiet: ["Quiet for 60+ days", (s) => !s.upcoming && (!s.lastStart || s.lastStart < sixtyDaysAgo)],
+    };
+    const keys = {
+      name: (s) => s.name.toLowerCase(),
+      next: (s) => s.nextStart || "9999",
+      last: (s) => s.lastStart || "",
+      owes: (s) => s.owedCents,
+      bundle: (s) => s.bundles.reduce((n, x) => n + x.remaining, 0),
+    };
+    const list = students
+      .filter((s) => !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
+      .filter(shows[studentShow][1])
+      .sort((a, b) => { const x = keys[studentSort.key](a), y = keys[studentSort.key](b); return (x < y ? -1 : x > y ? 1 : 0) * studentSort.dir; });
+    const head = (key, label) => `<button type="button" class="sh${studentSort.key === key ? " on" : ""}" data-sort="${key}" title="Sort by ${label.toLowerCase()}">${label}${studentSort.key === key ? (studentSort.dir > 0 ? " &uarr;" : " &darr;") : ""}</button>`;
+    return `<div class="toolbar">
+        <input type="search" id="student-search" placeholder="Search by name or email" value="${esc(studentFilter)}" aria-label="Search students">
+        <div class="filters">${Object.entries(shows).map(([k, [label]]) => `<button type="button" class="fchip" data-sfilter="${k}" aria-pressed="${studentShow === k}">${label}</button>`).join("")}</div>
+      </div>
+      <div class="panel student-list">
+        <div class="student-row student-head">${head("name", "Name")}${head("next", "Next")}${head("last", "Last session")}${head("owes", "Owes")}${head("bundle", "Bundle")}</div>
+        ${list.length ? list.map((s) => `<button type="button" class="student-row" data-student="${esc(s.id)}" title="Open ${esc(s.name)}'s profile">
+          <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</strong><small>${esc(s.email)}</small></span>
+          <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
+          <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
+          <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}</span>
+          <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${pips(x.total, x.total - x.remaining)}${x.remaining} left`).join("<br>") : "None"}</span>
+        </button>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
+      </div>`;
   }
 
   async function openStudent(id) {
@@ -310,20 +461,24 @@
     try { s = await api("GET", `/api/admin/students/${encodeURIComponent(id)}`); }
     catch (err) { toast(err.message, true); return; }
     if (studentOpen !== id) return;
-    for (const x of s.sessions) known.set(x.id, { ...x, name: s.name, email: s.email, customerId: s.id });
+    for (const x of s.sessions) known.set(x.id, { ...x, name: s.name, email: s.email, pronouns: s.pronouns, customerId: s.id, past: x.status === "past", status: x.status === "cancelled" ? "cancelled" : "confirmed", unpaidReleased: x.cancelReason === "unpaid" });
     const upcoming = s.sessions.filter((x) => x.status === "upcoming").reverse();
     const past = s.sessions.filter((x) => x.status !== "upcoming");
     const owed = upcoming.reduce((n, x) => n + (x.dueCents || 0), 0);
-    const sessionRow = (x) => `<div class="seat">
+    const sessionRow = (x) => {
+      const k = known.get(x.id);
+      return `<div class="seat">
         <div class="who-line"><strong>${esc(fmt(x.start, { weekday: "short", month: "short", day: "numeric" }))}, ${esc(clock(x.start))}</strong>
           <small>${esc(x.service)}${x.group ? " (group)" : ""}${x.byAvery ? ", booked by you" : ""}</small></div>
-        <span class="seat-chips">${payChip(x)}${statusChip(x)}${x.refunded ? '<span class="chip ok">Refunded</span>' : ""}</span>
+        <span class="seat-chips">${payChip(x)}${statusChip(k)}${x.refunded ? '<span class="chip ok">Refunded</span>' : ""}</span>
         ${x.status === "upcoming" ? `<span class="seat-actions">
+          ${remindBtn(k, true)}
           ${btn("Change time", `data-move="${esc(x.id)}"`, x.group ? "Move the whole group session" : "Move this session. They get an updated invite.", "sm")}
           ${btn("Resend", `data-resend="${esc(x.id)}"`, "Email them their invite again", "sm")}
           ${btn(x.group ? "Remove" : "Cancel", `data-cancel="${esc(x.id)}"`, x.group ? "Take them out of the group session" : "Cancel this session", "sm danger")}
         </span>` : ""}
       </div>`;
+    };
     const bundleRow = (p) => {
       const live = p.status === "active" && !p.expired;
       const state = p.status === "cancelled"
@@ -331,7 +486,7 @@
         : p.expired ? `Expired ${shortDate(p.expiresAt)}` : `${p.remaining} of ${p.creditsTotal} left, use by ${shortDate(p.expiresAt)}`;
       return `<div class="seat">
         <div class="who-line"><strong>${esc(p.bundle)}</strong><small>Bought ${esc(shortDate(p.createdAt))} for ${money(p.paidCents)}</small></div>
-        <span class="seat-chips"><span class="chip${p.status === "cancelled" || p.expired ? "" : " ok"}">${esc(state)}</span></span>
+        <span class="seat-chips">${p.status === "active" ? pips(p.creditsTotal, p.creditsUsed) : ""}<span class="chip${p.status === "cancelled" || p.expired ? "" : " ok"}">${esc(state)}</span></span>
         ${live ? `<span class="seat-actions">
           ${btn("+1", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle", "sm")}
           ${btn("&minus;1", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle", "sm")}
@@ -342,11 +497,11 @@
     };
     showDialog(`<div class="student-detail">
       <div class="sd-head">
-        <div><h2 id="dlg-title">${esc(s.name)}</h2>
-          <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a>${s.pronouns ? ` &middot; ${esc(s.pronouns)}` : ""} &middot; since ${esc(shortDate(s.since))}</p></div>
+        <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</h2>
+          <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
         ${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}
       </div>
-      ${owed ? `<p class="warn-line">Owes ${money(owed)} for upcoming sessions.</p>` : ""}
+      ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
       <h3>Upcoming sessions</h3>
       ${upcoming.length ? upcoming.map(sessionRow).join("") : '<p class="hint">None booked.</p>'}
       <h3>Bundles</h3>
@@ -363,17 +518,17 @@
   function renderBundles() {
     if (!data.packages.length) return '<p class="empty">No active bundles.</p>';
     return data.packages.map((p) => {
-      const dots = Array.from({ length: p.creditsTotal }, (_, i) => `<span class="dot${i < p.creditsUsed ? " used" : ""}"></span>`).join("");
+      // Filled: sessions left. Hollow: sessions used.
+      const dots = Array.from({ length: p.creditsTotal }, (_, i) => `<span class="dot${i >= p.creditsTotal - p.creditsUsed ? " used" : ""}"></span>`).join("");
       if (p.cancelled) {
         return `<div class="card muted">
         <div class="time">0<small>cancelled</small></div>
-        <div class="who"><strong>${esc(p.name)}</strong>
+        <div class="who"><strong>${nameTag(p.name, p.pronouns, p.customerId)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}</div>
           <div class="chips"><span class="chip">Cancelled${p.cancelledByAvery ? " by you" : " by student"}</span>${p.refunded ? `<span class="chip ok">Refunded ${money(p.refundDueCents || 0)}</span>` : p.refundDueCents ? `<span class="chip bad">Refund due ${money(p.refundDueCents)}</span>` : '<span class="chip">No refund</span>'}</div>
           ${p.refundError ? `<p class="hint">Stripe said: ${esc(p.refundError)}</p>` : ""}
         </div>
         <div class="actions">
-          ${btn("Student", `data-student="${esc(p.customerId)}"`, "See this student's details")}
           ${p.stripeUrl && p.refundDueCents && !p.refunded ? link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it", "primary") : ""}
         </div>
       </div>`;
@@ -381,13 +536,12 @@
       return `<div class="card${p.expired ? " muted" : ""}">
         <div class="time">${p.remaining}<small>of ${p.creditsTotal} left</small></div>
         <div class="who">
-          <strong>${esc(p.name)}</strong>
+          <strong>${nameTag(p.name, p.pronouns, p.customerId)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}${p.promoCode ? ` (${esc(p.promoCode)})` : ""}</div>
-          <div class="meter" aria-hidden="true">${dots}</div>
+          <div class="meter" title="Filled: sessions left. Hollow: sessions used.">${dots}</div>
           <div class="chips"><span class="chip ${p.expired ? "bad" : ""}">${p.expired ? "Expired" : "Use by"} ${esc(p.expiresAt ? shortDate(p.expiresAt) : "")}</span></div>
         </div>
         <div class="actions">
-          ${btn("Student", `data-student="${esc(p.customerId)}"`, "See this student's details")}
           ${btn("+1 session", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle (e.g. a makeup)")}
           ${btn("&minus;1 session", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle")}
           ${btn("Extend", `data-extend="${esc(p.id)}"`, "Push back the use-by date")}
@@ -403,31 +557,37 @@
     const { failedEmails, stuck, activeHolds, leftOnCalendar, zoomLeft } = data.problems;
     const parts = [];
     const panel = (title, body) => `<div class="panel"><p class="day" style="margin-top:0">${title}</p>${body}</div>`;
+    const due2 = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past);
+    if (due2.length) {
+      parts.push(panel("Payments due", due2.map((b) =>
+        `<p>${nameTag(b.name, b.pronouns, b.customerId)}, ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}: <strong>${money(b.dueCents)}</strong>${b.payBy ? ` due by ${esc(fmt(b.payBy, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}` : ""}
+          <br>${remindBtn(b)}</p>`).join("")));
+    }
     const owed = stuckRefunds();
     if (owed.length) {
       parts.push(panel("Session refunds", owed.map((b) =>
-        `<p>${esc(b.name)}, ${esc(dayLabel(b.start))}: <strong>${money(b.paid)}</strong> &middot; ${b.refundOwed === "auto"
+        `<p>${nameTag(b.name, b.pronouns, b.customerId)}, ${esc(dayLabel(b.start))}: <strong>${money(b.paid)}</strong> &middot; ${b.refundOwed === "auto"
           ? `the automatic refund hasn't gone through${b.refundError ? ` (Stripe said: ${esc(b.refundError)})` : ""}. It keeps retrying.`
           : "you cancelled this one. Refund it if they'd like a refund, or leave it if they're rebooking."}
           <br>${btn("Refund now", `data-refund="${esc(b.id)}"`, "Refund this session in full")} ${b.stripeUrl ? link("Payment", b.stripeUrl, "Open the payment in Stripe") : ""}</p>`).join("")));
     }
     if (zoomLeft.length) {
       parts.push(panel("Zoom meetings not deleted", zoomLeft.map((s) =>
-        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))} is cancelled, but its Zoom meeting couldn't be deleted. It keeps retrying.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")
+        `<p>${nameTag(s.name, s.pronouns)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))} is cancelled, but its Zoom meeting couldn't be deleted. It keeps retrying.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")
         + '<p class="hint">If the error mentions scopes or permissions, the Zoom app needs the "Delete a meeting" permission.</p>'));
     }
     if (leftOnCalendar.length) {
       parts.push(panel("Cancelled but still on your calendar", leftOnCalendar.map((s) =>
-        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")));
+        `<p>${nameTag(s.name, s.pronouns)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")));
     }
     const due = refundsDue();
     if (due.length) {
       parts.push(panel("Bundle refunds to issue", due.map((p) =>
-        `<p>${esc(p.name)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; ${link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it")}` : ""}${p.refundError ? `<br><span class="mono-hint">Stripe said: ${esc(p.refundError)}</span>` : ""}<br><span class="hint">Marked done automatically once Stripe records the refund.</span></p>`).join("")));
+        `<p>${nameTag(p.name, p.pronouns, p.customerId)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; ${link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it")}` : ""}${p.refundError ? `<br><span class="mono-hint">Stripe said: ${esc(p.refundError)}</span>` : ""}<br><span class="hint">Marked done automatically once Stripe records the refund.</span></p>`).join("")));
     }
     if (stuck.length) {
       parts.push(panel("Bookings missing a step", stuck.map((s) =>
-        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}: ${[!s.inCalendar ? "not in your Coaching calendar" : "", !s.emailed ? "confirmation email not sent" : ""].filter(Boolean).join(" and ")}. It retries every few minutes.</p>`).join("")));
+        `<p>${nameTag(s.name, s.pronouns)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}: ${[!s.inCalendar ? "not in your Coaching calendar" : "", !s.emailed ? "confirmation email not sent" : ""].filter(Boolean).join(" and ")}. It retries every few minutes.</p>`).join("")));
     }
     if (failedEmails.length) {
       parts.push(panel("Emails that failed (last 14 days)", failedEmails.map((e) =>
@@ -530,9 +690,9 @@
     renderTabs();
     const scroll = window.scrollY;
     $main.innerHTML = {
-      upcoming: renderUpcoming, recent: renderRecent, students: renderStudents, bundles: renderBundles,
+      sessions: renderSessions, students: renderStudents, bundles: renderBundles,
       attention: renderAttention, settings: renderSettings,
-    }[tab]?.() ?? renderUpcoming();
+    }[tab]?.() ?? renderSessions();
     window.scrollTo(0, scroll);
     const search = document.getElementById("student-search");
     if (search) {
@@ -569,10 +729,10 @@
     const inGroup = !!b.groupId;
     formDialog(`
       <h2 id="dlg-title">${inGroup ? "Remove from group session?" : "Cancel this session?"}</h2>
-      <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. ${inGroup
+      <p>${nameTag(b.name, b.pronouns)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. ${inGroup
         ? "They'll be taken out of the group session; it goes ahead for everyone else (if they're the last one, the session is cancelled)."
         : "The calendar event and Zoom meeting are removed and the time opens up again."}</p>
-      <label><input type="checkbox" name="notify" checked> Email ${esc(b.name.split(" ")[0])} a cancellation (with a calendar update)</label>
+      <label><input type="checkbox" name="notify" checked> Email ${esc(firstName(b.name))} a cancellation (with a calendar update)</label>
       ${bundle ? '<label><input type="checkbox" name="credit" checked> Return the session to their bundle</label>' : ""}
       ${!bundle && b.paid ? `<label><input type="checkbox" name="refund" checked> Refund ${money(b.paid)} in full now</label>
       <p class="hint">Leave this unticked if they'd rather have a new time. They'll be offered either, and you can refund later.</p>` : ""}
@@ -642,6 +802,15 @@
     });
   }
 
+  async function remind(path, b) {
+    b.disabled = true;
+    try {
+      const r = await api("POST", path);
+      toast(r.sent > 1 ? `${r.sent} payment reminders sent.` : "Payment reminder sent.");
+    } catch (err) { toast(err.message, true); }
+    b.disabled = false;
+  }
+
   async function resend(id, b) {
     b.disabled = true;
     try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`); toast("Invite sent again."); }
@@ -661,35 +830,50 @@
 
   /* ── Dialogs: bundles ── */
 
+  // "Email the student" with an optional message, for bundle changes.
+  const notifyFields = (who) => `<label><input type="checkbox" name="notify" checked> Email ${esc(who)} about this</label>
+      <label class="field notify-msg">Message to include (optional)<textarea name="message" maxlength="1000" placeholder="e.g. This is a makeup for the session I had to move."></textarea></label>`;
+  const wireNotify = (form) => {
+    const sync = () => { form.querySelector(".notify-msg").hidden = !form.notify.checked; };
+    form.notify.addEventListener("change", sync);
+    sync();
+  };
+  const bundleOwner = (id) => {
+    const p = data.packages.find((x) => x.id === id);
+    return p ? firstName(p.name) : "the student";
+  };
+
   function openCredit(id, delta) {
-    formDialog(`
+    const form = formDialog(`
       <h2 id="dlg-title">${delta > 0 ? "Add a session" : "Remove a session"}</h2>
       <p>${delta > 0 ? "Adds one session to this bundle." : "Removes one unused session from this bundle."}</p>
-      <label style="display:block">Reason (for the record)<textarea name="note" maxlength="300" placeholder="${delta > 0 ? "Makeup for a session I had to move" : "Late cancellation"}"></textarea></label>
+      <label style="display:block">Reason (for your records only)<textarea name="note" maxlength="300" placeholder="${delta > 0 ? "Makeup for a session I had to move" : "Late cancellation"}"></textarea></label>
+      ${notifyFields(bundleOwner(id))}
       <div class="row">${cancelButton()}<button type="submit" class="btn primary">${delta > 0 ? "Add 1" : "Remove 1"}</button></div>`,
     async (f) => {
-      await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/credits`, { delta, note: f.note.value });
-      await afterAction(delta > 0 ? "Session added." : "Session removed.");
+      await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/credits`, { delta, note: f.note.value, notifyClient: f.notify.checked, message: f.message.value });
+      await afterAction(`${delta > 0 ? "Session added" : "Session removed"}${f.notify.checked ? ", and they've been emailed" : ""}.`);
     });
+    wireNotify(form);
   }
 
   function openExtend(id) {
-    showDialog(`<div>
+    const form = formDialog(`
       <h2 id="dlg-title">Extend the use-by date</h2>
       <p>Pushes back when this bundle's sessions need to be used by.</p>
-      <div class="row" style="justify-content:flex-start">
-        <button type="button" class="btn" data-days="7">+7 days</button><button type="button" class="btn" data-days="14">+14 days</button><button type="button" class="btn" data-days="30">+30 days</button>
-      </div>
-      <div class="row">${cancelButton()}</div>
-    </div>`);
-    for (const b of $dlg.querySelectorAll("[data-days]")) {
-      b.addEventListener("click", async () => {
-        try {
-          await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/extend`, { days: Number(b.dataset.days) });
-          await afterAction(`Extended by ${b.dataset.days} days.`);
-        } catch (err) { toast(err.message, true); }
-      });
-    }
+      <fieldset class="choices"><legend>By</legend>
+        <label><input type="radio" name="days" value="7"> 7 days</label>
+        <label><input type="radio" name="days" value="14" checked> 14 days</label>
+        <label><input type="radio" name="days" value="30"> 30 days</label>
+      </fieldset>
+      ${notifyFields(bundleOwner(id))}
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Extend</button></div>`,
+    async (f) => {
+      const days = Number(f.querySelector("[name=days]:checked").value);
+      await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/extend`, { days, notifyClient: f.notify.checked, message: f.message.value });
+      await afterAction(`Extended by ${days} days${f.notify.checked ? ", and they've been emailed" : ""}.`);
+    });
+    wireNotify(form);
   }
 
   async function openCancelBundle(id) {
@@ -699,7 +883,7 @@
     const full = q.paidCents;
     const form = formDialog(`
       <h2 id="dlg-title">Cancel ${esc(q.name.split(" ")[0])}'s bundle?</h2>
-      <p>${esc(q.bundleName)}, paid ${money(full)}. ${q.used} session${q.used === 1 ? "" : "s"} used.${q.upcoming.length
+      <p>${nameTag(q.name, q.pronouns)} &middot; ${esc(q.bundleName)}, paid ${money(full)}. ${q.used} session${q.used === 1 ? "" : "s"} used.${q.upcoming.length
         ? ` These booked sessions will be cancelled too: ${q.upcoming.map((s) => `${esc(fmt(s, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(clock(s))}`).join("; ")}.` : ""}</p>
       ${q.canRefund ? `<fieldset class="choices"><legend>Refund</legend>
         <label><input type="radio" name="refund" value="${q.policyRefundCents}" checked> ${money(q.policyRefundCents)} (your policy: used sessions charged at the single-session price)</label>
@@ -802,7 +986,7 @@
       div.innerHTML = `<button type="button" class="remove" aria-label="Remove this student" title="Remove this student">&times;</button>
         <label class="field pick">Existing student (optional)<select name="existing">
           <option value="">New student, or type their details below</option>
-          ${byName.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} (${esc(x.email)})</option>`).join("")}
+          ${byName.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.pronouns ? ` (${esc(x.pronouns)})` : ""}, ${esc(x.email)}</option>`).join("")}
         </select></label>
         <div class="fgrid">
           <label>Name<input type="text" name="name" required maxlength="120"></label>
@@ -834,16 +1018,30 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-tab],[data-view],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend]");
+    const t = e.target.closest("[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
     else if (d.view) { view = d.view; store.set("admin-view", view); render(); }
-    else if (d.cal !== undefined) {
-      if (d.cal === "0") calMonth = null;
-      else { const [y, m] = calMonth.split("-").map(Number); const n = new Date(Date.UTC(y, m - 1 + Number(d.cal), 1)); calMonth = `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, "0")}`; }
+    else if (d.scale) { scale = d.scale; store.set("admin-scale", scale); render(); }
+    else if (d.filter) {
+      if (d.filter === "upcoming") filters = { past: false, cancelled: false };
+      else if (d.filter === "all") filters = { past: true, cancelled: true };
+      else filters = { ...filters, [d.filter]: !filters[d.filter] };
+      store.set("admin-filters", JSON.stringify(filters));
       render();
     }
+    else if (d.day) { calDate = d.day; scale = "day"; store.set("admin-scale", scale); render(); }
+    else if (d.cal !== undefined) {
+      if (d.cal === "0") calDate = null;
+      else if (scale === "month") { const [y, m] = calRange().month.split("-").map(Number); const n = new Date(Date.UTC(y, m - 1 + Number(d.cal), 1)); calDate = n.toISOString().slice(0, 10); }
+      else calDate = addDaysTo(calDate, Number(d.cal) * (scale === "week" ? 7 : 1));
+      render();
+    }
+    else if (d.remind) remind(`/api/admin/bookings/${encodeURIComponent(d.remind)}/remind`, t);
+    else if (d.remindStudent) remind(`/api/admin/students/${encodeURIComponent(d.remindStudent)}/remind`, t);
+    else if (d.sort) { studentSort = { key: d.sort, dir: studentSort.key === d.sort ? -studentSort.dir : 1 }; render(); }
+    else if (d.sfilter) { studentShow = d.sfilter; render(); }
     else if (d.session) openSession(d.session);
     else if (d.student) openStudent(d.student);
     else if (d.bookStudent) { const id = d.bookStudent; studentOpen = null; openNewSession(id); }
@@ -871,6 +1069,7 @@
     const b = e.currentTarget;
     b.disabled = true;
     students = null;
+    calData.clear();
     await load();
     b.disabled = false;
     toast("Up to date.");

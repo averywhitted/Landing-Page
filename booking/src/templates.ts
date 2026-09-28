@@ -399,6 +399,30 @@ export function bundleExpiring(p: BundleView, bundleUrl: string): Email {
   };
 }
 
+// Avery added or removed a session, or extended the use-by date.
+export function bundleUpdated(p: BundleView, change: "added" | "removed" | "extended", message: string, bundleUrl: string): Email {
+  const tz = p.clientTimeZone;
+  const what = change === "added" ? "I've added a session to your bundle."
+    : change === "removed" ? "I've removed a session from your bundle."
+    : `I've extended your bundle. You now have until ${day(p.expiresAt, tz)} to use it.`;
+  const body = [
+    para(`Hi ${esc(firstName(p.name))},`),
+    para(esc(what)),
+    message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(message)}</p>` : "",
+    details([["Bundle", esc(p.bundleName)], ["Left", `${p.remaining} of ${p.credits}`], ["Use by", esc(day(p.expiresAt, tz))]]),
+    button(bundleUrl, "Go to your bundle"),
+    para("Thanks,<br>Avery"),
+  ].join("\n");
+  return {
+    to: p.email,
+    subject: change === "extended" ? "Your bundle has been extended" : `Your bundle: ${change === "added" ? "a session added" : "a session removed"}`,
+    html: layout({ preheader: what, tag: "Session bundle", title: "Bundle updated", body }),
+    text: [`Hi ${firstName(p.name)},`, "", what, ...(message ? ["", message] : []), "",
+      textRows([["Bundle", p.bundleName], ["Left", `${p.remaining} of ${p.credits}`], ["Use by", day(p.expiresAt, tz)]]), "",
+      `Your bundle: ${bundleUrl}`, "", "Thanks,", "Avery"].join("\n"),
+  };
+}
+
 export type BundleCancelView = BundleView & {
   byAvery?: boolean;          // cancelled from the admin page (at the client's request)
   used: number;               // sessions that happened or were too close to cancel

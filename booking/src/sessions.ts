@@ -499,6 +499,36 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
   };
 }
 
+/* ── Avery sends a payment reminder now ── */
+
+// One session. Not twice within 10 minutes (so a double click doesn't send two).
+export async function adminRemind(env: Env, bookingId: string, now: number) {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row || !dueCents(row)) throw new BookingError(409, "Nothing is owed on this session.");
+  const recent = await env.DB.prepare(
+    "SELECT 1 AS x FROM email_log WHERE booking_id = ?1 AND kind = 'payment_reminder_manual' AND status = 'sent' AND created_at > ?2",
+  ).bind(row.id, iso(now - 10 * MIN)).first();
+  if (recent) throw new BookingError(429, "A reminder for this session went out in the last few minutes.");
+  const ok = await sendEmail(env, "payment_reminder_manual", row.id, T.paymentReminder(view(row), payUrl(await manageUrl(env, row.id))));
+  if (!ok) throw new BookingError(502, "The reminder couldn't be sent. Please try again.");
+  return { ok: true, sent: 1 };
+}
+
+// Everything one student owes: a reminder per unpaid session.
+export async function adminRemindStudent(env: Env, customerId: string, now: number) {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND created_by = 'admin' AND paid_at IS NULL
+       AND package_id IS NULL AND price_cents > 0 AND end_utc > ?2 ORDER BY start_utc`,
+  ).bind(customerId, iso(now)).all<{ id: string }>();
+  if (!rows.results.length) throw new BookingError(409, "They don't owe anything right now.");
+  let sent = 0;
+  for (const { id } of rows.results) {
+    try { await adminRemind(env, id, now); sent++; } catch (err) { if (!(err instanceof BookingError && err.status === 429)) throw err; }
+  }
+  if (!sent) throw new BookingError(429, "Reminders went out in the last few minutes.");
+  return { ok: true, sent };
+}
+
 /* ── Students paying ── */
 
 // From the payment link: returns a Stripe checkout page for what's owed.

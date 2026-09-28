@@ -24,11 +24,11 @@ import {
 } from "./packages";
 import { isPaid, promoCodeUsed } from "./stripe";
 import {
-  adminCancelGroup, adminCheckTime, adminCreateSession, adminMove, adminResendInvite, adminStudentDetail, adminStudents, maintainGroups, recordPayment,
+  adminCancelGroup, adminCheckTime, adminCreateSession, adminMove, adminRemind, adminRemindStudent, adminResendInvite, adminStudentDetail, adminStudents, maintainGroups, recordPayment,
   releaseUnpaid, sendPaymentReminders, startPayment,
 } from "./sessions";
 import {
-  adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminRefundBooking,
+  adminAdjustCredits, adminCalendar, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminRefundBooking,
   adminResetSettings, adminSaveSettings, requireAdmin,
 } from "./admin";
 import adminHtml from "../admin/index.html";
@@ -341,6 +341,18 @@ app.post("/api/admin/groups/:id/cancel", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/bookings/:id/remind", async (c) => {
+  try { return c.json(await adminRemind(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/remind", async (c) => {
+  try { return c.json(await adminRemindStudent(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/calendar", async (c) => {
+  try { return c.json(await adminCalendar(c.env, c.req.query("from"), c.req.query("to"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/bookings/:id/resend", async (c) => {
   try { return c.json(await adminResendInvite(c.env, c.req.param("id"))); } catch (err) { return bookingErrorResponse(c, err); }
 });
@@ -348,7 +360,8 @@ app.post("/api/admin/bookings/:id/resend", async (c) => {
 app.post("/api/admin/packages/:id/credits", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
-    return c.json(await adminAdjustCredits(c.env, c.req.param("id"), Number(body.delta), typeof body.note === "string" ? body.note : "", Date.now()));
+    const notify = body.notifyClient === true ? { message: typeof body.message === "string" ? body.message : "" } : undefined;
+    return c.json(await adminAdjustCredits(c.env, c.req.param("id"), Number(body.delta), typeof body.note === "string" ? body.note : "", Date.now(), notify));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
@@ -367,7 +380,8 @@ app.post("/api/admin/settings/reset", async (c) => c.json(await adminResetSettin
 app.post("/api/admin/packages/:id/extend", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
-    return c.json(await adminExtendPackage(c.env, c.req.param("id"), Number(body.days), Date.now()));
+    const notify = body.notifyClient === true ? { message: typeof body.message === "string" ? body.message : "" } : undefined;
+    return c.json(await adminExtendPackage(c.env, c.req.param("id"), Number(body.days), Date.now(), notify));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 

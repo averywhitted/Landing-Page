@@ -1615,3 +1615,57 @@ test("cleanup errors are saved so the admin page can show why", async () => {
   await api.cron();
   assert.equal(row(id).cleanup_error, null, "cleared once it works");
 });
+
+/* ── Admin tools round 3 ── */
+
+test("payment reminders on demand: per session and per student; not twice in a row", async () => {
+  adminEnv();
+  await adminBook({ students: [student("Owen Owes", "owen@example.com", { priceCents: 6000 })] });
+  await adminBook({ time: "16:00", students: [student("Owen Owes", "owen@example.com", { priceCents: 3000 })] });
+  const id = bookingByEmail("owen@example.com").id;
+  const r = await api.call("POST", `/api/admin/bookings/${id}/remind`, { headers: asAdmin() });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/remind`, { headers: asAdmin() })).status, 429, "not again within 10 minutes");
+  const customer = (db.prepare("SELECT id FROM customers WHERE email = 'owen@example.com'").get() as any).id;
+  const all = await api.call("POST", `/api/admin/students/${customer}/remind`, { headers: asAdmin() });
+  assert.equal(all.status, 200);
+  assert.equal(all.data.sent, 1, "the other session (the first was just reminded)");
+  const reminders = world.state.emails.filter((e) => /^Payment due: /.test(e.subject));
+  assert.equal(reminders.length, 2);
+  assert.match(reminders[0].text, /pay=1/);
+  const { id: paidId } = await confirmedBooking("coaching-30", 8);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${paidId}/remind`, { headers: asAdmin() })).status, 409, "nothing owed");
+});
+
+test("calendar feed: sessions plus blocked time, without titles or your own sessions", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const day = etDate(Date.now() + 3 * DAY).replace(/-/g, "");
+  const own = row(id);
+  world.state.busy = [
+    { calendar: "Personal", ics: `BEGIN:VEVENT\r\nUID:dentist\r\nDTSTART;TZID=America/New_York:${day}T080000\r\nDTEND;TZID=America/New_York:${day}T090000\r\nSUMMARY:Dentist\r\nEND:VEVENT` },
+    { calendar: "Coaching", ics: `BEGIN:VEVENT\r\nUID:${own.ics_uid}\r\nDTSTART:${own.start_utc.replace(/[-:]/g, "")}\r\nDTEND:${own.end_utc.replace(/[-:]/g, "")}\r\nSUMMARY:Coaching\r\nEND:VEVENT` },
+  ];
+  const from = new Date(Date.now()).toISOString();
+  const to = new Date(Date.now() + 7 * DAY).toISOString();
+  const r = await api.call("GET", `/api/admin/calendar?from=${from}&to=${to}`, { headers: asAdmin() });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(r.data.bookings.some((b: any) => b.id === id));
+  assert.equal(r.data.busy.length, 1, "the dentist, not the coaching session");
+  assert.doesNotMatch(JSON.stringify(r.data.busy), /Dentist/, "no titles");
+  assert.equal((await api.call("GET", `/api/admin/calendar?from=${from}&to=${new Date(Date.now() + 90 * DAY).toISOString()}`, { headers: asAdmin() })).status, 400, "45 days at most");
+});
+
+test("bundle changes can email the student, with Avery's note", async () => {
+  adminEnv();
+  const { id } = await paidBundle();
+  await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: 1, note: "private", notifyClient: true, message: "A makeup for Tuesday." } });
+  const added = world.state.emails.find((e) => /^Your bundle: a session added/.test(e.subject))!;
+  assert.match(added.text, /A makeup for Tuesday\./);
+  assert.match(added.text, /5 of 5/);
+  assert.doesNotMatch(added.text, /private/, "the record-keeping note stays private");
+  await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: -1, note: "" } });
+  assert.ok(!world.state.emails.some((e) => /a session removed/.test(e.subject)), "no email unless asked");
+  await api.call("POST", `/api/admin/packages/${id}/extend`, { headers: asAdmin(), body: { days: 14, notifyClient: true, message: "" } });
+  assert.ok(world.state.emails.some((e) => e.subject === "Your bundle has been extended"));
+});
