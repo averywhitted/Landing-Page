@@ -47,8 +47,9 @@
     }
   }
 
+  const refundsDue = () => data.packages.filter((p) => p.cancelled && p.refundDueCents && !p.refunded);
   function problemsCount() {
-    return data.problems.failedEmails.length + data.problems.stuck.length;
+    return data.problems.failedEmails.length + data.problems.stuck.length + refundsDue().length;
   }
 
   function renderTabs() {
@@ -116,6 +117,16 @@
     if (!data.packages.length) return '<p class="empty">No active bundles.</p>';
     return data.packages.map((p) => {
       const dots = Array.from({ length: p.creditsTotal }, (_, i) => `<span class="dot${i < p.creditsUsed ? " used" : ""}"></span>`).join("");
+      if (p.cancelled) {
+        return `<div class="card muted">
+        <div class="time">0<small>cancelled</small></div>
+        <div class="who"><strong>${esc(p.name)}</strong>
+          <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}</div>
+          <div class="chips">${p.refunded ? '<span class="chip ok">Refunded</span>' : p.refundDueCents ? `<span class="chip bad">Refund due ${money(p.refundDueCents)}</span>` : '<span class="chip">No refund due</span>'}</div>
+        </div>
+        <div class="actions">${p.stripeUrl && p.refundDueCents && !p.refunded ? `<a class="btn primary" href="${esc(p.stripeUrl)}" target="_blank" rel="noopener">Refund in Stripe</a>` : ""}</div>
+      </div>`;
+      }
       return `<div class="card${p.expired ? " muted" : ""}">
         <div class="time">${p.remaining}<small>of ${p.creditsTotal} left</small></div>
         <div class="who">
@@ -136,6 +147,11 @@
   function renderAttention() {
     const { failedEmails, stuck, activeHolds } = data.problems;
     const parts = [];
+    const due = refundsDue();
+    if (due.length) {
+      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Bundle refunds to issue</p>${due.map((p) =>
+        `<p>${esc(p.name)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; <a href="${esc(p.stripeUrl)}" target="_blank" rel="noopener">Refund in Stripe</a>` : ""}<br><span style="font-size:.8125rem;color:var(--faint)">Marked done automatically once Stripe records the refund.</span></p>`).join("")}</div>`);
+    }
     if (stuck.length) {
       parts.push(`<div class="panel"><p class="day" style="margin-top:0">Bookings missing a step</p>${stuck.map((s) =>
         `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}: ${[!s.inCalendar ? "not in your Coaching calendar" : "", !s.emailed ? "confirmation email not sent" : ""].filter(Boolean).join(" and ")}. It retries every few minutes.</p>`).join("")}</div>`);
@@ -145,7 +161,7 @@
         `<p><strong>${esc(e.kind.replace(/_/g, " "))}</strong> &middot; ${esc(fmt(e.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}<br><span style="font-family:var(--mono);font-size:.8125rem;color:var(--faint)">${esc(e.error || "")}</span></p>`).join("")}</div>`);
     }
     parts.push(`<div class="panel"><p class="day" style="margin-top:0">Checkouts in progress</p><p>${activeHolds} time${activeHolds === 1 ? "" : "s"} currently held while someone pays.</p></div>`);
-    return (stuck.length || failedEmails.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
+    return (stuck.length || failedEmails.length || due.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
   }
 
   /* Settings (editable) */

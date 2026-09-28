@@ -20,7 +20,16 @@
     <link rel="stylesheet" href="/podcast/podcast.css" />
     <link rel="stylesheet" href="/book/booking.css?v=5902bf9d" />
     <style>
-      .pk { margin-top: 32px; padding: 40px 44px; max-width: 820px; }
+      .pk { margin: 32px auto 0; padding: 40px 44px; max-width: 820px; }
+      .pk-cancel-link { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+      .pk-cancel-link button { border: 0; background: none; padding: 0; font: 600 0.8125rem var(--body); color: var(--faint); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+      .pk-cancel-link button:hover { color: #b42318; }
+      .pk-confirm { margin-top: 18px; padding: 20px; border: 1.5px solid var(--text); border-radius: 16px; }
+      .pk-confirm h2 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; text-transform: uppercase; font-size: 1.25rem; line-height: 1.05; color: var(--text); letter-spacing: 0; }
+      .pk-confirm p, .pk-confirm li { font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+      .pk-confirm ul { margin: 0 0 12px; padding-left: 18px; }
+      .btn.danger { border-color: #b42318; background: #b42318; color: #fff; }
+      .btn.danger:hover { background: #8a1c12; border-color: #8a1c12; }
       .pk .show-title { margin-bottom: 12px; }
       .pk-meter { display: flex; align-items: center; gap: 18px; margin: 22px 0 8px; padding: 18px 20px; border-radius: 16px; background: var(--bg1); }
       .pk-count { font-family: var(--display); font-size: 2.75rem; line-height: 1; }
@@ -51,12 +60,12 @@
       .pk-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
       .pk-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
       @media (max-width: 640px) {
-        .pk { padding: 26px 20px; margin-top: 22px; }
+        .pk { padding: 26px 20px; margin: 22px auto 0; }
         .pk-actions .btn { flex: 1 1 100%; }
       }
     </style>
     <script>document.documentElement.classList.add("js");</script>
-    <script src="/book/booking.js?v=f77f6e5a" defer></script>
+    <script src="/book/booking.js?v=7ca73944" defer></script>
   </head>
 
   <body>
@@ -96,6 +105,7 @@
         const p = q.get("p") || "";
         const t = q.get("t") || "";
         const $ = document.getElementById("pk");
+        const money = (c) => (c % 100 ? `$${(c / 100).toFixed(2)}` : `$${c / 100}`);
         const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         let pkg = null;
         let flash = null;
@@ -139,7 +149,7 @@
           const upcoming = pkg.sessions.filter((s) => s.status === "upcoming");
           const other = pkg.sessions.filter((s) => s.status !== "upcoming");
           const item = (s) => `<li class="pk-item${s.status === "upcoming" ? "" : " is-muted"}">
-              <div><strong>${esc(when(s.start))}</strong><span>${s.status === "upcoming" ? `1 hour on Zoom` : s.status === "past" ? "Done" : "Cancelled, returned to your bundle"}</span></div>
+              <div><strong>${esc(when(s.start))}</strong><span>${s.status === "upcoming" ? `1 hour on Zoom` : s.status === "past" ? "Done" : pkg.status === "cancelled" ? "Cancelled" : "Cancelled, returned to your bundle"}</span></div>
               ${s.manageUrl ? `<a href="${esc(s.manageUrl)}">Reschedule or cancel</a>` : ""}
             </li>`;
           return (upcoming.length ? `<h2>Upcoming</h2><ul class="pk-list">${upcoming.map(item).join("")}</ul>` : "")
@@ -151,7 +161,9 @@
             return show("Your sessions", "Almost there", `<div class="prose"><p>Your payment is still being confirmed. Give it a minute and refresh this page.</p></div>`);
           }
           if (pkg.status === "cancelled") {
-            return show("Your sessions", "This bundle isn't active", `<div class="prose"><p>Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>.</p></div>`);
+            const refund = pkg.refundDueCents
+              ? `<p>${pkg.refunded ? `Your refund of ${money(pkg.refundDueCents)} has been issued.` : `Your refund of ${money(pkg.refundDueCents)} is being processed and may take a few business days to appear.`}</p>` : "";
+            return show("Your sessions", "This bundle is cancelled", `<div class="prose">${refund}<p>Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>. You're always welcome to <a href="/book/" style="color:var(--a)">book again</a>.</p></div>` + sessionsHtml());
           }
           const used = pkg.credits - pkg.remaining;
           const dots = Array.from({ length: pkg.credits }, (_, i) => `<span class="pk-dot${i < used ? " used" : ""}"></span>`).join("");
@@ -169,9 +181,43 @@
             actions = `<p class="pk-note">You've booked every session in this bundle. Want more? <a href="/book/">Book another session or bundle</a>.</p>`;
           }
           const hi = pkg.firstName ? `Hi ${pkg.firstName}` : "Your sessions";
+          const cancelLink = pkg.cancelQuote && pkg.cancelQuote.canCancel
+            ? `<div class="pk-cancel-link" id="pk-cancel-area"><button type="button" id="pk-cancel">Cancel this bundle</button></div>` : "";
           show("Your sessions", hi, meter + actions + sessionsHtml()
-            + `<p class="pk-note">Each session can be rescheduled or cancelled up to 24 hours before it starts, and it goes back into your bundle.</p>`);
+            + `<p class="pk-note">Each session can be rescheduled or cancelled up to 24 hours before it starts, and it goes back into your bundle.</p>` + cancelLink);
           document.getElementById("pk-book")?.addEventListener("click", openPicker);
+          document.getElementById("pk-cancel")?.addEventListener("click", askCancelBundle);
+        }
+
+        function askCancelBundle() {
+          const q = pkg.cancelQuote;
+          const list = (arr) => arr.map((iso) => `<li>${esc(when(iso))}</li>`).join("");
+          document.getElementById("pk-cancel-area").innerHTML = `<div class="pk-confirm" role="alertdialog" aria-labelledby="pk-c-title">
+              <h2 id="pk-c-title">Cancel your bundle?</h2>
+              <p>You've used ${q.used} of ${pkg.credits} session${pkg.credits === 1 ? "" : "s"}. Unused sessions are refunded at the price you paid per session.</p>
+              ${q.cancelSessions.length ? `<p>These booked sessions will be cancelled too:</p><ul>${list(q.cancelSessions)}</ul>` : ""}
+              ${q.keptSessions.length ? `<p>These are less than 24 hours away, so they'll still go ahead and count as used:</p><ul>${list(q.keptSessions)}</ul>` : ""}
+              <p><strong>${q.refundCents > 0 ? `Refund: ${money(q.refundCents)}` : "No refund is due, since every session has been used."}</strong>${q.refundCents > 0 ? " Refunds may take a few business days to appear." : ""}</p>
+              <div class="pk-actions">
+                <button type="button" class="btn danger" id="pk-c-yes">Yes, cancel my bundle</button>
+                <button type="button" class="btn" id="pk-c-no">Keep my bundle</button>
+              </div>
+            </div>`;
+          document.getElementById("pk-c-no").addEventListener("click", render);
+          const yes = document.getElementById("pk-c-yes");
+          yes.focus();
+          yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Cancelling';
+            try {
+              const r = await api("POST", "/api/packages/cancel", { p, t });
+              flash = { kind: "ok", html: `Your bundle is cancelled${r.refundCents ? ` and your ${money(r.refundCents)} refund is being processed` : ""}. A confirmation email is on its way.` };
+            } catch (err) {
+              flash = { kind: "err", html: esc(err.message) };
+            }
+            await load();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
         }
 
         function openPicker() {
@@ -184,7 +230,8 @@
             serviceId: pkg.serviceId,
             timeZone: pkg.timeZone,
             title: "Pick a time",
-            summaryHtml: `<div class="bk-summary"><strong>Booking 1 of your ${pkg.remaining} remaining session${pkg.remaining === 1 ? "" : "s"}</strong><span class="bk-sep">&middot;</span><span>1 hour on Zoom</span><span class="bk-price" style="font-size:0.8125rem;font-family:inherit">No payment needed</span></div>`,
+            summaryHtml: `<div class="bk-summary"><strong>Booking 1 of your ${pkg.remaining} remaining session${pkg.remaining === 1 ? "" : "s"}</strong><span class="bk-sep">&middot;</span><span>1 hour on Zoom</span><span class="bk-price" style="font-size:0.8125rem;font-family:inherit">No payment needed</span></div>`
+              + (pkg.expiresAt ? `<p class="bk-note" style="margin:-8px 0 14px">Pick a time before your use-by date, ${esc(longDay(Date.parse(pkg.expiresAt)))}.</p>` : ""),
             confirmLabel: "Book this time",
             busyLabel: "Booking",
             cancelLabel: "Not now",

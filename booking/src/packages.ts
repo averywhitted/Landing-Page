@@ -15,7 +15,7 @@ import { sendEmail } from "./email";
 import { verifyHuman } from "./turnstile";
 import { manageUrl, packageUrl, validPackageToken } from "./manage";
 import * as T from "./templates";
-import { BookingError, UNIQUE_CLAIM, afterConfirm, isStillOpen, sha256, validateIntake } from "./bookings";
+import { BookingError, UNIQUE_CLAIM, afterCancelShared, afterConfirm, isStillOpen, sha256, stripePaymentUrl, validateIntake } from "./bookings";
 import { scheduling } from "./config";
 
 const MIN = 60000;
@@ -27,6 +27,8 @@ export type PackageRow = {
   promo_code: string | null; stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null;
   intake_json: string | null; client_time_zone: string | null; confirmation_sent_at: string | null;
   admin_email_sent_at: string | null; expiry_notice_sent_at: string | null; created_at: string;
+  cancel_reason: string | null; cancelled_at: string | null; refund_due_cents: number | null; refunded_at: string | null;
+  reminder_sent_at: string | null;
   name: string; email: string; pronouns: string | null;
 };
 
@@ -142,7 +144,7 @@ export async function afterPackage(env: Env, id: string): Promise<void> {
 }
 
 export async function releasePackageForSession(env: Env, sessionId: string, now: number): Promise<void> {
-  await env.DB.prepare("UPDATE packages SET status = 'cancelled', updated_at = ?1 WHERE stripe_checkout_session_id = ?2 AND status = 'pending'")
+  await env.DB.prepare("UPDATE packages SET status = 'cancelled', cancel_reason = 'checkout_expired', updated_at = ?1 WHERE stripe_checkout_session_id = ?2 AND status = 'pending'")
     .bind(iso(now), sessionId).run();
 }
 
@@ -156,13 +158,13 @@ export async function expirePendingPackages(env: Env, now: number): Promise<numb
     try {
       if (p.stripe_checkout_session_id) {
         const s = await stripe.expireCheckoutSession(env, p.stripe_checkout_session_id);
-        if (s.status === "complete" && s.payment_status === "paid") {
+        if (s.status === "complete" && stripe.isPaid(s)) {
           const id = await confirmPackage(env, s, now);
           if (id) await afterPackage(env, id);
           continue;
         }
       }
-      await env.DB.prepare("UPDATE packages SET status = 'cancelled', updated_at = ?1 WHERE id = ?2 AND status = 'pending'").bind(iso(now), p.id).run();
+      await env.DB.prepare("UPDATE packages SET status = 'cancelled', cancel_reason = 'checkout_expired', updated_at = ?1 WHERE id = ?2 AND status = 'pending'").bind(iso(now), p.id).run();
       n++;
     } catch (err) {
       console.error("expirePendingPackages:", (err as Error).message);
@@ -189,8 +191,12 @@ export async function packageView(env: Env, id: unknown, token: unknown, now: nu
     "SELECT id, start_utc, end_utc, status FROM bookings WHERE package_id = ?1 AND status IN ('confirmed', 'cancelled') ORDER BY start_utc",
   ).bind(pkg.id).all<{ id: string; start_utc: string; end_utc: string; status: string }>();
   const service = sessionService();
+  const quote = pkg.status === "active" ? await packageCancelQuote(env, pkg, now) : null;
   return {
     status: pkg.status === "active" ? (expired ? "expired" : "active") : pkg.status === "pending" ? "processing" : "cancelled",
+    cancelQuote: quote,
+    refundDueCents: pkg.cancel_reason === "client_cancelled" ? pkg.refund_due_cents : null,
+    refunded: !!pkg.refunded_at,
     canBook: pkg.status === "active" && !expired && remaining > 0,
     bundleName: bundleName(findService(pkg.service_id)!),
     credits: pkg.credits_total,
@@ -296,4 +302,105 @@ export async function retryPackageEmails(env: Env, now: number): Promise<number>
   ).bind(iso(now - 2 * MIN)).all<{ id: string }>();
   for (const { id } of rows.results) await afterPackage(env, id);
   return rows.results.length;
+}
+
+/* ── Cancelling a whole bundle ──
+   Policy (change here if it changes): unused sessions are refunded at the
+   price paid per session. A session counts as used if it already happened
+   or is less than 24 hours away (it can't be cancelled online by then).
+   Booked sessions 24+ hours away are cancelled along with the bundle.
+   Expired bundles can't be cancelled; their unused sessions have lapsed. */
+
+const CUTOFF = 24 * 60 * MIN;
+
+async function cancelQuote(env: Env, pkg: PackageRow, now: number) {
+  const booked = await env.DB.prepare(
+    "SELECT id, start_utc FROM bookings WHERE package_id = ?1 AND status = 'confirmed' ORDER BY start_utc",
+  ).bind(pkg.id).all<{ id: string; start_utc: string }>();
+  const cancellable = booked.results.filter((b) => Date.parse(b.start_utc) - now >= CUTOFF);
+  const kept = booked.results.filter((b) => Date.parse(b.start_utc) - now < CUTOFF && Date.parse(b.start_utc) > now);
+  const used = pkg.credits_used - cancellable.length;       // happened, or too close to cancel
+  const paidSessions = findService(pkg.service_id)?.credits ?? pkg.credits_total;
+  const perSession = pkg.amount_cents / paidSessions;
+  // Extra sessions Avery added for free are treated as used first, so they're never refunded.
+  const refundCents = Math.max(0, Math.round(perSession * Math.max(0, paidSessions - used)));
+  const expired = !!pkg.expires_at && Date.parse(pkg.expires_at) <= now;
+  return {
+    canCancel: pkg.status === "active" && !expired,
+    used,
+    refundCents,
+    cancellable,
+    kept,
+  };
+}
+
+export async function cancelPackage(env: Env, id: unknown, token: unknown, ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const pkg = await loadManagedPackage(env, id, token);
+  if (pkg.status === "cancelled") throw new BookingError(409, "This bundle is already cancelled.");
+  const q = await cancelQuote(env, pkg, ctx.now);
+  if (!q.canCancel) throw new BookingError(409, "This bundle's use-by date has passed, so it can't be cancelled online. Please email info@averywhitted.com.");
+  const res = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE packages SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1, refund_due_cents = ?2,
+         credits_used = credits_used - ?3, updated_at = ?1 WHERE id = ?4 AND status = 'active'`,
+    ).bind(iso(ctx.now), q.refundCents, q.cancellable.length, pkg.id),
+    ...q.cancellable.flatMap((b) => [
+      env.DB.prepare(
+        `UPDATE bookings SET status = 'cancelled', cancel_reason = 'bundle_cancelled', cancelled_at = ?1,
+           ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+      ).bind(iso(ctx.now), b.id),
+      env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(b.id),
+      env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'bundle_cancelled')").bind(pkg.id, b.id),
+    ]),
+    env.DB.prepare("INSERT INTO credit_ledger (package_id, delta, reason, note) VALUES (?1, 0, 'bundle_cancelled', ?2)")
+      .bind(pkg.id, `refund due ${(q.refundCents / 100).toFixed(2)}`),
+  ]);
+  if (!res[0].meta.changes) throw new BookingError(409, "This bundle is already cancelled.");
+  ctx.waitUntil(afterPackageCancel(env, pkg.id, q));
+  return { ok: true, refundCents: q.refundCents };
+}
+
+async function afterPackageCancel(env: Env, id: string, q: Awaited<ReturnType<typeof cancelQuote>>): Promise<void> {
+  // Remove each cancelled session from the Coaching calendar and Zoom.
+  for (const b of q.cancellable) await afterCancelShared(env, b.id, { notifyClient: false, notifyAvery: false });
+  const pkg = await loadPackage(env, "id", id);
+  if (!pkg) return;
+  const v: T.BundleCancelView = {
+    ...bundleView(pkg), used: q.used, refundCents: q.refundCents,
+    cancelledSessions: q.cancellable.map((b) => Date.parse(b.start_utc)),
+    keptSessions: q.kept.map((b) => Date.parse(b.start_utc)),
+  };
+  await sendEmail(env, "bundle_cancelled", null, T.bundleCancelled(v));
+  await sendEmail(env, "admin_bundle_cancelled", null, { ...T.adminBundleCancelled(v, stripePaymentUrl(env, pkg.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
+}
+
+export async function packageCancelQuote(env: Env, pkg: PackageRow, now: number) {
+  const q = await cancelQuote(env, pkg, now);
+  return { canCancel: q.canCancel, used: q.used, refundCents: q.refundCents, cancelSessions: q.cancellable.map((b) => b.start_utc), keptSessions: q.kept.map((b) => b.start_utc) };
+}
+
+/* ── "Finish buying your bundle" (same rules as single-session reminders) ── */
+
+export async function sendBundleReminders(env: Env, now: number): Promise<number> {
+  if (!(await scheduling(env)).remindersEnabled) return 0;
+  const rows = await env.DB.prepare(
+    `SELECT p.id, p.service_id FROM packages p
+     WHERE p.status = 'cancelled' AND p.cancel_reason = 'checkout_expired' AND p.reminder_sent_at IS NULL
+       AND p.updated_at >= ?1
+       AND NOT EXISTS (SELECT 1 FROM packages o WHERE o.customer_id = p.customer_id AND o.id <> p.id
+                         AND o.created_at >= p.created_at AND o.status IN ('pending', 'active'))
+       AND NOT EXISTS (SELECT 1 FROM packages r WHERE r.customer_id = p.customer_id AND r.reminder_sent_at >= ?2)
+       AND NOT EXISTS (SELECT 1 FROM bookings r WHERE r.customer_id = p.customer_id AND r.reminder_sent_at >= ?2)
+     LIMIT 20`,
+  ).bind(iso(now - DAY), iso(now - 7 * DAY)).all<{ id: string; service_id: string }>();
+  let sent = 0;
+  for (const r of rows.results) {
+    const pkg = await loadPackage(env, "id", r.id);
+    if (!pkg) continue;
+    if (await sendEmail(env, "bundle_checkout_reminder", null, T.bundleCheckoutReminder(bundleView(pkg), `${env.SITE_URL}/book/?service=${r.service_id}`))) {
+      await env.DB.prepare("UPDATE packages SET reminder_sent_at = ?1 WHERE id = ?2").bind(iso(now), r.id).run();
+      sent++;
+    }
+  }
+  return sent;
 }

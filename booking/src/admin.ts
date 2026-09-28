@@ -83,11 +83,12 @@ export async function adminOverview(env: Env, now: number) {
 
   const packages = await env.DB.prepare(
     `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
-            p.created_at, c.name, c.email
+            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, c.name, c.email
      FROM packages p JOIN customers c ON c.id = p.customer_id
-     WHERE p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total)
-     ORDER BY p.expires_at`,
-  ).bind(iso(now - 60 * DAY)).all<Record<string, any>>();
+     WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
+        OR (p.status = 'cancelled' AND p.cancel_reason = 'client_cancelled' AND p.cancelled_at >= ?2)
+     ORDER BY p.status, p.expires_at`,
+  ).bind(iso(now - 60 * DAY), iso(now - 30 * DAY)).all<Record<string, any>>();
 
   const failedEmails = await env.DB.prepare(
     `SELECT e.kind, e.error, e.created_at, e.booking_id FROM email_log e
@@ -137,6 +138,10 @@ export async function adminOverview(env: Env, now: number) {
       promoCode: p.promo_code,
       name: p.name,
       email: p.email,
+      cancelled: p.status === "cancelled",
+      refundDueCents: p.refund_due_cents,
+      refunded: !!p.refunded_at,
+      stripeUrl: stripeUrl(p.stripe_payment_intent_id),
     })),
     problems: {
       failedEmails: failedEmails.results.map((e) => ({ kind: e.kind, error: e.error, at: e.created_at })),

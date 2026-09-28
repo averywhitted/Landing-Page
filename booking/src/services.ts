@@ -17,7 +17,7 @@ export type Service = {
 export const IN_PERSON_NOTE = "Sessions are on Zoom. Reach out before booking if you'd like to meet in person.";
 
 export const SERVICES: Service[] = [
-  { id: "intro-15", name: "General Meeting", kind: "intro", durationMinutes: 15, priceCents: 0, inPerson: "on-request",
+  { id: "intro-15", name: "Intro Chat", kind: "intro", durationMinutes: 15, priceCents: 0, inPerson: "on-request",
     blurb: "A relaxed 15 minute call to get acquainted." },
   { id: "coaching-30", name: "Private Coaching Session, 30 min", kind: "single", durationMinutes: 30, priceCents: 7500, inPerson: "on-request",
     blurb: "Audition prep, quick-turnaround sides, and last-minute confidence before you go on tape." },

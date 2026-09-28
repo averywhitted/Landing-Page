@@ -17,10 +17,10 @@ import {
 } from "./bookings";
 import { validManageToken } from "./manage";
 import {
-  afterPackage, bookWithCredit, confirmPackage, createPackagePurchase, expirePendingPackages, packagePublicStatus,
-  packageView, releasePackageForSession, retryPackageEmails, sendExpiryNotices,
+  afterPackage, bookWithCredit, cancelPackage, confirmPackage, createPackagePurchase, expirePendingPackages, packagePublicStatus,
+  packageView, releasePackageForSession, retryPackageEmails, sendBundleReminders, sendExpiryNotices,
 } from "./packages";
-import { promoCodeUsed } from "./stripe";
+import { isPaid, promoCodeUsed } from "./stripe";
 import {
   adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminResetSettings,
   adminSaveSettings, requireAdmin,
@@ -140,7 +140,7 @@ app.get("/api/availability", async (c) => {
 });
 
 // Submit the booking form. Paid sessions get a Stripe checkout link;
-// free intro calls are confirmed right away.
+// free intro chats are confirmed right away.
 app.post("/api/bookings", async (c) => {
   let body: unknown;
   try { body = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
@@ -296,6 +296,13 @@ app.post("/api/admin/packages/:id/extend", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/packages/cancel", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await cancelPackage(c.env, body.p, body.t, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // Stripe's notifications. Signed, checked, and handled once each.
 app.post("/api/stripe/webhook", async (c) => {
   const raw = await c.req.text();
@@ -310,7 +317,7 @@ app.post("/api/stripe/webhook", async (c) => {
   try {
     if (event.type === "checkout.session.completed") {
       const s = event.data.object as unknown as CheckoutSession;
-      if (s.payment_status === "paid") {
+      if (isPaid(s)) {
         const promo = await promoCodeUsed(c.env, s.id);
         if (s.metadata?.package_id) {
           const id = await confirmPackage(c.env, s, now, promo);
@@ -327,6 +334,8 @@ app.post("/api/stripe/webhook", async (c) => {
       const pi = event.data.object.payment_intent;
       if (typeof pi === "string") {
         await c.env.DB.prepare("UPDATE bookings SET refunded_at = COALESCE(refunded_at, ?1) WHERE stripe_payment_intent_id = ?2")
+          .bind(new Date(now).toISOString(), pi).run();
+        await c.env.DB.prepare("UPDATE packages SET refunded_at = COALESCE(refunded_at, ?1) WHERE stripe_payment_intent_id = ?2")
           .bind(new Date(now).toISOString(), pi).run();
       }
     }
@@ -350,6 +359,7 @@ async function scheduled(env: Env): Promise<void> {
   const bundles = await run("bundle checkouts", () => expirePendingPackages(env, now));
   const expiring = await run("bundle expiry notices", () => sendExpiryNotices(env, now));
   const checkout = await run("checkout reminders", () => sendReminders(env, now));
+  await run("bundle checkout reminders", () => sendBundleReminders(env, now));
   const session = await run("session reminders", () => sendSessionReminders(env, now));
   const retried = await run("retries", () => retryConfirmations(env, now));
   await run("bundle email retries", () => retryPackageEmails(env, now));

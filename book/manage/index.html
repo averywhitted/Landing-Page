@@ -20,7 +20,9 @@
     <link rel="stylesheet" href="/podcast/podcast.css" />
     <link rel="stylesheet" href="/book/booking.css?v=5902bf9d" />
     <style>
-      .mg { margin-top: 32px; padding: 40px 44px; max-width: 760px; }
+      .mg { margin: 32px auto 0; padding: 40px 44px; max-width: 760px; }
+      .mg-back { display: inline-flex; margin: 0 0 18px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--a); }
+      .mg-back:hover { text-decoration: underline; text-underline-offset: 3px; }
       .mg .show-title { margin-bottom: 12px; }
       .mg-details {
         display: grid;
@@ -50,12 +52,12 @@
       .mg-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
       .mg-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
       @media (max-width: 640px) {
-        .mg { padding: 26px 20px; margin-top: 22px; }
+        .mg { padding: 26px 20px; margin: 22px auto 0; }
         .mg-actions .btn { flex: 1 1 100%; }
       }
     </style>
     <script>document.documentElement.classList.add("js");</script>
-    <script src="/book/booking.js?v=f77f6e5a" defer></script>
+    <script src="/book/booking.js?v=7ca73944" defer></script>
   </head>
 
   <body>
@@ -108,8 +110,9 @@
           return { date: f(s, { weekday: "long", month: "long", day: "numeric" }), time: `${f(s, { hour: "numeric", minute: "2-digit" })} to ${f(e, { hour: "numeric", minute: "2-digit" })} ${zone(s)}` };
         };
 
+        const backLink = () => (booking && booking.bundleUrl ? `<a class="mg-back" href="${esc(booking.bundleUrl)}">&larr; Back to your bundle</a>` : "");
         function show(tag, title, html) {
-          $.innerHTML = `<p class="tag">${esc(tag)}</p><h1 class="show-title">${esc(title)}</h1>`
+          $.innerHTML = backLink() + `<p class="tag">${esc(tag)}</p><h1 class="show-title">${esc(title)}</h1>`
             + (flash ? `<p class="mg-msg ${flash.kind}" role="${flash.kind === "err" ? "alert" : "status"}">${flash.html}</p>` : "") + html;
           flash = null; // show each message once
         }
@@ -150,12 +153,18 @@
         function renderBooking() {
           const name = booking.firstName ? `, ${booking.firstName}` : "";
           if (booking.status === "cancelled") {
+            if (booking.cancelReason === "bundle_cancelled") {
+              return show("Cancelled", "This session is cancelled", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">It was cancelled along with your bundle.</p><div class="mg-actions"><a class="btn primary" href="/book/">Book a session</a></div>`);
+            }
             return show("Cancelled", "This session is cancelled", detailsHtml()
-              + `<div class="mg-actions"><a class="btn primary" href="/book/">Book another time</a><a class="btn" href="/">Home</a></div>`);
+              + (booking.bundleUrl
+                ? `<p class="mg-note" style="margin:0 0 16px">The session went back into your bundle.</p><div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl)}">Book another time from your bundle</a></div>`
+                : `<div class="mg-actions"><a class="btn primary" href="/book/">Book another time</a><a class="btn" href="/">Home</a></div>`));
           }
           if (booking.status === "past") {
             return show("Your booking", "This session has passed", detailsHtml()
-              + `<div class="mg-actions"><a class="btn primary" href="/book/">Book another session</a></div>`);
+              + `<div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl || "/book/")}">${booking.bundleUrl ? "Back to your bundle" : "Book another session"}</a></div>`);
           }
           if (booking.status !== "confirmed") {
             return show("Your booking", "Almost there", `<div class="prose"><p>This booking isn't confirmed yet. If you just paid, give it a minute and refresh. Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>.</p></div>`);
@@ -180,8 +189,10 @@
 
         function askCancel() {
           const w = when(booking);
-          const refund = booking.amountCents > 0
-            ? `<p>You'll be refunded in full (${money(booking.amountCents)}). Refunds may take a few business days to appear.</p>` : "";
+          const refund = booking.bundleUrl
+            ? "<p>It goes back into your bundle, so you can book another time whenever you like.</p>"
+            : booking.amountCents > 0
+              ? `<p>You'll be refunded in full (${money(booking.amountCents)}). Refunds may take a few business days to appear.</p>` : "";
           document.getElementById("mg-actions").hidden = true;
           document.getElementById("mg-extra").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-c-title">
               <h2 id="mg-c-title">Cancel this session?</h2>
@@ -199,7 +210,7 @@
             yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Cancelling';
             try {
               await api("POST", "/api/manage/cancel", { b, t });
-              flash = { kind: "ok", html: "Your session is cancelled. A confirmation email is on its way." };
+              flash = { kind: "ok", html: booking.bundleUrl ? "Your session is cancelled and back in your bundle. A confirmation email is on its way." : "Your session is cancelled. A confirmation email is on its way." };
             } catch (err) {
               flash = { kind: "err", html: esc(err.message) };
             }
@@ -210,7 +221,9 @@
         function openPicker() {
           document.getElementById("mg-actions").hidden = true;
           const holder = document.getElementById("mg-extra");
-          holder.innerHTML = '<div class="mg-picker" id="mg-picker"></div>';
+          const useBy = booking.bundleExpiresAt ? `${f(Date.parse(booking.bundleExpiresAt), { weekday: "long", month: "long", day: "numeric" })}` : "";
+          holder.innerHTML = (useBy ? `<p class="mg-note" style="margin:18px 0 0">Bundle sessions need to be before your bundle's use-by date, ${esc(useBy)}.</p>` : "")
+            + '<div class="mg-picker" id="mg-picker"></div>';
           window.AWBooking.mountReschedule(document.getElementById("mg-picker"), {
             serviceId: booking.serviceId,
             b, t,

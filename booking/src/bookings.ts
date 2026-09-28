@@ -2,7 +2,7 @@
 //
 //   createBooking   client submits the form. We re-check the time live, then
 //                   hold it (claiming its 15-minute blocks) and send paid
-//                   bookings to Stripe. Free intro calls are confirmed at once.
+//                   bookings to Stripe. Free intro chats are confirmed at once.
 //   confirmPaid     Stripe says the payment went through. The hold becomes a
 //                   confirmed booking (or, if the hold had lapsed and someone
 //                   else took the time, the client is refunded automatically).
@@ -82,12 +82,12 @@ export async function sha256(text: string): Promise<string> {
 }
 
 export function serviceLabel(s: Service): string {
-  if (s.kind === "intro") return "Intro call";
+  if (s.kind === "intro") return "Intro chat";
   return s.durationMinutes === 60 ? "1 hour session" : `${s.durationMinutes} minute session`;
 }
 
 function stripeProductName(s: Service): string {
-  return s.kind === "intro" ? "Intro call" : `Private coaching, ${s.durationMinutes === 60 ? "1 hour" : `${s.durationMinutes} minutes`}`;
+  return s.kind === "intro" ? "Intro chat" : `Private coaching, ${s.durationMinutes === 60 ? "1 hour" : `${s.durationMinutes} minutes`}`;
 }
 
 function describeTime(start: number, tz: string): string {
@@ -147,7 +147,7 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
        WHERE b.service_id = ?1 AND b.status = 'confirmed' AND b.start_utc > ?2 AND c.email = ?3`,
     ).bind(service.id, iso(now), intake.email).first<{ n: number }>();
     if ((intros?.n ?? 0) >= RULES.maxUpcomingIntros) {
-      throw new BookingError(409, "You already have an intro call coming up. Check your email for the details, or reply to it to change the time.");
+      throw new BookingError(409, "You already have an intro chat coming up. Check your email for the details, or reply to it to change the time.");
     }
   }
 
@@ -329,7 +329,7 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
   ];
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end,
-    summary: service.kind === "intro" ? `Intro call: ${row.name}` : `Coaching: ${row.name} (${v.serviceName.replace(/ session$/, "")})`,
+    summary: service.kind === "intro" ? `Intro chat: ${row.name}` : `Coaching: ${row.name} (${v.serviceName.replace(/ session$/, "")})`,
     description: lines.join("\n"), location: v.zoomUrl ?? "Zoom",
   });
 }
@@ -338,7 +338,7 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
 function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "REQUEST" | "CANCEL"): string {
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end, method, cancelled: method === "CANCEL",
-    summary: v.kind === "intro" ? "Intro call with Avery Whitted" : "Private coaching with Avery Whitted",
+    summary: v.kind === "intro" ? "Intro chat with Avery Whitted" : "Private coaching with Avery Whitted",
     description: `${v.zoomUrl ? `Join on Zoom: ${v.zoomUrl}\n\n` : ""}Reschedule or cancel up to 24 hours before using the link in your confirmation email.`,
     location: v.zoomUrl ?? "Zoom (link to follow)",
     organizer: { name: "Avery Whitted", email: env.EMAIL_REPLY_TO },
@@ -356,7 +356,7 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   // 1. Zoom
   if (!row.zoom_join_url) {
     const meeting = await createMeeting(env, {
-      topic: service.kind === "intro" ? `Intro call: ${row.name} + Avery Whitted` : `Coaching: ${row.name} + Avery Whitted`,
+      topic: service.kind === "intro" ? `Intro chat: ${row.name} + Avery Whitted` : `Coaching: ${row.name} + Avery Whitted`,
       start, durationMinutes: service.durationMinutes,
     });
     const url = meeting?.joinUrl ?? env.ZOOM_FALLBACK_URL ?? null;
@@ -431,7 +431,7 @@ export async function expireHolds(env: Env, now: number): Promise<{ released: nu
       if (h.stripe_checkout_session_id) {
         const s = await stripe.expireCheckoutSession(env, h.stripe_checkout_session_id);
         // Paid just in time but Stripe's notice hasn't arrived yet: confirm instead.
-        if (s.status === "complete" && s.payment_status === "paid") {
+        if (s.status === "complete" && stripe.isPaid(s)) {
           const id = await confirmPaid(env, s, now);
           if (id) { await afterConfirm(env, id); confirmed++; }
           continue;
@@ -461,6 +461,8 @@ export async function sendReminders(env: Env, now: number): Promise<number> {
        -- At most one reminder per person per week, so nobody can use this to spam an address.
        AND NOT EXISTS (
          SELECT 1 FROM bookings r WHERE r.customer_id = b.customer_id AND r.reminder_sent_at >= ?3)
+       AND NOT EXISTS (
+         SELECT 1 FROM packages r WHERE r.customer_id = b.customer_id AND r.reminder_sent_at >= ?3)
      LIMIT 20`,
   ).bind(iso(now - 24 * 60 * MIN), iso(now + RULES.minNoticeHours * 60 * MIN), iso(now - 7 * 24 * 60 * MIN)).all<{ id: string }>();
   let sent = 0;
@@ -548,10 +550,16 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
     firstName: row.name.trim().split(/\s+/)[0],
     zoomUrl: row.status === "confirmed" ? row.zoom_join_url : null,
     amountCents: row.amount_cents,
+    cancelReason: row.cancel_reason,
+    // Bundle sessions link back to the bundle page, and must stay before its use-by date.
+    bundleUrl: row.package_id ? await packageUrl(env, row.package_id) : null,
+    bundleExpiresAt: row.package_id
+      ? (await env.DB.prepare("SELECT expires_at FROM packages WHERE id = ?1").bind(row.package_id).first<{ expires_at: string | null }>())?.expires_at ?? null
+      : null,
   };
 }
 
-function stripePaymentUrl(env: Env, pi: string | null): string | null {
+export function stripePaymentUrl(env: Env, pi: string | null): string | null {
   if (!pi) return null;
   const test = /^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "");
   return `https://dashboard.stripe.com/${test ? "test/" : ""}payments/${encodeURIComponent(pi)}`;
@@ -614,6 +622,12 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
   const service = findService(row.service_id)!;
   const newStart = Date.parse(String(newStartRaw ?? ""));
   if (!Number.isFinite(newStart)) throw new BookingError(400, "Please pick a new time.");
+  if (row.package_id) {
+    const pkg = await env.DB.prepare("SELECT expires_at FROM packages WHERE id = ?1").bind(row.package_id).first<{ expires_at: string | null }>();
+    if (pkg?.expires_at && newStart >= Date.parse(pkg.expires_at)) {
+      throw new BookingError(409, "Bundle sessions need to take place before the bundle's use-by date. Please pick an earlier time.");
+    }
+  }
   if (newStart === Date.parse(row.start_utc)) throw new BookingError(400, "That's already your session time.");
   if (!(await isStillOpen(env, service, newStart, ctx.now, { bookingId: row.id, uid: row.ics_uid }))) {
     throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");

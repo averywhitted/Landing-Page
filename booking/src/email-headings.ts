@@ -16,6 +16,7 @@ import needsAttention from "../assets/headings/needs-attention.png";
 import bundleConfirmed from "../assets/headings/bundle-confirmed.png";
 import bundlePurchased from "../assets/headings/bundle-purchased.png";
 import sessionsExpiring from "../assets/headings/sessions-expiring.png";
+import bundleCancelled from "../assets/headings/bundle-cancelled.png";
 
 export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number }> = {
   "You're booked": { file: "youre-booked.png", w: 316, h: 23 },
@@ -32,6 +33,7 @@ export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number
   "Bundle confirmed": { file: "bundle-confirmed.png", w: 416, h: 23 },
   "Bundle purchased": { file: "bundle-purchased.png", w: 419, h: 23 },
   "Sessions expiring": { file: "sessions-expiring.png", w: 391, h: 23 },
+  "Bundle cancelled": { file: "bundle-cancelled.png", w: 415, h: 23 },
 };
 
 // Image bytes by file name, served at /email/h/<file>.
@@ -50,4 +52,5 @@ export const HEADING_BYTES: Record<string, ArrayBuffer> = {
   "bundle-confirmed.png": bundleConfirmed,
   "bundle-purchased.png": bundlePurchased,
   "sessions-expiring.png": sessionsExpiring,
+  "bundle-cancelled.png": bundleCancelled,
 };

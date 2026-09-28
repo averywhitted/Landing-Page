@@ -218,9 +218,9 @@ test("if Stripe is down, the hold is released and the client sees a friendly err
   assert.ok((await openSlots()).includes(slot));
 });
 
-/* ── Free intro call ── */
+/* ── Free intro chat ── */
 
-test("intro call is confirmed immediately without payment; one per person", async () => {
+test("intro chat is confirmed immediately without payment; one per person", async () => {
   const [slot] = await openSlots("intro-15");
   const res = await book("intro-15", slot, { material: "" });
   assert.equal(res.status, 201, JSON.stringify(res.data));
@@ -230,7 +230,7 @@ test("intro call is confirmed immediately without payment; one per person", asyn
   assert.equal(b.amount_cents, 0);
   assert.equal(world.state.stripeSessions.size, 0);
   assert.equal(world.state.emails.length, 2);
-  assert.match(world.state.emails[0].subject, /Intro call/);
+  assert.match(world.state.emails[0].subject, /Intro chat/);
   assert.equal(claims(b.id), 2, "15 min + 15 min buffer");
 
   const slots = await openSlots("intro-15");
@@ -496,7 +496,7 @@ test("reschedule: taken, invalid, same, or too-many moves are refused", async ()
   assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots[16] } })).status, 403, "fourth move needs an email");
 });
 
-test("free intro call can be cancelled, with no refund wording", async () => {
+test("free intro chat can be cancelled, with no refund wording", async () => {
   const { b, t } = await confirmedBooking("intro-15");
   assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 200);
   const [client, admin] = world.state.emails;
@@ -805,6 +805,120 @@ test("admin: add/remove bundle sessions and extend the use-by date", async () =>
   await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[0] } });
   await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[6] } });
   assert.equal((await api.call("POST", `/api/admin/packages/${id2}/credits`, { headers: asAdmin(), body: { delta: -1 } })).status, 409);
+});
+
+/* ── Bundle: links back, use-by on reschedule, cancelling the whole bundle ── */
+
+async function bundleSession(p: string, t: string, slot: string) {
+  const r = await api.call("POST", "/api/packages/book", { body: { p, t, start: slot } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const m = r.data.manageUrl.match(/b=([^&]+)&t=([^&]+)/);
+  return { id: r.data.bookingId as string, b: m[1] as string, t: m[2] as string };
+}
+
+test("bundle sessions link back to the bundle; regular bookings don't", async () => {
+  const { p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const s = await bundleSession(p, t, slot);
+  const v = await api.call("GET", `/api/manage?b=${s.b}&t=${s.t}`);
+  assert.match(v.data.bundleUrl, new RegExp(`/book/package/\\?p=${p}&t=${t}`));
+  assert.ok(v.data.bundleExpiresAt);
+  world.state.emails.length = 0;
+  const plain = await confirmedBooking("coaching-30", 6);
+  assert.equal((await api.call("GET", `/api/manage?b=${plain.b}&t=${plain.t}`)).data.bundleUrl, null);
+});
+
+test("a bundle session can't be rescheduled past the bundle's use-by date", async () => {
+  const { id, p, t } = await paidBundle();
+  const slots = await openSlots("coaching-60");
+  const s = await bundleSession(p, t, slots[0]);
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.parse(slots.at(-1)!) - 60000).toISOString(), id);
+  const r = await api.call("POST", "/api/manage/reschedule", { body: { b: s.b, t: s.t, start: slots.at(-1) } });
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /use-by/);
+});
+
+test("cancel a whole bundle: unused sessions refunded per session; close sessions kept; emails both", async () => {
+  const { id, p, t, pkg } = await paidBundle(); // 4 sessions, $440 => $110 each
+  const slots = await openSlots("coaching-60");
+  const done = await bundleSession(p, t, slots[0]);
+  const soon = await bundleSession(p, t, slots[6]);
+  const later = await bundleSession(p, t, slots[12]);
+  const now = Date.now();
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(now - 3 * DAY).toISOString(), new Date(now - 3 * DAY + 3600000).toISOString(), done.id);
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(now + 5 * 3600000).toISOString(), new Date(now + 6 * 3600000).toISOString(), soon.id);
+  world.state.emails.length = 0;
+
+  const quote = (await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.cancelQuote;
+  assert.equal(quote.used, 2, "the past session and the one within 24 hours");
+  assert.equal(quote.refundCents, 22000, "2 unused x $110");
+  assert.equal(quote.cancelSessions.length, 1);
+
+  const r = await api.call("POST", "/api/packages/cancel", { body: { p, t } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(pkg().status, "cancelled");
+  assert.equal(pkg().refund_due_cents, 22000);
+  assert.equal(row(later.id).status, "cancelled");
+  assert.equal(row(later.id).cancel_reason, "bundle_cancelled");
+  assert.equal(claims(later.id), 0);
+  assert.ok(!world.state.calendarEvents.has(row(later.id).calendar_event_url), "removed from the Coaching calendar");
+  assert.equal(row(soon.id).status, "confirmed", "within 24 hours: still on");
+  const client = world.state.emails.find((e) => /^Your bundle is cancelled/.test(e.subject))!;
+  assert.match(client.subject, /\$220 refund on the way/);
+  assert.match(client.html, /being processed/);
+  const admin = world.state.emails.find((e) => /^Bundle cancelled: Jamie Rivera \(refund \$220\)/.test(e.subject))!;
+  assert.match(admin.html, /Refund \$220 in Stripe/);
+  assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p, t } })).status, 409, "only once");
+  const v = await api.call("GET", `/api/packages?p=${p}&t=${t}`);
+  assert.equal(v.data.status, "cancelled");
+  assert.equal(v.data.refundDueCents, 22000);
+});
+
+test("cancel bundle: free sessions Avery added aren't refunded; expired bundles can't be cancelled; refunds get marked", async () => {
+  adminEnv();
+  const a = await paidBundle("bundle-2"); // $230 => $115 each
+  await api.call("POST", `/api/admin/packages/${a.id}/credits`, { headers: asAdmin(), body: { delta: 1, note: "makeup" } });
+  const q = (await api.call("GET", `/api/packages?p=${a.p}&t=${a.t}`)).data.cancelQuote;
+  assert.equal(q.refundCents, 23000, "the two paid sessions, not the free one");
+  await api.call("POST", "/api/packages/cancel", { body: { p: a.p, t: a.t } });
+  await api.webhook("charge.refunded", { payment_intent: a.pkg().stripe_payment_intent_id });
+  assert.ok(a.pkg().refunded_at);
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  const listed = overview.data.packages.find((x: any) => x.id === a.id);
+  assert.equal(listed.cancelled, true);
+  assert.equal(listed.refunded, true);
+
+  const b = await paidBundle("bundle-3");
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), b.id);
+  assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p: b.p, t: b.t } })).status, 409);
+});
+
+/* ── Edge cases ── */
+
+test("a 100%-off promo code still confirms the booking (Stripe says 'no payment required')", async () => {
+  const [slot] = await openSlots("coaching-60");
+  const res = await book("coaching-60", slot);
+  const s = sessionFor(res.data.bookingId);
+  assert.equal(s._form.payment_method_types["0"], "card", "cards only (includes Apple Pay and Google Pay)");
+  await api.webhook("checkout.session.completed", { ...s, status: "complete", payment_status: "no_payment_required", amount_total: 0, payment_intent: null });
+  assert.equal(row(res.data.bookingId).status, "confirmed");
+  assert.equal(row(res.data.bookingId).amount_cents, 0);
+});
+
+test("abandoned bundle checkout: one reminder, not if they bought one since", async () => {
+  const first = await buyBundle("bundle-4");
+  await api.webhook("checkout.session.expired", { ...first.session, status: "expired" });
+  await api.cron();
+  await api.cron();
+  const reminders = () => world.state.emails.filter((e) => e.subject === "Your bundle isn't finished yet");
+  assert.equal(reminders().length, 1);
+  assert.match(reminders()[0].html, /book\/\?service=bundle-4/);
+
+  const again = await buyBundle("bundle-2", { email: "kim@example.com" });
+  await api.webhook("checkout.session.expired", { ...again.session, status: "expired" });
+  await buyBundle("bundle-3", { email: "kim@example.com" }); // they came back and started another
+  await api.cron();
+  assert.equal(reminders().filter((e) => e.to[0] === "kim@example.com").length, 0);
 });
 
 /* ── Editable settings ── */

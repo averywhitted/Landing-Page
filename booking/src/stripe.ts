@@ -41,6 +41,9 @@ async function stripe<T>(env: Env, method: "GET" | "POST", path: string, data?: 
   return body;
 }
 
+// "paid", or "no_payment_required" when a promo code covered the whole price.
+export const isPaid = (s: { payment_status: string }) => s.payment_status === "paid" || s.payment_status === "no_payment_required";
+
 export type CheckoutSession = {
   id: string;
   url: string | null;
@@ -65,6 +68,7 @@ export function createCheckoutSession(env: Env, p: {
 }): Promise<CheckoutSession> {
   return stripe<CheckoutSession>(env, "POST", "checkout/sessions", {
     mode: "payment",
+    payment_method_types: { 0: "card" },
     customer_email: p.email,
     client_reference_id: p.bookingId,
     // Stripe allows either a pre-applied code or the "Add promotion code" box, not both.

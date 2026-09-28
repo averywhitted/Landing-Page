@@ -234,7 +234,7 @@
       }
       if (reschedule) {
         const now = reschedule.currentStart;
-        return `<div class="bk-summary"><strong>Moving your ${esc(lengthLabel(s.durationMinutes))} ${s.kind === "intro" ? "intro call" : "session"}</strong><span class="bk-sep">&middot;</span><span>Now: ${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(now))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(now))} ${esc(tzName(state.tz, now, "short"))}</span></div>`
+        return `<div class="bk-summary"><strong>Moving your ${esc(lengthLabel(s.durationMinutes))} ${s.kind === "intro" ? "intro chat" : "session"}</strong><span class="bk-sep">&middot;</span><span>Now: ${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(now))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(now))} ${esc(tzName(state.tz, now, "short"))}</span></div>`
           + (state.message ? `<p class="bk-msg is-${state.message.kind}" role="alert" style="margin:0 0 14px">${state.message.text}</p>` : "");
       }
       const title = s.kind === "intro" ? esc(s.name) : "Private Coaching";
@@ -258,9 +258,11 @@
           </span>
           <span class="bk-svc-price${s.priceCents ? "" : " is-free"}">${s.priceCents ? money(s.priceCents) : "Free"}</span>
         </button></li>`;
-      const singles = state.services.filter((s) => s.kind !== "bundle");
+      const intros = state.services.filter((s) => s.kind === "intro");
+      const singles = state.services.filter((s) => s.kind === "single");
       const bundles = state.services.filter((s) => s.kind === "bundle");
-      return `<ul class="bk-svcs">${singles.map(card).join("")}</ul>`
+      return (intros.length ? `<ul class="bk-svcs">${intros.map(card).join("")}</ul>` : "")
+        + (singles.length ? `<p class="bk-group-label">Private coaching <span>One-on-one on Zoom</span></p><ul class="bk-svcs">${singles.map(card).join("")}</ul>` : "")
         + (bundles.length ? `<p class="bk-group-label">Session bundles <span>Save when you book a few</span></p><ul class="bk-svcs">${bundles.map(card).join("")}</ul>` : "");
     }
 
@@ -441,7 +443,7 @@
       if (state.step === 1) {
         return `${back}<button type="button" class="bk-btn primary" data-action="to-details"${state.slot ? "" : " disabled"}>Continue &rarr;</button>`;
       }
-      const label = state.service.kind === "intro" ? "Book intro call" : `Continue to payment &middot; ${money(state.service.priceCents)}`;
+      const label = state.service.kind === "intro" ? "Book intro chat" : `Continue to payment &middot; ${money(state.service.priceCents)}`;
       // (bundles and single sessions both go to Stripe from here)
       return `${back}<button type="submit" form="bk-form" class="bk-btn primary"${state.submitting ? " disabled" : ""}>${state.submitting ? '<span class="bk-spin" aria-hidden="true"></span>One moment' : label}</button>`;
     }

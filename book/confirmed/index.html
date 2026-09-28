@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="/podcast/podcast.css" />
     <link rel="stylesheet" href="/book/booking.css?v=5902bf9d" />
     <style>
-      .done { margin-top: 32px; padding: 44px; max-width: 720px; }
+      .done { margin: 32px auto 0; padding: 44px; max-width: 720px; }
       .done .show-title { margin-bottom: 14px; }
       .done-details {
         display: grid;
@@ -36,7 +36,7 @@
       .done-cal .label { margin-right: 4px; }
       .done-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
       .done-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
-      @media (max-width: 640px) { .done { padding: 26px 22px; margin-top: 22px; } }
+      @media (max-width: 640px) { .done { padding: 26px 22px; margin: 22px auto 0; } }
     </style>
   </head>
 
@@ -103,7 +103,7 @@
         // invite, so it won't duplicate) and a Google Calendar link.
         function addToCalendar(b) {
           const stamp = (iso) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-          const title = b.kind === "intro" ? "Intro call with Avery Whitted" : "Private coaching with Avery Whitted";
+          const title = b.kind === "intro" ? "Intro chat with Avery Whitted" : "Private coaching with Avery Whitted";
           const note = "Your Zoom link is in your confirmation email.";
           const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//averywhitted.com//Booking//EN", "BEGIN:VEVENT",
             `UID:${b.icsUid || `${stamp(b.start)}@averywhitted.com`}`, `DTSTAMP:${stamp(new Date().toISOString())}`,

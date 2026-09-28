@@ -24,7 +24,7 @@ const sample: T.BookingView = {
   notes: "I tend to rush when I'm nervous.",
   zoomUrl: "https://us06web.zoom.us/j/81234567890?pwd=example",
 };
-const intro: T.BookingView = { ...sample, kind: "intro", serviceName: "Intro call", durationMinutes: 15, end: start + 15 * 60000, amountCents: 0, material: "", link: "", goal: "Getting back into auditioning after a few years off." };
+const intro: T.BookingView = { ...sample, kind: "intro", serviceName: "Intro chat", durationMinutes: 15, end: start + 15 * 60000, amountCents: 0, material: "", link: "", goal: "Getting back into auditioning after a few years off." };
 const bundle: T.BundleView = {
   name: "Jamie Rivera", email: "jamie@example.com", pronouns: "they/them", credits: 4, remaining: 4, sessionLength: "1 hour",
   expiresAt: start + 60 * 86400000, clientTimeZone: "America/Los_Angeles", amountCents: 44000, bundleName: "4 session bundle",
