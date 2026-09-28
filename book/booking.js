@@ -49,7 +49,8 @@
         sitekey: TURNSTILE_SITE_KEY,
         appearance: "interaction-only",
         callback: (token) => { clearTimeout(timer); resolve(token); },
-        "error-callback": () => { clearTimeout(timer); reject(new Error("failed")); },
+        // Cloudflare passes a reason code (e.g. 110200 = this address isn't on the widget's list).
+        "error-callback": (code) => { clearTimeout(timer); reject(new Error(String(code || "failed"))); return true; },
       });
     });
   }
@@ -545,9 +546,10 @@
       let turnstileToken;
       try {
         turnstileToken = await humanCheck(root.querySelector("#bk-ts"));
-      } catch {
+      } catch (err) {
         state.submitting = false;
-        state.message = { kind: "error", text: `We couldn't run a quick security check. If you use an ad or script blocker, try pausing it for this page, or email <a href="mailto:${CONTACT}">${CONTACT}</a> to book.` };
+        const code = /^\d+$/.test(err.message) ? ` (code ${err.message})` : err.message === "timeout" ? " (timed out)" : err.message === "blocked" ? " (blocked)" : "";
+        state.message = { kind: "error", text: `We couldn't run a quick security check${code}. If you use an ad or script blocker, try pausing it for this page, or email <a href="mailto:${CONTACT}">${CONTACT}</a> to book.` };
         render();
         root.querySelector("#bk-form").classList.add("was-validated");
         return;
