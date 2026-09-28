@@ -24,7 +24,7 @@ import { sendEmail } from "./email";
 import { buildIcs } from "./ics";
 import * as T from "./templates";
 import { verifyHuman } from "./turnstile";
-import { manageUrl, validManageToken } from "./manage";
+import { manageUrl, packageUrl, validManageToken } from "./manage";
 
 const AVERY_TZ = RULES.timeZone;
 const MIN = 60000;
@@ -63,7 +63,7 @@ export function validateIntake(raw: unknown, service: Service): Intake {
   if (!intake.name) throw new BookingError(400, "Please add your name.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(intake.email)) throw new BookingError(400, "Please check your email address.");
   if (!intake.goal) throw new BookingError(400, "Please tell Avery what you'd like to focus on.");
-  if (service.kind !== "intro" && !intake.material) throw new BookingError(400, "Please add the material you'd like to work on (\"not sure yet\" is fine).");
+  if (service.kind === "single" && !intake.material) throw new BookingError(400, "Please add the material you'd like to work on (\"not sure yet\" is fine).");
   if (intake.link) {
     let ok = false;
     try { ok = ["http:", "https:"].includes(new URL(intake.link).protocol); } catch { /* not a URL */ }
@@ -75,7 +75,7 @@ export function validateIntake(raw: unknown, service: Service): Intake {
 
 /* ── Helpers ── */
 
-async function sha256(text: string): Promise<string> {
+export async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -94,7 +94,7 @@ function describeTime(start: number, tz: string): string {
   return `${d} on Zoom`;
 }
 
-const UNIQUE_CLAIM = /UNIQUE constraint failed: slot_claims/i;
+export const UNIQUE_CLAIM = /UNIQUE constraint failed: slot_claims/i;
 
 // Is this exact start time still offered right now (live calendar + bookings)?
 // `ignore` skips one booking's own blocks and calendar event (used when moving it).
@@ -199,6 +199,7 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
       expiresAt: holdUntil,
       successUrl: `${env.SITE_URL}/book/confirmed/?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${env.SITE_URL}/book/?service=${service.id}&checkout=cancelled`,
+      promotionCodeId: (await stripe.lookupPromotionCode(env, b.promo)) ?? undefined,
     });
   } catch (err) {
     console.error("createBooking: Stripe checkout failed:", (err as Error).message);
@@ -221,6 +222,7 @@ export type BookingRow = {
   client_email_sent_at: string | null; admin_email_sent_at: string | null; reminder_sent_at: string | null;
   refunded_at: string | null; name: string; email: string; pronouns: string | null;
   reschedule_count: number; previous_start_utc: string | null; session_reminder_sent_at: string | null;
+  package_id: string | null; promo_code: string | null;
 };
 
 export async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
@@ -246,11 +248,13 @@ export function view(row: BookingRow): T.BookingView {
     pronouns: row.pronouns ?? undefined,
     goal: intake.goal, material: intake.material, link: intake.link, notes: intake.notes,
     zoomUrl: row.zoom_join_url,
+    bundleNote: row.package_id ? "Bundle session" : undefined,
+    promoCode: row.promo_code,
   };
 }
 
 // Returns the booking id if it's now confirmed and needs its follow-up steps.
-export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now: number): Promise<string | null> {
+export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now: number, promoCode?: string | null): Promise<string | null> {
   const row = (session.metadata?.booking_id && await loadBooking(env, "id", session.metadata.booking_id))
     || await loadBooking(env, "stripe_checkout_session_id", session.id);
   if (!row) { console.error("confirmPaid: no booking for checkout session"); return null; }
@@ -262,8 +266,8 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
   if (row.status === "held") {
     const res = await env.DB.prepare(
       `UPDATE bookings SET status = 'confirmed', confirmed_at = ?1, hold_expires_at = NULL, amount_cents = ?2,
-         stripe_payment_intent_id = ?3, updated_at = ?1 WHERE id = ?4 AND status = 'held'`,
-    ).bind(iso(now), paid, pi, row.id).run();
+         stripe_payment_intent_id = ?3, promo_code = COALESCE(?5, promo_code), updated_at = ?1 WHERE id = ?4 AND status = 'held'`,
+    ).bind(iso(now), paid, pi, row.id, promoCode ?? null).run();
     return res.meta.changes ? row.id : null;
   }
 
@@ -361,6 +365,11 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
     }
   }
   const v = view(row);
+  if (row.package_id) {
+    const pkg = await env.DB.prepare("SELECT credits_total, credits_used FROM packages WHERE id = ?1").bind(row.package_id)
+      .first<{ credits_total: number; credits_used: number }>();
+    if (pkg) v.bundleNote = `Bundle session (${pkg.credits_total - pkg.credits_used} of ${pkg.credits_total} left)`;
+  }
 
   // 2. Avery's Coaching calendar (includes the intake answers for prep)
   let calendarFailed = false;
@@ -559,6 +568,11 @@ export async function cancelBooking(env: Env, bookingId: unknown, token: unknown
          ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
     ).bind(iso(ctx.now), row.id),
     env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
+    // Cancelled at least 24 hours ahead: the session goes back into the bundle.
+    ...(row.package_id ? [
+      env.DB.prepare("UPDATE packages SET credits_used = credits_used - 1, updated_at = ?1 WHERE id = ?2").bind(iso(ctx.now), row.package_id),
+      env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'cancelled_in_time')").bind(row.package_id, row.id),
+    ] : []),
   ]);
   if (!res[0].meta.changes) throw new BookingError(409, "This session is already cancelled.");
   ctx.waitUntil(afterCancel(env, row.id));
@@ -577,7 +591,8 @@ async function afterCancel(env: Env, bookingId: string): Promise<void> {
     try { await deleteMeeting(env, row.zoom_meeting_id); }
     catch (err) { console.error("afterCancel: zoom delete failed:", (err as Error).message); }
   }
-  await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), `${env.SITE_URL}/book/`));
+  const againUrl = row.package_id ? await packageUrl(env, row.package_id) : `${env.SITE_URL}/book/`;
+  await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl));
   await sendEmail(env, "admin_cancelled", row.id, { ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
 }
 
@@ -668,6 +683,7 @@ export async function runRetention(env: Env, now: number): Promise<number> {
   const twoYears = iso(now - 730 * 24 * 60 * MIN);
   const res = await env.DB.batch([
     env.DB.prepare("UPDATE bookings SET intake_json = NULL WHERE intake_json IS NOT NULL AND end_utc < ?1").bind(twoYears),
+    env.DB.prepare("UPDATE packages SET intake_json = NULL WHERE intake_json IS NOT NULL AND expires_at < ?1").bind(twoYears),
     env.DB.prepare("DELETE FROM email_log WHERE created_at < ?1").bind(iso(now - 365 * 24 * 60 * MIN)),
     env.DB.prepare("DELETE FROM processed_webhooks WHERE processed_at < ?1").bind(iso(now - 90 * 24 * 60 * MIN)),
   ]);
@@ -701,6 +717,12 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
     const missing = [s.no_cal ? "isn't in your Coaching calendar" : "", s.no_email ? "hasn't received their confirmation email" : ""].filter(Boolean).join(" and ");
     problems.push(`${s.name}'s session on ${when} ${missing}.`);
   }
+
+  const unsentBundles = await env.DB.prepare(
+    `SELECT c.name FROM packages p JOIN customers c ON c.id = p.customer_id
+     WHERE p.status = 'active' AND p.confirmation_sent_at IS NULL AND p.updated_at <= ?1 LIMIT 10`,
+  ).bind(iso(now - 15 * MIN)).all<{ name: string }>();
+  for (const p of unsentBundles.results) problems.push(`${p.name} bought a bundle but hasn't received their bundle email.`);
 
   if (!problems.length) return [];
   await sendEmail(env, "attention_alert", null, { ...T.attentionAlert(problems), to: env.ADMIN_EMAIL });

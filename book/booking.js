@@ -102,12 +102,24 @@
   }
   function isValidTz(tz) { try { fmt(tz, {}); return true; } catch { return false; } }
 
+  // Promo code from a link like /book/?promo=SPRING20, remembered for this visit
+  // and passed to checkout, where Stripe applies it.
+  const PROMO_RE = /^[A-Za-z0-9_-]{2,40}$/;
+  function currentPromo() {
+    try {
+      const fromUrl = new URLSearchParams(location.search).get("promo");
+      if (fromUrl && PROMO_RE.test(fromUrl)) sessionStorage.setItem("bk-promo", fromUrl.toUpperCase());
+      const saved = sessionStorage.getItem("bk-promo");
+      return saved && PROMO_RE.test(saved) ? saved : null;
+    } catch { return null; }
+  }
+
   /* ── API ── */
   let servicesPromise;
   function loadServices() {
     servicesPromise ||= fetch(`${API}/api/services`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((list) => list.filter((s) => s.kind !== "bundle").sort((a, b) => a.durationMinutes - b.durationMinutes))
+      .then((list) => list.sort((a, b) => (a.kind === "bundle") - (b.kind === "bundle") || a.durationMinutes - b.durationMinutes || (a.credits || 0) - (b.credits || 0)))
       .catch((e) => { servicesPromise = null; throw e; });
     return servicesPromise;
   }
@@ -128,9 +140,13 @@
   /* ── Widget ── */
   // `reschedule` (manage page only): { serviceId, b, t, currentStart, timeZone, onConfirm(slot), onCancel() }
   // shows just the time step for moving an existing booking.
-  function createWidget(root, { inModal = false, onClose, reschedule = null } = {}) {
+  function createWidget(root, { inModal = false, onClose, reschedule = null, picker = null } = {}) {
+    // `picker` is a generic "just pick a time" mode (bundle page); `reschedule` is
+    // the same with wording for moving an existing booking.
+    if (reschedule) picker = { title: "Pick a new time", cancelLabel: "Keep current time", confirmLabel: "Confirm new time", busyLabel: "Moving", ...reschedule };
+    reschedule = picker;
     const today = dateKey(Date.now(), AVERY_TZ);
-    const moveExtra = reschedule ? `&b=${encodeURIComponent(reschedule.b)}&t=${encodeURIComponent(reschedule.t)}` : "";
+    const moveExtra = reschedule && reschedule.b ? `&b=${encodeURIComponent(reschedule.b)}&t=${encodeURIComponent(reschedule.t)}` : "";
     const state = {
       step: reschedule ? 1 : 0,
       services: null,
@@ -163,14 +179,18 @@
     const $body = root.querySelector(".bk-body");
     const $foot = root.querySelector(".bk-foot");
 
+    const isBundle = () => !!(state.service && state.service.kind === "bundle");
+    const single60 = () => (state.services || []).find((s) => s.kind === "single" && s.durationMinutes === 60);
+
     /* Rendering */
     function render() {
-      $title.textContent = reschedule ? "Pick a new time" : [inModal ? "Book a session" : "Choose a session", "Pick a time", "Your details"][state.step];
+      $title.textContent = reschedule ? reschedule.title : [inModal ? "Book a session" : "Choose a session", "Pick a time", "Your details"][state.step];
       $steps.hidden = !!reschedule;
-      $steps.innerHTML = STEPS.map((name, i) => {
+      const flow = isBundle() ? [[0, "Bundle"], [2, "Details"]] : STEPS.map((name, i) => [i, name]);
+      $steps.innerHTML = flow.map(([i, name], n) => {
         const current = i === state.step ? ' aria-current="step"' : "";
         const done = i < state.step ? " is-done" : "";
-        const inner = `<span class="bk-step-n">${i + 1}</span><span class="bk-step-label">${name}</span>`;
+        const inner = `<span class="bk-step-n">${n + 1}</span><span class="bk-step-label">${name}</span>`;
         return `<li>${i < state.step
           ? `<button type="button" class="bk-step${done}" data-action="goto" data-step="${i}">${inner}</button>`
           : `<span class="bk-step${done}"${current}>${inner}</span>`}</li>`;
@@ -185,6 +205,13 @@
 
     function summary(withTime) {
       const s = state.service;
+      if (reschedule && reschedule.summaryHtml) return reschedule.summaryHtml
+        + (state.message ? `<p class="bk-msg is-${state.message.kind}" role="alert" style="margin:0 0 14px">${state.message.text}</p>` : "");
+      const promo = currentPromo();
+      const promoChip = promo && s.priceCents ? `<span class="bk-promo">Code ${esc(promo)} applied at checkout</span>` : "";
+      if (s.kind === "bundle") {
+        return `<div class="bk-summary"><strong>${esc(bundleTitle(s))}</strong><span class="bk-sep">&middot;</span><span>${s.credits} &times; ${esc(lengthLabel(s.durationMinutes))} on Zoom</span><span class="bk-sep">&middot;</span><span>use within 60 days</span>${promoChip}<span class="bk-price">${money(s.priceCents)}</span></div>`;
+      }
       if (reschedule) {
         const now = reschedule.currentStart;
         return `<div class="bk-summary"><strong>Moving your ${esc(lengthLabel(s.durationMinutes))} ${s.kind === "intro" ? "intro call" : "session"}</strong><span class="bk-sep">&middot;</span><span>Now: ${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(now))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(now))} ${esc(tzName(state.tz, now, "short"))}</span></div>`
@@ -194,7 +221,7 @@
       const when = withTime && state.slot
         ? `<span class="bk-sep">&middot;</span><span>${esc(fmt(state.tz, { weekday: "short", month: "short", day: "numeric" }).format(state.slot))}, ${esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(state.slot))} ${esc(tzName(state.tz, state.slot, "short"))}</span>`
         : "";
-      return `<div class="bk-summary"><strong>${title}</strong><span class="bk-sep">&middot;</span><span>${lengthLabel(s.durationMinutes)}</span><span class="bk-sep">&middot;</span><span>Zoom</span>${when}<span class="bk-price">${s.priceCents ? money(s.priceCents) : "Free"}</span></div>`;
+      return `<div class="bk-summary"><strong>${title}</strong><span class="bk-sep">&middot;</span><span>${lengthLabel(s.durationMinutes)}</span><span class="bk-sep">&middot;</span><span>Zoom</span>${when}${promoChip}<span class="bk-price">${s.priceCents ? money(s.priceCents) : "Free"}</span></div>`;
     }
 
     function renderServices() {
@@ -202,15 +229,27 @@
         return `<div class="bk-empty is-error">Sessions couldn't load. Check your connection and try again.<button type="button" class="bk-btn" data-action="retry-services">Try again</button></div>`;
       }
       if (!state.services) return `<div class="bk-skel">${'<div class="bk-skel-row" style="height:88px"></div>'.repeat(4)}</div>`;
-      return `<ul class="bk-svcs">${state.services.map((s) => `
-        <li><button type="button" class="bk-svc${s.kind === "intro" ? " is-intro" : ""}" data-action="service" data-id="${esc(s.id)}">
-          <span class="bk-svc-num" aria-hidden="true">${s.durationMinutes}<small>MIN</small></span>
+      const card = (s) => `
+        <li><button type="button" class="bk-svc${s.kind === "intro" ? " is-intro" : ""}${s.kind === "bundle" ? " is-bundle" : ""}" data-action="service" data-id="${esc(s.id)}">
+          <span class="bk-svc-num" aria-hidden="true">${s.kind === "bundle" ? `${s.credits}<small>SESSIONS</small>` : `${s.durationMinutes}<small>MIN</small>`}</span>
           <span>
-            <span class="bk-svc-name">${s.kind === "intro" ? esc(s.name) : esc(sessionTitle(s.durationMinutes))}</span>
-            <span class="bk-svc-blurb">${esc(s.blurb || "")}</span>
+            <span class="bk-svc-name">${s.kind === "intro" ? esc(s.name) : s.kind === "bundle" ? esc(bundleTitle(s)) : esc(sessionTitle(s.durationMinutes))}</span>
+            <span class="bk-svc-blurb">${esc(s.kind === "bundle" ? bundleBlurb(s) : s.blurb || "")}</span>
           </span>
           <span class="bk-svc-price${s.priceCents ? "" : " is-free"}">${s.priceCents ? money(s.priceCents) : "Free"}</span>
-        </button></li>`).join("")}</ul>`;
+        </button></li>`;
+      const singles = state.services.filter((s) => s.kind !== "bundle");
+      const bundles = state.services.filter((s) => s.kind === "bundle");
+      return `<ul class="bk-svcs">${singles.map(card).join("")}</ul>`
+        + (bundles.length ? `<p class="bk-group-label">Session bundles <span>Save when you book a few</span></p><ul class="bk-svcs">${bundles.map(card).join("")}</ul>` : "");
+    }
+
+    function bundleTitle(s) { return `${s.credits} Session Bundle`; }
+    function bundleBlurb(s) {
+      const base = single60();
+      const each = money(Math.round(s.priceCents / s.credits / 100) * 100);
+      const save = base ? base.priceCents * s.credits - s.priceCents : 0;
+      return `${s.credits} one-hour sessions on Zoom, ${each} each${save > 0 ? `. Save ${money(save)}` : ""}. Book them anytime within 60 days.`;
     }
 
     function tzOptions() {
@@ -340,7 +379,10 @@
       const f = state.form;
       const v = (k) => esc(f[k] || "");
       const intro = s.kind === "intro";
-      const policy = intro
+      const bundle = s.kind === "bundle";
+      const policy = bundle
+        ? "I understand my sessions need to be used within 60 days of purchase, and that each one can be rescheduled or cancelled up to 24 hours before it starts. Sessions cancelled later than that, or not used in time, can't be returned to the bundle."
+        : intro
         ? "I understand I can reschedule or cancel up to 24 hours before our call."
         : "I understand I can reschedule or cancel up to 24 hours before my session. Refunds for cancellations may take a few business days to appear.";
       return summary(true) + `
@@ -353,9 +395,9 @@
             <input class="bk-input" id="bk-pronouns" name="pronouns" maxlength="40" placeholder="she/her, they/them..." value="${v("pronouns")}"></div>
           ${intro ? "" : `<div class="bk-field"><label for="bk-link">Link to materials <span class="bk-opt">(optional)</span></label>
             <input class="bk-input" id="bk-link" name="link" type="url" inputmode="url" maxlength="500" placeholder="https://" value="${v("link")}"></div>`}
-          <div class="bk-field is-wide"><label for="bk-goal">${intro ? "What would you like to talk about?" : "Main goal for the session"}</label>
+          <div class="bk-field is-wide"><label for="bk-goal">${intro ? "What would you like to talk about?" : bundle ? "What would you like to work on across these sessions?" : "Main goal for the session"}</label>
             <textarea class="bk-input" id="bk-goal" name="goal" required maxlength="2000">${v("goal")}</textarea></div>
-          ${intro ? "" : `<div class="bk-field is-wide"><label for="bk-material">Material to work on first</label>
+          ${intro || bundle ? "" : `<div class="bk-field is-wide"><label for="bk-material">Material to work on first</label>
             <textarea class="bk-input" id="bk-material" name="material" required maxlength="2000" placeholder="Sides, a monologue, a self-tape... &quot;Not sure yet&quot; is fine.">${v("material")}</textarea></div>`}
           <div class="bk-field is-wide"><label for="bk-notes">Anything else I should know? <span class="bk-opt">(optional)</span></label>
             <textarea class="bk-input" id="bk-notes" name="notes" maxlength="2000">${v("notes")}</textarea></div>
@@ -372,14 +414,15 @@
         return `<p class="bk-note">${inPerson}</p>${readDraft() ? '<button type="button" class="bk-btn ghost" data-action="start-over">Start over</button>' : ""}`;
       }
       if (reschedule) {
-        return `<button type="button" class="bk-btn ghost" data-action="keep">Keep current time</button>`
-          + `<button type="button" class="bk-btn primary" data-action="confirm-move"${state.slot && !state.submitting ? "" : " disabled"}>${state.submitting ? '<span class="bk-spin" aria-hidden="true"></span>Moving' : "Confirm new time"}</button>`;
+        return `<button type="button" class="bk-btn ghost" data-action="keep">${esc(reschedule.cancelLabel || "Cancel")}</button>`
+          + `<button type="button" class="bk-btn primary" data-action="confirm-move"${state.slot && !state.submitting ? "" : " disabled"}>${state.submitting ? `<span class="bk-spin" aria-hidden="true"></span>${esc(reschedule.busyLabel || "One moment")}` : esc(reschedule.confirmLabel || "Confirm")}</button>`;
       }
       const back = `<button type="button" class="bk-btn ghost" data-action="back">&larr; Back</button>`;
       if (state.step === 1) {
         return `${back}<button type="button" class="bk-btn primary" data-action="to-details"${state.slot ? "" : " disabled"}>Continue &rarr;</button>`;
       }
       const label = state.service.kind === "intro" ? "Book intro call" : `Continue to payment &middot; ${money(state.service.priceCents)}`;
+      // (bundles and single sessions both go to Stripe from here)
       return `${back}<button type="submit" form="bk-form" class="bk-btn primary"${state.submitting ? " disabled" : ""}>${state.submitting ? '<span class="bk-spin" aria-hidden="true"></span>One moment' : label}</button>`;
     }
 
@@ -426,7 +469,8 @@
         state.day = null;
         state.weekStart = today;
       }
-      if (advance) { go(1); loadWeek(); }
+      if (advance && s.kind === "bundle") { go(2); loadTurnstile().catch(() => {}); }
+      else if (advance) { go(1); loadWeek(); }
       return true;
     }
 
@@ -469,13 +513,15 @@
         return;
       }
       try {
-        const r = await fetch(`${API}/api/bookings`, {
+        const bundle = isBundle();
+        const r = await fetch(`${API}/api/${bundle ? "packages" : "bookings"}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             serviceId: state.service.id,
-            start: new Date(state.slot).toISOString(),
+            start: bundle ? undefined : new Date(state.slot).toISOString(),
             timeZone: state.tz,
+            promo: currentPromo() || undefined,
             turnstileToken,
             intake: {
               name: f.name, email: f.email, pronouns: f.pronouns || "", goal: f.goal,
@@ -511,7 +557,7 @@
       const a = t.dataset.action;
       if (a === "service") selectService(t.dataset.id);
       else if (a === "goto") { if (state.step === 2) saveForm(); go(+t.dataset.step); if (state.step === 1 && !state.week) loadWeek(); }
-      else if (a === "back") { if (state.step === 2) saveForm(); go(state.step - 1); }
+      else if (a === "back") { if (state.step === 2) saveForm(); go(state.step === 2 && isBundle() ? 0 : state.step - 1); }
       else if (a === "prev-week") { state.weekStart = addDays(state.weekStart, -7); if (state.weekStart < today) state.weekStart = today; state.day = null; loadWeek(); }
       else if (a === "next-week") { state.weekStart = addDays(state.weekStart, 7); state.day = null; loadWeek(); }
       else if (a === "retry-week") loadWeek();
@@ -581,7 +627,7 @@
       if (reschedule && state.services) {
         state.service = state.services.find((s) => s.id === reschedule.serviceId) || null;
         // Open on the day of their current session (or the first open day after today).
-        state.day = dateKey(reschedule.currentStart, state.tz);
+        if (reschedule.currentStart) state.day = dateKey(reschedule.currentStart, state.tz);
         if (state.service) return loadWeek();
       }
       render();
@@ -606,6 +652,7 @@
         state.service = s;
         state.form = { ...draft.form };
         if (draft.tz && isValidTz(draft.tz)) state.tz = draft.tz;
+        if (s.kind === "bundle") { go(2); return; }
         const future = draft.slot && draft.slot > Date.now();
         state.slot = future ? draft.slot : null;
         state.resumeTo = state.slot;
@@ -715,6 +762,11 @@
       el.classList.add("bk", "bk-inline");
       return createWidget(el, { reschedule: opts });
     },
+    // Generic time picker: { serviceId, timeZone, title, summaryHtml, confirmLabel, cancelLabel, busyLabel, onConfirm(slot), onCancel() }
+    mountPicker(el, opts) {
+      el.classList.add("bk", "bk-inline");
+      return createWidget(el, { picker: opts });
+    },
     api: API,
   };
 
@@ -739,6 +791,10 @@
     if (typeof HTMLDialogElement !== "function") return; // very old browser: follow the link to /book/
     e.preventDefault();
     const service = serviceFrom(trigger);
+    try {
+      const promo = trigger.dataset.promo || new URL(trigger.href, location.href).searchParams.get("promo");
+      if (promo && PROMO_RE.test(promo)) sessionStorage.setItem("bk-promo", promo.toUpperCase());
+    } catch { /* not a link */ }
     if (inlineWidget) {
       inlineHost.scrollIntoView({ behavior: "smooth", block: "start" });
       inlineWidget.start(service);

@@ -56,6 +56,8 @@ export function makeWorld() {
   const state = {
     stripeSessions: new Map<string, Record<string, any>>(),
     stripeFailNextCreate: false,
+    promoCodes: {} as Record<string, string>,       // code -> Stripe promo id
+    promoLookupForbidden: false,                    // simulate a key without "Promotion Codes: Read"
     refunds: [] as Record<string, any>[],
     emails: [] as Record<string, any>[],
     resendFailNext: 0,
@@ -101,7 +103,7 @@ export function makeWorld() {
         const s = {
           id, status: "open", payment_status: "unpaid", url: `https://checkout.stripe.com/c/pay/${id}`,
           amount_total: Number(f.line_items["0"].price_data.unit_amount), payment_intent: null,
-          metadata: f.metadata ?? {}, _form: f,
+          metadata: f.metadata ?? {}, _form: f, _promo: f.discounts?.["0"]?.promotion_code ?? null,
         };
         state.stripeSessions.set(id, s);
         return json(s);
@@ -114,7 +116,17 @@ export function makeWorld() {
           if (s.status !== "open") return json({ error: { message: `Session is ${s.status}` } }, 400);
           s.status = "expired";
         }
-        return json(s);
+        return json({ ...s, total_details: { breakdown: { discounts: s._promo ? [{ discount: { promotion_code: s._promo } }] : [] } } });
+      }
+      if (p === "/v1/promotion_codes" && method === "GET") {
+        if (state.promoLookupForbidden) return json({ error: { message: "missing permission" } }, 403);
+        const id = state.promoCodes[u.searchParams.get("code") ?? ""];
+        return json({ data: id ? [{ id }] : [] });
+      }
+      const pc = p.match(/^\/v1\/promotion_codes\/([^/]+)$/);
+      if (pc && method === "GET") {
+        const code = Object.entries(state.promoCodes).find(([, id]) => id === pc[1])?.[0];
+        return code ? json({ id: pc[1], code }) : json({ error: { message: "No such promotion code" } }, 404);
       }
       if (p === "/v1/refunds" && method === "POST") {
         const f = parseForm(body);

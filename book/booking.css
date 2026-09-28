@@ -569,3 +569,11 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 /* Rescheduling: the booking's current time is shown but can't be picked */
 .bk-slot.is-current, .bk-row.is-current { border-style: dashed; background: transparent; color: var(--bk-faint); cursor: default; transform: none; }
 .bk-slot.is-current::after { content: " (now)"; font-size: 0.6875rem; }
+
+/* Bundles section in the session list */
+.bk-group-label { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 22px 0 10px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--bk-text); }
+.bk-group-label span { font-weight: 600; letter-spacing: 0.04em; text-transform: none; color: var(--bk-faint); font-size: 0.75rem; }
+.bk-svc.is-bundle .bk-svc-num { background: var(--bk-a); color: #ffffff; }
+.bk-svc.is-bundle .bk-svc-num small { opacity: 0.85; }
+/* Promo code note in the summary */
+.bk-promo { display: inline-block; padding: 3px 8px; border-radius: 4px; background: var(--bk-lime); color: var(--bk-lime-ink); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.04em; }

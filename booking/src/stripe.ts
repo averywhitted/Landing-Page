@@ -52,7 +52,8 @@ export type CheckoutSession = {
 };
 
 export function createCheckoutSession(env: Env, p: {
-  bookingId: string;
+  bookingId: string;            // the booking's id, or the bundle's id when kind is "package"
+  kind?: "booking" | "package";
   email: string;
   productName: string;
   description: string;
@@ -60,19 +61,54 @@ export function createCheckoutSession(env: Env, p: {
   expiresAt: number;       // ms
   successUrl: string;
   cancelUrl: string;
+  promotionCodeId?: string;     // pre-applied promo code (from a ?promo= link)
 }): Promise<CheckoutSession> {
   return stripe<CheckoutSession>(env, "POST", "checkout/sessions", {
     mode: "payment",
     customer_email: p.email,
     client_reference_id: p.bookingId,
-    allow_promotion_codes: "true",
+    // Stripe allows either a pre-applied code or the "Add promotion code" box, not both.
+    ...(p.promotionCodeId ? { discounts: { 0: { promotion_code: p.promotionCodeId } } } : { allow_promotion_codes: "true" }),
     expires_at: Math.floor(p.expiresAt / 1000),
     success_url: p.successUrl,
     cancel_url: p.cancelUrl,
     line_items: { 0: { quantity: 1, price_data: { currency: "usd", unit_amount: p.amountCents, product_data: { name: p.productName, description: p.description } } } },
-    metadata: { booking_id: p.bookingId },
-    payment_intent_data: { metadata: { booking_id: p.bookingId }, description: `${p.productName}, ${p.description}` },
+    metadata: p.kind === "package" ? { package_id: p.bookingId } : { booking_id: p.bookingId },
+    payment_intent_data: {
+      metadata: p.kind === "package" ? { package_id: p.bookingId } : { booking_id: p.bookingId },
+      description: `${p.productName}, ${p.description}`,
+    },
   }, `checkout-${p.bookingId}`);
+}
+
+// Turns a code a client arrived with (e.g. ?promo=SPRING20) into Stripe's id
+// for it. Returns null if it doesn't exist, is inactive, or the key can't look
+// codes up (needs the "Promotion Codes: Read" permission).
+export async function lookupPromotionCode(env: Env, code: unknown): Promise<string | null> {
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{2,40}$/.test(code)) return null;
+  try {
+    const res = await stripe<{ data: { id: string }[] }>(env, "GET", `promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1`);
+    return res.data[0]?.id ?? null;
+  } catch (err) {
+    console.warn("stripe: promo lookup failed:", (err as Error).message);
+    return null;
+  }
+}
+
+// Which promo code (if any) was used on a finished checkout, for the records.
+export async function promoCodeUsed(env: Env, sessionId: string): Promise<string | null> {
+  try {
+    const s = await stripe<{ total_details?: { breakdown?: { discounts?: { discount?: { promotion_code?: string | { code?: string } | null } }[] } } }>(
+      env, "GET", `checkout/sessions/${encodeURIComponent(sessionId)}?expand[]=total_details.breakdown`);
+    const promo = s.total_details?.breakdown?.discounts?.[0]?.discount?.promotion_code;
+    if (!promo) return null;
+    if (typeof promo === "object") return promo.code ?? null;
+    const pc = await stripe<{ code: string }>(env, "GET", `promotion_codes/${encodeURIComponent(promo)}`);
+    return pc.code ?? null;
+  } catch (err) {
+    console.warn("stripe: couldn't read promo code used:", (err as Error).message);
+    return null;
+  }
 }
 
 // Ends an unpaid checkout early. Returns the session's final state.

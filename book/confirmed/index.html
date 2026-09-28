@@ -16,7 +16,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/podcast/podcast.css" />
-    <link rel="stylesheet" href="/book/booking.css?v=a7813547" />
+    <link rel="stylesheet" href="/book/booking.css?v=455e7e29" />
     <style>
       .done { margin-top: 32px; padding: 44px; max-width: 720px; }
       .done .show-title { margin-bottom: 14px; }
@@ -130,6 +130,18 @@
             // Stripe's confirmation usually lands within seconds.
             if (tries < 20) return setTimeout(check, 1500);
             return show("Almost there", "Payment received", `<div class="prose"><p>Your booking is being finalized. You'll get a confirmation email shortly. If it doesn't arrive within a few minutes, email <a href="mailto:info@averywhitted.com" style="color:var(--a)">info@averywhitted.com</a>.</p></div>`);
+          }
+          if (b.status === "confirmed" && b.type === "package") {
+            try { localStorage.removeItem("bk-draft"); } catch {}
+            const useBy = b.expiresAt ? new Intl.DateTimeFormat("en-US", { timeZone: b.timeZone, weekday: "long", month: "long", day: "numeric" }).format(Date.parse(b.expiresAt)) : "";
+            return show("Bundle confirmed", `Your ${b.credits} sessions are ready`,
+              `<div class="prose"><p>Thanks${b.firstName ? `, ${esc(b.firstName)}` : ""}. A confirmation email with a link to your bundle page is on its way. From there you can book, reschedule, or cancel your sessions.</p></div>
+               <dl class="done-details">
+                 <dt>Bundle</dt><dd>${esc(b.bundleName)}</dd>
+                 <dt>Sessions</dt><dd>${b.credits} &times; 1 hour on Zoom</dd>
+                 ${useBy ? `<dt>Use by</dt><dd>${esc(useBy)}</dd>` : ""}
+               </dl>
+               <div class="done-actions">${b.packageUrl ? `<a class="btn primary" href="${esc(b.packageUrl)}">Book your first session</a>` : ""}<a class="btn" href="/">Back to home</a></div>`);
           }
           if (b.status === "confirmed") {
             try { localStorage.removeItem("bk-draft"); } catch {}

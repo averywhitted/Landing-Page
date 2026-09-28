@@ -22,6 +22,8 @@ export type BookingView = {
   link?: string;
   notes?: string;
   zoomUrl?: string | null;
+  bundleNote?: string;        // e.g. "Bundle session (2 of 4 left)" when booked with a credit
+  promoCode?: string | null;  // promo code used at checkout, if any
 };
 
 const AVERY_TZ = "America/New_York";
@@ -116,7 +118,8 @@ function sessionRows(b: BookingView, tz: string, withPaid: boolean): [string, st
     ["Time", esc(timeRange(b, tz))],
     ["Where", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">Join on Zoom</a>` : "Zoom (link to follow)"],
   ];
-  if (withPaid && b.amountCents > 0) rows.push(["Paid", esc(money(b.amountCents))]);
+  if (withPaid && b.bundleNote) rows.push(["Paid", esc(b.bundleNote)]);
+  else if (withPaid && b.amountCents > 0) rows.push(["Paid", esc(money(b.amountCents) + (b.promoCode ? ` (code ${b.promoCode})` : ""))]);
   return rows;
 }
 
@@ -158,6 +161,86 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
   };
 }
 
+// ── Bundles ──
+
+export type BundleView = {
+  name: string;
+  email: string;
+  pronouns?: string;
+  credits: number;            // total sessions in the bundle
+  remaining: number;
+  sessionLength: string;      // "1 hour"
+  expiresAt: number;
+  clientTimeZone: string;
+  amountCents: number;
+  bundleName: string;         // "4 session bundle"
+  goal?: string;
+};
+
+export function bundlePurchased(p: BundleView, bundleUrl: string): Email {
+  const tz = p.clientTimeZone;
+  const body = [
+    para(`Hi ${esc(firstName(p.name))},`),
+    para(`Thanks for picking up a bundle. Your ${p.credits} ${esc(p.sessionLength)} sessions are ready to book whenever you are.`),
+    details([
+      ["Bundle", esc(p.bundleName)],
+      ["Sessions", `${p.credits} &times; ${esc(p.sessionLength)} on Zoom`],
+      ["Use by", esc(day(p.expiresAt, tz))],
+      ["Paid", esc(money(p.amountCents))],
+    ]),
+    button(bundleUrl, "Book your first session"),
+    para("This link is your bundle page: it shows how many sessions you have left and lets you book, reschedule, or cancel them. Keep this email handy."),
+    small(`Sessions can be rescheduled or cancelled up to 24 hours before they start, and the session goes back into your bundle. Sessions cancelled later than that, or not used by ${esc(day(p.expiresAt, tz))}, can't be returned.`),
+    para("Looking forward to it,<br>Avery"),
+  ].join("\n");
+  return {
+    to: p.email,
+    subject: `Your ${p.credits} sessions are ready to book`,
+    html: layout({ preheader: `Book your first session. Use by ${day(p.expiresAt, tz)}.`, tag: "Session bundle", title: "Bundle confirmed", body }),
+    text: [`Hi ${firstName(p.name)},`, "", `Your ${p.credits} ${p.sessionLength} sessions are ready to book.`, "",
+      textRows([["Bundle", p.bundleName], ["Use by", day(p.expiresAt, tz)], ["Paid", money(p.amountCents)]]), "",
+      `Book your sessions: ${bundleUrl}`, "", "Looking forward to it,", "Avery"].join("\n"),
+  };
+}
+
+export function adminBundlePurchased(p: BundleView): Email {
+  const body = [
+    details([
+      ["Client", esc(p.name) + (p.pronouns ? ` (${esc(p.pronouns)})` : "")],
+      ["Email", `<a href="mailto:${esc(p.email)}" style="color:#1f47f5;">${esc(p.email)}</a>`],
+      ["Bundle", esc(p.bundleName)],
+      ["Paid", esc(money(p.amountCents))],
+      ["Use by", esc(day(p.expiresAt, AVERY_TZ))],
+    ]),
+    p.goal ? `<p style="margin:0 0 4px;font:700 11px/1.5 ${FONT};letter-spacing:1px;text-transform:uppercase;color:#6b727b;">Main goal</p><p style="margin:0 0 16px;font:14px/1.6 ${MONO};color:#0e1116;white-space:pre-wrap;">${esc(p.goal)}</p>` : "",
+    small("You'll get a separate email each time they book a session from the bundle."),
+  ].join("\n");
+  return {
+    to: "",
+    subject: `Bundle purchased: ${p.name}, ${p.bundleName} (${money(p.amountCents)})`,
+    html: layout({ preheader: `${p.name} bought ${p.bundleName}`, tag: "Session bundle", title: "Bundle purchased", subtitle: p.name, body }),
+    text: textRows([["Client", p.name], ["Email", p.email], ["Bundle", p.bundleName], ["Paid", money(p.amountCents)], ["Use by", day(p.expiresAt, AVERY_TZ)]]),
+  };
+}
+
+export function bundleExpiring(p: BundleView, bundleUrl: string): Email {
+  const tz = p.clientTimeZone;
+  const left = `${p.remaining} session${p.remaining === 1 ? "" : "s"}`;
+  const body = [
+    para(`Hi ${esc(firstName(p.name))},`),
+    para(`A quick heads-up: you still have <strong>${esc(left)}</strong> left in your bundle, and they need to be used by <strong>${esc(day(p.expiresAt, tz))}</strong>.`),
+    button(bundleUrl, "Book a session"),
+    small("If the timing isn't working out, just reply to this email and we'll figure something out."),
+    para("Talk soon,<br>Avery"),
+  ].join("\n");
+  return {
+    to: p.email,
+    subject: `You have ${left} left to use by ${shortDay(p.expiresAt, tz)}`,
+    html: layout({ preheader: `Use by ${day(p.expiresAt, tz)}`, tag: "Session bundle", title: "Sessions expiring", body }),
+    text: [`Hi ${firstName(p.name)},`, "", `You have ${left} left in your bundle, to use by ${day(p.expiresAt, tz)}.`, "", `Book a session: ${bundleUrl}`, "", "Talk soon,", "Avery"].join("\n"),
+  };
+}
+
 // ── Client: session moved ──
 
 export function clientRescheduled(b: BookingView, previousStart: number, ics: string, manageUrl: string): Email {
@@ -191,7 +274,8 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string): E
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
     para(`Your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> has been cancelled.`),
-    b.amountCents > 0 ? para(`You'll be refunded in full (${esc(money(b.amountCents))}). Refunds may take a few business days to appear.`) : "",
+    b.bundleNote ? para("The session has gone back into your bundle, so you can book another time whenever you like.")
+      : b.amountCents > 0 ? para(`You'll be refunded in full (${esc(money(b.amountCents))}). Refunds may take a few business days to appear.`) : "",
     para("The attached update removes it from your calendar. Whenever you're ready, you're welcome to book another time:"),
     button(bookUrl, "Book another time"),
     para("Take care,<br>Avery"),
@@ -216,7 +300,7 @@ function adminRows(b: BookingView, opts: { zoom?: boolean } = {}): [string, stri
     ["Email", `<a href="mailto:${esc(b.email)}" style="color:#1f47f5;">${esc(b.email)}</a>`],
     ["Session", esc(b.serviceName)],
     ["When", `${esc(day(b.start, tz))}<br>${esc(timeRange(b, tz))}`],
-    ["Paid", b.amountCents > 0 ? esc(money(b.amountCents)) : "Free"],
+    ["Paid", b.bundleNote ? esc(b.bundleNote) : b.amountCents > 0 ? esc(money(b.amountCents) + (b.promoCode ? ` (code ${b.promoCode})` : "")) : "Free"],
   ];
   if (opts.zoom !== false) rows.push(["Zoom", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">${esc(b.zoomUrl)}</a>` : "Not created"]);
   if (b.clientTimeZone !== tz) rows.push(["Their zone", esc(`${clock(b.start, b.clientTimeZone)} ${zoneName(b.start, b.clientTimeZone)}`)]);
@@ -278,6 +362,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null):
     needsRefund ? warn(`Refund due: ${money(b.amountCents)}. They cancelled at least 24 hours ahead, so they were told they'll be refunded in full.`) : "",
     needsRefund && stripePaymentUrl ? button(stripePaymentUrl, `Refund ${money(b.amountCents)} in Stripe`) : "",
     details(adminRows(b, { zoom: false })),
+    b.bundleNote ? small("It was a bundle session, so the credit has gone back into their bundle.") : "",
     small("The event has been removed from your Coaching calendar and the Zoom meeting deleted. The time is open for booking again."),
   ].join("\n");
   return {
@@ -388,4 +473,5 @@ export const HEADING_TITLES = [
   "You're booked", "Session rescheduled", "Session cancelled", "Finish your booking", "That time was taken",
   "New booking", "Booking rescheduled", "Booking cancelled", "Auto-refunded",
   "See you soon", "Needs attention",
+  "Bundle confirmed", "Bundle purchased", "Sessions expiring",
 ];

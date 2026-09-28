@@ -574,6 +574,155 @@ test("alerts: Avery hears about failures, at most once an hour", async () => {
   assert.equal(alerts().length, 1, "no repeat within the hour");
 });
 
+/* ── Bundles ── */
+
+async function buyBundle(serviceId = "bundle-4", over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  const r = await api.call("POST", "/api/packages", { body: { serviceId, timeZone: "America/Chicago", intake: intake({ material: "", ...over }), ...extra } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const pkg = () => db.prepare("SELECT * FROM packages WHERE id = ?").get(r.data.packageId) as any;
+  const session = world.state.stripeSessions.get(pkg().stripe_checkout_session_id)!;
+  return { id: r.data.packageId as string, pkg, session };
+}
+async function paidBundle(serviceId = "bundle-4") {
+  const bought = await buyBundle(serviceId);
+  await api.webhook("checkout.session.completed", paid(bought.session));
+  const email = world.state.emails.find((e) => /sessions are ready to book/.test(e.subject))!;
+  const m = email.text.match(/book\/package\/\?p=([0-9a-f-]{36})&t=([\w-]{32})/);
+  assert.ok(m, "bundle email has a bundle-page link");
+  world.state.emails.length = 0;
+  return { ...bought, p: m![1], t: m![2] };
+}
+const ledger = (id: string) => (db.prepare("SELECT delta, reason FROM credit_ledger WHERE package_id = ? ORDER BY id").all(id) as any[]).map((l) => ({ ...l }));
+
+test("bundle: buying creates a paid-up bundle with 4 credits and a 60-day use-by date", async () => {
+  const { id, pkg, session } = await buyBundle();
+  assert.equal(pkg().status, "pending");
+  assert.equal(session.amount_total, 44000);
+  assert.equal(session.metadata.package_id, id);
+  await api.webhook("checkout.session.completed", paid(session));
+  const p = pkg();
+  assert.equal(p.status, "active");
+  assert.equal(p.credits_total, 4);
+  const days = (Date.parse(p.expires_at) - Date.now()) / 86400000;
+  assert.ok(days > 59.9 && days <= 60, "use by 60 days from purchase");
+  assert.deepEqual(ledger(id), [{ delta: 4, reason: "purchased" }]);
+  const subjects = world.state.emails.map((e) => e.subject);
+  assert.ok(subjects.includes("Your 4 sessions are ready to book"));
+  assert.ok(subjects.some((x) => /^Bundle purchased: Jamie Rivera, 4 session bundle \(\$440\)/.test(x)));
+  const conf = await api.call("GET", `/api/confirmation?session_id=${session.id}`);
+  assert.equal(conf.data.type, "package");
+  assert.equal(conf.data.status, "confirmed");
+  assert.match(conf.data.packageUrl, /\/book\/package\/\?p=/);
+});
+
+test("bundle page: shows credits; links can't be forged or swapped with booking links", async () => {
+  const { p, t } = await paidBundle();
+  const v = await api.call("GET", `/api/packages?p=${p}&t=${t}`);
+  assert.equal(v.status, 200);
+  assert.equal(v.data.remaining, 4);
+  assert.equal(v.data.canBook, true);
+  assert.equal((await api.call("GET", `/api/packages?p=${p}&t=${"z".repeat(32)}`)).status, 404);
+  assert.equal((await api.call("GET", `/api/manage?b=${p}&t=${t}`)).status, 404, "a bundle link doesn't work as a booking link");
+});
+
+test("bundle: booking with a credit needs no payment and counts down", async () => {
+  const { id, p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const before = world.state.stripeSessions.size;
+  const r = await api.call("POST", "/api/packages/book", { body: { p, t, start: slot, focus: "Monologue for a callback" } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(world.state.stripeSessions.size, before, "no checkout");
+  const b = row(r.data.bookingId);
+  assert.equal(b.status, "confirmed");
+  assert.equal(b.package_id, id);
+  assert.equal(b.amount_cents, 0);
+  assert.match(b.intake_json, /Monologue for a callback/);
+  assert.equal(claims(b.id), 5);
+  assert.deepEqual(ledger(id).map((l) => l.delta), [4, -1]);
+  const conf = world.state.emails.find((e) => /You're booked/.test(e.subject))!;
+  assert.match(conf.html, /Bundle session \(3 of 4 left\)/);
+  assert.ok(world.state.calendarEvents.has(b.calendar_event_url));
+  assert.equal((await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.sessions.length, 1);
+});
+
+test("bundle: can't book more sessions than it has, even at the database level", async () => {
+  const { id, p, t } = await paidBundle("bundle-2");
+  const slots = await openSlots("coaching-60");
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[0] } })).status, 201);
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[6] } })).status, 201);
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[12] } })).status, 409);
+  assert.throws(() => db.prepare("UPDATE packages SET credits_used = credits_used + 1 WHERE id = ?").run(id), /CHECK constraint failed/);
+});
+
+test("bundle: cancelling 24+ hours ahead returns the session to the bundle", async () => {
+  const { id, p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const r = await api.call("POST", "/api/packages/book", { body: { p, t, start: slot } });
+  world.state.emails.length = 0;
+  const m = r.data.manageUrl.match(/b=([^&]+)&t=([^&]+)/);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b: m[1], t: m[2] } })).status, 200);
+  assert.equal((db.prepare("SELECT credits_used FROM packages WHERE id = ?").get(id) as any).credits_used, 0);
+  assert.deepEqual(ledger(id).map((l) => l.reason), ["purchased", "booked", "cancelled_in_time"]);
+  const [client, admin] = world.state.emails;
+  assert.match(client.html, /gone back into your bundle/);
+  assert.doesNotMatch(client.html, /refund/i);
+  assert.match(client.html, /book\/package\/\?p=/, "book-again link goes to the bundle page");
+  assert.match(admin.html, /credit has gone back into their bundle/);
+});
+
+test("bundle: sessions must be before the use-by date; expired bundles can't book", async () => {
+  const { id, p, t } = await paidBundle();
+  const slots = await openSlots("coaching-60");
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.parse(slots[0]) - 60000).toISOString(), id);
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[0] } })).status, 409);
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), id);
+  const v = await api.call("GET", `/api/packages?p=${p}&t=${t}`);
+  assert.equal(v.data.status, "expired");
+  assert.equal(v.data.canBook, false);
+});
+
+test("bundle: one 'sessions expiring' email a week before the use-by date", async () => {
+  const { id } = await paidBundle();
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() + 5 * 86400000).toISOString(), id);
+  await api.cron();
+  await api.cron();
+  const notes = world.state.emails.filter((e) => /^You have 4 sessions left to use by /.test(e.subject));
+  assert.equal(notes.length, 1);
+});
+
+test("bundle: an unpaid checkout that expires leaves nothing behind", async () => {
+  const { pkg, session } = await buyBundle();
+  await api.webhook("checkout.session.expired", { ...session, status: "expired" });
+  assert.equal(pkg().status, "cancelled");
+});
+
+/* ── Promo codes ── */
+
+test("promo link: a valid code is pre-applied and recorded; an unknown one falls back to the code box", async () => {
+  world.state.promoCodes = { SPRING20: "promo_abc" };
+  const slots = await openSlots("coaching-60");
+  const good = await book("coaching-60", slots[0], {}, { promo: "SPRING20" });
+  const s = sessionFor(good.data.bookingId);
+  assert.equal(s._form.discounts["0"].promotion_code, "promo_abc");
+  assert.equal(s._form.allow_promotion_codes, undefined);
+  await api.webhook("checkout.session.completed", { ...paid(s), amount_total: 10400 });
+  assert.equal(row(good.data.bookingId).promo_code, "SPRING20");
+  assert.equal(row(good.data.bookingId).amount_cents, 10400);
+  assert.match(world.state.emails.find((e) => /You're booked/.test(e.subject))!.html, /\$104 \(code SPRING20\)/);
+
+  const unknown = await book("coaching-30", slots.at(-1)!, { email: "b@example.com" }, { promo: "NOPE" });
+  assert.equal(sessionFor(unknown.data.bookingId)._form.allow_promotion_codes, "true");
+});
+
+test("promo link on a bundle; and a key without promo permission still books", async () => {
+  world.state.promoCodes = { FOURPACK: "promo_4" };
+  const { session } = await buyBundle("bundle-4", {}, { promo: "FOURPACK" });
+  assert.equal(session._form.discounts["0"].promotion_code, "promo_4");
+  world.state.promoLookupForbidden = true;
+  const { session: s2 } = await buyBundle("bundle-2", { email: "c@example.com" }, { promo: "FOURPACK" });
+  assert.equal(s2._form.allow_promotion_codes, "true", "falls back gracefully");
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

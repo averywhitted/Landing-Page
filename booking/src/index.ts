@@ -15,6 +15,11 @@ import {
   sendSessionReminders, runRetention, checkAlerts,
 } from "./bookings";
 import { validManageToken } from "./manage";
+import {
+  afterPackage, bookWithCredit, confirmPackage, createPackagePurchase, expirePendingPackages, packagePublicStatus,
+  packageView, releasePackageForSession, retryPackageEmails, sendExpiryNotices,
+} from "./packages";
+import { promoCodeUsed } from "./stripe";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -146,7 +151,7 @@ app.get("/api/confirmation", async (c) => {
   const session = c.req.query("session_id");
   const booking = c.req.query("booking");
   const valid = (v?: string) => !!v && /^[\w-]{8,200}$/.test(v);
-  const result = valid(session) ? await publicStatus(c.env, "session", session!)
+  const result = valid(session) ? (await publicStatus(c.env, "session", session!)) ?? (await packagePublicStatus(c.env, session!))
     : valid(booking) ? await publicStatus(c.env, "booking", booking!)
     : null;
   if (!result) return c.json({ error: "Booking not found." }, 404);
@@ -182,6 +187,28 @@ app.post("/api/manage/reschedule", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// Bundles: buy one, view the bundle page, book a session with a credit.
+app.post("/api/packages", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    return c.json(await createPackagePurchase(c.env, body, { ip: c.req.header("cf-connecting-ip") ?? "local", now: Date.now() }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/packages", async (c) => {
+  try {
+    c.header("Cache-Control", "no-store");
+    return c.json(await packageView(c.env, c.req.query("p"), c.req.query("t"), Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/packages/book", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await bookWithCredit(c.env, body.p, body.t, body.start, body.focus, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // Stripe's notifications. Signed, checked, and handled once each.
 app.post("/api/stripe/webhook", async (c) => {
   const raw = await c.req.text();
@@ -197,11 +224,18 @@ app.post("/api/stripe/webhook", async (c) => {
     if (event.type === "checkout.session.completed") {
       const s = event.data.object as unknown as CheckoutSession;
       if (s.payment_status === "paid") {
-        const id = await confirmPaid(c.env, s, now);
-        if (id) c.executionCtx.waitUntil(afterConfirm(c.env, id));
+        const promo = await promoCodeUsed(c.env, s.id);
+        if (s.metadata?.package_id) {
+          const id = await confirmPackage(c.env, s, now, promo);
+          if (id) c.executionCtx.waitUntil(afterPackage(c.env, id));
+        } else {
+          const id = await confirmPaid(c.env, s, now, promo);
+          if (id) c.executionCtx.waitUntil(afterConfirm(c.env, id));
+        }
       }
     } else if (event.type === "checkout.session.expired") {
       await releaseForSession(c.env, String(event.data.object.id), now);
+      await releasePackageForSession(c.env, String(event.data.object.id), now);
     } else if (event.type === "charge.refunded") {
       const pi = event.data.object.payment_intent;
       if (typeof pi === "string") {
@@ -226,12 +260,15 @@ async function scheduled(env: Env): Promise<void> {
     try { return await job(); } catch (err) { console.error(`cron ${name} failed:`, (err as Error).message); return null; }
   };
   const holds = await run("holds", () => expireHolds(env, now));
+  const bundles = await run("bundle checkouts", () => expirePendingPackages(env, now));
+  const expiring = await run("bundle expiry notices", () => sendExpiryNotices(env, now));
   const checkout = await run("checkout reminders", () => sendReminders(env, now));
   const session = await run("session reminders", () => sendSessionReminders(env, now));
   const retried = await run("retries", () => retryConfirmations(env, now));
+  await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
-  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, checkout, session, retried, cleaned, alerts: alerts?.length };
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, cleaned, alerts: alerts?.length };
   if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 
