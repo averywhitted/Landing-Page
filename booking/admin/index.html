@@ -37,7 +37,7 @@
     .tab[aria-selected="true"] .count { background: var(--lime); color: var(--lime-ink); }
     .count.alert { background: var(--danger); color: #fff; }
     .day { margin: 22px 0 8px; font-size: .6875rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
-    .card { display: grid; grid-template-columns: 110px 1fr auto; gap: 16px; align-items: start; padding: 16px 18px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 10px 26px rgba(20,28,40,.05); }
+    .card { display: grid; grid-template-columns: 110px 1fr; gap: 14px 16px; align-items: start; padding: 16px 18px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 10px 26px rgba(20,28,40,.05); }
     .card.muted { background: rgba(255,255,255,.55); box-shadow: none; }
     .time { font-family: var(--mono); font-size: .9375rem; letter-spacing: -.02em; }
     .time small { display: block; color: var(--faint); font-size: .75rem; margin-top: 2px; }
@@ -48,7 +48,8 @@
     .chip.ok { background: #e6f6ea; color: #1d6b34; }
     .chip.bad { background: #fdecea; color: #8a1c12; }
     .chip.lime { background: var(--lime); color: var(--lime-ink); }
-    .actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .actions .btn.danger { margin-left: auto; }
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 12px; border-radius: 10px; border: 1.5px solid var(--text); background: transparent; color: var(--text); font: 700 .6875rem var(--body); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; text-decoration: none; white-space: nowrap; }
     .btn:hover { background: var(--text); color: #fff; }
     .btn.primary { background: var(--a); border-color: var(--a); color: #fff; }
@@ -111,9 +112,56 @@
     .seat .who-line small { display: block; font-family: var(--mono); font-size: .75rem; color: var(--faint); }
     .btn.sm { padding: 6px 9px; font-size: .625rem; }
     .seat-actions { display: inline-flex; gap: 6px; white-space: nowrap; }
+    .viewbar { display: flex; justify-content: flex-end; margin: -6px 0 12px; }
+    .viewbar input[type=search] { width: 100%; max-width: 360px; margin-right: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: 500 .875rem var(--body); }
+    .seg { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: #fff; }
+    .seg button { padding: 6px 14px; border: 0; border-radius: 999px; background: none; font: 700 .6875rem var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+    .seg button[aria-pressed="true"] { background: var(--text); color: #fff; }
+    .cal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .cal-head strong { font-size: 1rem; min-width: 150px; text-align: center; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+    .cal-dow { font-size: .625rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); text-align: center; padding: 4px 0; }
+    .cal-cell { min-height: 88px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .cal-cell.empty { border: 0; background: none; }
+    .cal-cell.past { background: var(--bg1); }
+    .cal-cell.today { border-color: var(--a); box-shadow: inset 0 0 0 1px var(--a); }
+    .cal-num { font-size: .6875rem; font-weight: 700; color: var(--faint); }
+    .cal-item { display: block; width: 100%; padding: 3px 5px; border: 0; border-radius: 6px; background: var(--a-soft); color: var(--a-dark); font: 600 .6875rem var(--body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .cal-item:hover { background: var(--a); color: #fff; }
+    .cal-item.due { background: #fdecea; color: #8a1c12; }
+    .student-list { padding: 4px 10px; }
+    .student-row { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(90px, 1fr)); gap: 10px; align-items: center; width: 100%; padding: 12px 8px; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; font: .8125rem var(--body); color: var(--text); cursor: pointer; }
+    .student-row:first-child { border-top: 0; }
+    .student-row:hover { background: var(--a-soft); }
+    .student-row small { display: block; font-size: .6875rem; color: var(--faint); }
+    .sr-name small { font-family: var(--mono); }
+    .sr-stat small { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .5625rem; }
+    .student-detail h3 { margin: 20px 0 6px; font-size: .6875rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+    .student-detail details summary { cursor: pointer; font-size: .8125rem; font-weight: 700; color: var(--a); margin-bottom: 6px; }
+    .sd-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .sd-head p { margin: 0; }
+    .warn-line { margin: 12px 0 0; padding: 9px 12px; border-radius: 10px; background: #fdecea; color: #8a1c12; font-size: .8125rem; font-weight: 600; }
+    .mono-hint { font-family: var(--mono); font-size: .75rem; color: var(--faint); }
+    .seats { margin-top: 8px; }
+    .seat-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+    .bundle-slot { margin-top: 8px; }
+    .bundle-slot .check { flex-direction: row; align-items: center; gap: 8px; font-size: .8125rem; color: var(--text); margin: 0; }
+    .bundle-slot .hint { margin: 4px 0 0; }
+    .student.on-bundle { border-color: var(--a); }
+    .student .pick { margin: 0 24px 10px 0; }
+    dialog input:disabled { background: var(--bg1); color: var(--faint); opacity: .7; cursor: not-allowed; }
+    dialog fieldset.choices { border: 0; padding: 0; margin: 0 0 8px; }
+    dialog fieldset.choices legend { font-size: .75rem; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+    .dlg-card .card { box-shadow: none; margin: 0 0 4px; }
+    .hint { font-size: .75rem; color: var(--faint); }
     @media (max-width: 700px) {
       .card { grid-template-columns: 1fr; gap: 10px; }
-      .actions { flex-direction: row; flex-wrap: wrap; align-items: center; }
+      .actions .btn.danger { margin-left: 0; }
+      .student-row { grid-template-columns: 1fr 1fr; }
+      .student-row .sr-name { grid-column: 1 / -1; }
+      .cal-cell { min-height: 64px; padding: 3px; }
+      .cal-item { font-size: .5625rem; padding: 2px 3px; }
+      .head-actions { flex-wrap: wrap; }
     }
   </style>
   <script src="/admin/app.js" defer></script>
@@ -126,7 +174,8 @@
         <div class="brand-sub">Booking admin</div>
       </div>
       <div class="head-actions">
-        <button type="button" class="btn primary" id="new-session">Book a student</button>
+        <button type="button" class="btn" id="refresh" title="Load the latest bookings">&#8635; Refresh</button>
+        <button type="button" class="btn primary" id="new-session" title="Book one student, or several for a group session">Book a student</button>
         <span class="mode" id="mode"></span>
       </div>
     </header>

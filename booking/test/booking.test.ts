@@ -1527,3 +1527,91 @@ test("check a time: warns about calendar clashes, hours and notice; flags overla
   const id = bookingByEmail("taken@example.com").id;
   assert.equal((await check("10:30", { movingBookingId: id })).overlapsBooking, false, "its own time doesn't count when moving it");
 });
+
+/* ── Admin tools round 2 ── */
+
+test("Zoom link: held back until a student pays, then sent with an updated invite", async () => {
+  adminEnv();
+  env.ZOOM_FALLBACK_URL = "https://zoom.us/j/555";
+  await adminBook({ students: [student("Zed Owes", "zed@example.com", { priceCents: 4000 })] });
+  const invite = inviteFor("zed@example.com");
+  assert.doesNotMatch(invite.text + invite.html, /zoom\.us\/j\/555/, "no Zoom link in the invite");
+  assert.match(invite.text, /Sent once you've paid/);
+  const ics = Buffer.from(invite.attachments[0].content, "base64").toString();
+  assert.doesNotMatch(ics, /zoom\.us\/j\/555/, "not in the calendar file either");
+  const link = linkIn(invite.text);
+  assert.equal((await api.call("GET", `/api/manage?b=${link.b}&t=${link.t}`)).data.zoomUrl, null, "not on the manage page");
+  assert.match(world.state.calendarEvents.get(row(link.b).calendar_event_url)!, /zoom\.us\/j\/555/, "Avery's own calendar has it");
+
+  await api.call("POST", "/api/pay", { body: link });
+  await api.webhook("checkout.session.completed", paid(world.state.stripeSessions.get(row(link.b).stripe_checkout_session_id)!));
+  const receipt = world.state.emails.find((e) => /^Payment received: /.test(e.subject) && e.to[0] === "zed@example.com")!;
+  assert.match(receipt.text, /zoom\.us\/j\/555/, "receipt has the Zoom link");
+  const updated = Buffer.from(receipt.attachments[0].content, "base64").toString();
+  assert.match(updated, /zoom\.us\/j\/555/);
+  assert.match(updated, /SEQUENCE:1/, "updates the event already on their calendar");
+  assert.equal((await api.call("GET", `/api/manage?b=${link.b}&t=${link.t}`)).data.zoomUrl, "https://zoom.us/j/555");
+});
+
+test("Avery cancels a bundle: all upcoming sessions cancelled, refund of her choosing sent through Stripe", async () => {
+  adminEnv();
+  const { id, pkg, p, t } = await paidBundle(); // $440
+  const slots = await openSlots("coaching-60");
+  const s1 = await bundleSession(p, t, slots[0]);
+  const soon = await bundleSession(p, t, slots[6]);
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(Date.now() + 5 * 3600000).toISOString(), new Date(Date.now() + 6 * 3600000).toISOString(), soon.id);
+  world.state.emails.length = 0;
+
+  const preview = await api.call("GET", `/api/admin/packages/${id}/cancel`, { headers: asAdmin() });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.data.paidCents, 44000);
+  assert.equal(preview.data.upcoming.length, 2, "includes the one inside 24 hours");
+  assert.equal(preview.data.canRefund, true);
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/cancel`, { headers: asAdmin(), body: { refundCents: 50000 } })).status, 400, "not more than they paid");
+
+  const r = await api.call("POST", `/api/admin/packages/${id}/cancel`, { headers: asAdmin(), body: { refundCents: 30000, notifyClient: true } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.refunded, true);
+  assert.equal(pkg().status, "cancelled");
+  assert.equal(pkg().cancel_reason, "avery_cancelled");
+  assert.ok(pkg().refunded_at);
+  assert.equal(world.state.refunds.length, 1);
+  assert.equal(world.state.refunds[0].amount, "30000", "a partial refund of the chosen amount");
+  assert.equal(row(s1.id).status, "cancelled");
+  assert.equal(row(soon.id).status, "cancelled", "Avery can cancel inside 24 hours");
+  assert.equal(pkg().credits_used, 0);
+  const email = world.state.emails.find((e) => /^Your bundle is cancelled/.test(e.subject))!;
+  assert.match(email.text, /\$300/);
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/cancel`, { headers: asAdmin(), body: { refundCents: 0 } })).status, 409, "only once");
+});
+
+test("students: a directory with upcoming, last session, what's owed, and bundles; details per student", async () => {
+  adminEnv();
+  await paidBundle();
+  await adminBook({ students: [student("Jamie Rivera", "jamie@example.com", { priceCents: 5000 })] });
+  const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
+  const jamie = list.find((s: any) => s.email === "jamie@example.com");
+  assert.equal(jamie.upcoming, 1);
+  assert.equal(jamie.owedCents, 5000);
+  assert.equal(jamie.bundles[0].remaining, 4);
+  const detail = await api.call("GET", `/api/admin/students/${jamie.id}`, { headers: asAdmin() });
+  assert.equal(detail.status, 200);
+  assert.equal(detail.data.sessions.length, 1);
+  assert.equal(detail.data.sessions[0].dueCents, 5000);
+  assert.equal(detail.data.bundles.length, 1);
+  assert.equal((await api.call("GET", "/api/admin/students/nope", { headers: asAdmin() })).status, 404);
+  assert.equal((await api.call("GET", `/api/admin/students/${jamie.id}`)).status, 403, "admin only");
+});
+
+test("cleanup errors are saved so the admin page can show why", async () => {
+  adminEnv();
+  const { id, b, t } = await confirmedBooking();
+  world.state.calendarDeleteFailNext = 1;
+  await api.call("POST", "/api/manage/cancel", { body: { b, t } });
+  assert.match(row(id).cleanup_error, /iCloud DELETE failed with status 503/);
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.match(overview.data.problems.leftOnCalendar[0].error, /503/);
+  db.prepare("UPDATE bookings SET updated_at = ? WHERE id = ?").run(new Date(Date.now() - 5 * 60000).toISOString(), id);
+  await api.cron();
+  assert.equal(row(id).cleanup_error, null, "cleared once it works");
+});

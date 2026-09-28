@@ -298,18 +298,20 @@ export async function refreshGroup(env: Env, groupId: string, now = Date.now()):
 async function removeGroupExtras(env: Env, groupId: string): Promise<void> {
   const g = await loadGroup(env, groupId);
   if (!g || g.status !== "cancelled") return;
+  const errors: string[] = [];
   if (g.calendar_event_url) {
     try {
       await calendarFor(env).deleteEvent(g.calendar_event_url);
       await env.DB.prepare("UPDATE groups SET calendar_event_url = NULL WHERE id = ?1").bind(g.id).run();
-    } catch (err) { console.error("group calendar delete failed:", (err as Error).message); }
+    } catch (err) { console.error("group calendar delete failed:", (err as Error).message); errors.push((err as Error).message); }
   }
   if (g.zoom_meeting_id) {
     try {
       await deleteMeeting(env, g.zoom_meeting_id);
       await env.DB.prepare("UPDATE groups SET zoom_meeting_id = NULL WHERE id = ?1").bind(g.id).run();
-    } catch (err) { console.error("group zoom delete failed:", (err as Error).message); }
+    } catch (err) { console.error("group zoom delete failed:", (err as Error).message); errors.push((err as Error).message); }
   }
+  await env.DB.prepare("UPDATE groups SET cleanup_error = ?1 WHERE id = ?2").bind(errors.join("; ").slice(0, 300) || null, g.id).run();
 }
 
 // Cron: finish setting up active groups and cleaning up cancelled ones.
@@ -432,26 +434,69 @@ export async function adminResendInvite(env: Env, bookingId: string) {
   return { ok: true };
 }
 
-// Everyone Avery has worked with, most recent first, with their usable bundles.
+// Everyone Avery has worked with, most recent first: their usable bundles
+// (for the booking form) and a summary for the Students list.
 export async function adminStudents(env: Env, now: number) {
+  const t = iso(now);
   const people = await env.DB.prepare(
     `SELECT c.id, c.name, c.email, c.pronouns,
+       (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc > ?1) AS upcoming,
+       (SELECT MIN(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc > ?1) AS next_start,
+       (SELECT MAX(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS last_start,
+       (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS past,
+       (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.created_by = 'admin'
+          AND b.paid_at IS NULL AND b.package_id IS NULL AND b.price_cents > 0) AS owed_cents,
        (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked
      FROM customers c
      WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
-        OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status = 'active')
-     ORDER BY last_booked DESC LIMIT 500`,
-  ).all<{ id: string; name: string; email: string; pronouns: string | null }>();
+        OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status IN ('active', 'cancelled') AND p.cancel_reason IS NOT 'checkout_expired')
+     ORDER BY COALESCE(next_start, '9999'), last_booked DESC LIMIT 1000`,
+  ).bind(t).all<Record<string, any>>();
   const bundles = await env.DB.prepare(
     `SELECT id, customer_id, service_id, credits_total, credits_used, expires_at FROM packages
      WHERE status = 'active' AND credits_used < credits_total AND expires_at > ?1`,
-  ).bind(iso(now)).all<{ id: string; customer_id: string; service_id: string; credits_total: number; credits_used: number; expires_at: string }>();
+  ).bind(t).all<{ id: string; customer_id: string; service_id: string; credits_total: number; credits_used: number; expires_at: string }>();
   return people.results.map((p) => ({
-    name: p.name, email: p.email, pronouns: p.pronouns,
+    id: p.id, name: p.name, email: p.email, pronouns: p.pronouns,
+    upcoming: p.upcoming, nextStart: p.next_start, lastStart: p.last_start, pastSessions: p.past, owedCents: p.owed_cents,
     bundles: bundles.results.filter((x) => x.customer_id === p.id).map((x) => ({
-      id: x.id, remaining: x.credits_total - x.credits_used, expiresAt: x.expires_at,
+      id: x.id, remaining: x.credits_total - x.credits_used, total: x.credits_total, expiresAt: x.expires_at,
     })),
   }));
+}
+
+// One student's full history, for the Students detail view.
+export async function adminStudentDetail(env: Env, customerId: string, now: number) {
+  const c = await env.DB.prepare("SELECT id, name, email, pronouns, created_at FROM customers WHERE id = ?1").bind(customerId)
+    .first<{ id: string; name: string; email: string; pronouns: string | null; created_at: string }>();
+  if (!c) throw new BookingError(404, "Student not found.");
+  const bookings = await env.DB.prepare(
+    `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
+     WHERE b.customer_id = ?1 AND b.status IN ('confirmed', 'cancelled') ORDER BY b.start_utc DESC LIMIT 300`,
+  ).bind(customerId).all<BookingRow>();
+  const packages = await env.DB.prepare(
+    `SELECT * FROM packages WHERE customer_id = ?1 AND status IN ('active', 'cancelled') AND cancel_reason IS NOT 'checkout_expired'
+     ORDER BY created_at DESC`,
+  ).bind(customerId).all<Record<string, any>>();
+  return {
+    id: c.id, name: c.name, email: c.email, pronouns: c.pronouns, since: c.created_at,
+    sessions: bookings.results.map((b) => {
+      const service = findService(b.service_id)!;
+      return {
+        id: b.id, service: serviceLabel(service), serviceId: b.service_id, start: b.start_utc, end: b.end_utc,
+        status: b.status === "confirmed" ? (Date.parse(b.end_utc) <= now ? "past" : "upcoming") : "cancelled",
+        cancelReason: b.cancel_reason, group: !!b.group_id, groupId: b.group_id, byAvery: b.created_by === "admin",
+        paid: b.package_id ? "bundle" : b.amount_cents, dueCents: dueCents(b), payBy: b.pay_by, refunded: !!b.refunded_at,
+        intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message,
+      };
+    }),
+    bundles: packages.results.map((p) => ({
+      id: p.id, bundle: `${findService(p.service_id)?.credits ?? p.credits_total} session bundle`, status: p.status,
+      expired: !!p.expires_at && Date.parse(p.expires_at) <= now, creditsTotal: p.credits_total, creditsUsed: p.credits_used,
+      remaining: p.credits_total - p.credits_used, expiresAt: p.expires_at, paidCents: p.amount_cents, cancelReason: p.cancel_reason,
+      refundDueCents: p.refund_due_cents, refunded: !!p.refunded_at, refundError: p.refund_error, createdAt: p.created_at,
+    })),
+  };
 }
 
 /* ── Students paying ── */
@@ -534,13 +579,15 @@ export async function recordPayment(env: Env, s: stripe.CheckoutSession, now: nu
 
   if (row.status === "confirmed") {
     const res = await env.DB.prepare(
-      `UPDATE bookings SET paid_at = ?1, amount_cents = ?2, stripe_payment_intent_id = ?3, promo_code = COALESCE(?4, promo_code), updated_at = ?1
+      `UPDATE bookings SET paid_at = ?1, amount_cents = ?2, stripe_payment_intent_id = ?3, promo_code = COALESCE(?4, promo_code),
+         ics_sequence = ics_sequence + 1, updated_at = ?1
        WHERE id = ?5 AND status = 'confirmed' AND paid_at IS NULL`,
     ).bind(iso(now), paid, pi, promoCode ?? null, row.id).run();
     if (!res.meta.changes) return;
     const fresh = (await loadBooking(env, "id", row.id))!;
     const v = view(fresh);
-    await sendEmail(env, "payment_received", row.id, T.paymentReceived(v, await manageUrl(env, row.id)));
+    // Now they've paid, the receipt carries the Zoom link and an updated calendar invite.
+    await sendEmail(env, "payment_received", row.id, T.paymentReceived(v, await manageUrl(env, row.id), clientIcs(env, fresh, v, "REQUEST")));
     await sendEmail(env, "admin_payment_received", row.id, { ...T.adminPaymentReceived(v), to: env.ADMIN_EMAIL });
     if (row.group_id) await setUpGroup(env, row.group_id);
     else await refreshCalendarEvent(env, row.id);

@@ -18,12 +18,13 @@ import {
 } from "./bookings";
 import { validManageToken } from "./manage";
 import {
+  adminCancelPackage, adminPackageCancelPreview,
   afterPackage, bookWithCredit, cancelPackage, confirmPackage, createPackagePurchase, expirePendingPackages, packagePublicStatus,
   packageView, releasePackageForSession, retryPackageEmails, sendBundleReminders, sendExpiryNotices,
 } from "./packages";
 import { isPaid, promoCodeUsed } from "./stripe";
 import {
-  adminCancelGroup, adminCheckTime, adminCreateSession, adminMove, adminResendInvite, adminStudents, maintainGroups, recordPayment,
+  adminCancelGroup, adminCheckTime, adminCreateSession, adminMove, adminResendInvite, adminStudentDetail, adminStudents, maintainGroups, recordPayment,
   releaseUnpaid, sendPaymentReminders, startPayment,
 } from "./sessions";
 import {
@@ -301,6 +302,21 @@ const ctxOf = (c: any) => ({ now: Date.now(), waitUntil: (p: Promise<unknown>) =
 const jsonBody = async (c: any) => (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
 app.get("/api/admin/students", async (c) => c.json(await adminStudents(c.env, Date.now())));
+
+app.get("/api/admin/students/:id", async (c) => {
+  try { return c.json(await adminStudentDetail(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/packages/:id/cancel", async (c) => {
+  try { return c.json(await adminPackageCancelPreview(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/packages/:id/cancel", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    return c.json(await adminCancelPackage(c.env, c.req.param("id"), { refundCents: Number(body.refundCents), notifyClient: body.notifyClient === true }, ctxOf(c)));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
 
 app.post("/api/admin/check-time", async (c) => {
   try { return c.json(await adminCheckTime(c.env, await jsonBody(c), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }

@@ -63,7 +63,7 @@ export async function updateMeeting(env: Env, id: string, p: { start: number; du
     headers: { Authorization: `Bearer ${await token(env)}`, "Content-Type": "application/json" },
     body: JSON.stringify({ start_time: new Date(p.start).toISOString().replace(/\.\d{3}Z$/, "Z"), duration: p.durationMinutes, timezone: "UTC" }),
   });
-  if (!res.ok) throw new Error(`Zoom update failed (${res.status})`);
+  if (!res.ok) throw new Error(`Zoom update failed (${res.status}): ${await zoomMessage(res)}`);
 }
 
 export async function deleteMeeting(env: Env, id: string): Promise<void> {
@@ -72,5 +72,11 @@ export async function deleteMeeting(env: Env, id: string): Promise<void> {
     method: "DELETE",
     headers: { Authorization: `Bearer ${await token(env)}` },
   });
-  if (!res.ok && res.status !== 404) throw new Error(`Zoom delete failed (${res.status})`);
+  if (!res.ok && res.status !== 404) throw new Error(`Zoom delete failed (${res.status}): ${await zoomMessage(res)}`);
+}
+
+// Zoom's own explanation, e.g. a missing permission on the app.
+async function zoomMessage(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  return (body.message ?? "no details").slice(0, 200);
 }

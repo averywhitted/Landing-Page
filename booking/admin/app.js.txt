@@ -6,15 +6,36 @@
   const $main = document.getElementById("main");
   const $tabs = document.getElementById("tabs");
   const $dlg = document.getElementById("dlg");
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+  };
   let data = null;
   let tab = (location.hash || "#upcoming").slice(1);
+  let view = store.get("admin-view") === "calendar" ? "calendar" : "list";
+  let calMonth = null;          // "YYYY-MM" shown in the calendar
+  let studentOpen = null;       // the student whose details are open (dialogs return there)
+  let studentFilter = "";
+  const known = new Map();      // booking id -> booking, from the overview and student details
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const money = (c) => (c % 100 ? `$${(c / 100).toFixed(2)}` : `$${c / 100}`);
   const fmt = (iso, o) => new Intl.DateTimeFormat("en-US", { timeZone: TZ, ...o }).format(Date.parse(iso));
   const dayLabel = (iso) => fmt(iso, { weekday: "long", month: "long", day: "numeric" });
+  const shortDate = (iso) => fmt(iso, { month: "short", day: "numeric", year: "numeric" });
   const clock = (iso) => fmt(iso, { hour: "numeric", minute: "2-digit" });
   const minutes = (b) => Math.round((Date.parse(b.end) - Date.parse(b.start)) / 60000);
+  const nyParts = (iso) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(Date.parse(iso)).map((x) => [x.type, x.value]));
+    return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+  };
+
+  // A button with a hover explanation.
+  const btn = (label, attrs, tip, kind = "") =>
+    `<button type="button" class="btn${kind ? ` ${kind}` : ""}" ${attrs} title="${esc(tip)}" aria-label="${esc(`${label}: ${tip}`)}">${label}</button>`;
+  const link = (label, href, tip, kind = "") =>
+    `<a class="btn${kind ? ` ${kind}` : ""}" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(tip)}">${label}</a>`;
 
   async function api(method, path, body) {
     const r = await fetch(path, {
@@ -35,23 +56,47 @@
     t.setAttribute("role", isErr ? "alert" : "status");
     t.textContent = text;
     document.body.appendChild(t);
-    setTimeout(() => t.remove(), 4000);
+    setTimeout(() => t.remove(), 4500);
   }
 
   async function load() {
     try {
       data = await api("GET", "/api/admin/overview");
+      for (const b of data.bookings) known.set(b.id, b);
       render();
     } catch (err) {
       $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
     }
   }
 
+  // After an action: refresh now, and again shortly (refunds and emails finish in the background).
+  async function afterAction(message) {
+    if (message) toast(message);
+    await load();
+    if (studentOpen) openStudent(studentOpen); else if ($dlg.open) $dlg.close();
+    setTimeout(load, 4000);
+  }
+
+  // Dialogs share one <dialog>. Cancelling a dialog opened from a student's
+  // details goes back to those details.
+  function showDialog(html, cls = "") {
+    $dlg.className = cls;
+    $dlg.innerHTML = html;
+    if (!$dlg.open) $dlg.showModal();
+    $dlg.scrollTop = 0;
+    for (const b of $dlg.querySelectorAll("[data-back]")) b.addEventListener("click", back);
+  }
+  function back() { if (studentOpen) openStudent(studentOpen); else $dlg.close(); }
+  $dlg.addEventListener("close", () => { studentOpen = null; });
+  const cancelButton = (label = "Cancel") => `<button type="button" class="btn" data-back>${label}</button>`;
+
+  /* ── Tabs ── */
+
   const refundsDue = () => data.packages.filter((p) => p.cancelled && p.refundDueCents && !p.refunded);
-  const sessionRefunds = () => data.bookings.filter((b) => b.refundOwed);
+  const stuckRefunds = () => data.bookings.filter((b) => b.refundStuck || b.refundOwed === "choice");
   function problemsCount() {
-    return data.problems.failedEmails.length + data.problems.stuck.length + refundsDue().length
-      + sessionRefunds().length + data.problems.leftOnCalendar.length;
+    const p = data.problems;
+    return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length;
   }
 
   function renderTabs() {
@@ -60,35 +105,49 @@
     const tabs = [
       ["upcoming", "Upcoming", upcoming],
       ["recent", "Recent", null],
-      ["bundles", "Bundles", data.packages.length],
+      ["students", "Students", null],
+      ["bundles", "Bundles", data.packages.filter((p) => !p.cancelled).length],
       ["attention", "Needs attention", problemsCount()],
       ["settings", "Settings", null],
     ];
     $tabs.innerHTML = tabs.map(([id, label, n]) => `<button class="tab" role="tab" aria-selected="${id === tab}" data-tab="${id}">${label}${n !== null ? `<span class="count${id === "attention" && n ? " alert" : ""}">${n}</span>` : ""}</button>`).join("");
   }
 
-  // How a booking is paid for, as shown on its card.
+  /* ── Session cards ── */
+
+  // How a session is paid for: "$75 paid", "$75 due by Oct 1", "Bundle credit", "Free".
   const payLabel = (b) => b.paid === "bundle" ? "Bundle credit"
-    : b.paid ? money(b.paid) + (b.promoCode ? ` (${b.promoCode})` : "")
+    : b.paid ? `${money(b.paid)} paid${b.promoCode ? ` (code ${b.promoCode})` : ""}`
     : b.dueCents ? `${money(b.dueCents)} due${b.payBy ? ` by ${fmt(b.payBy, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
     : "Free";
+  const payChip = (b) => `<span class="chip${b.dueCents ? " bad" : b.paid && b.paid !== "bundle" ? " ok" : ""}">${esc(payLabel(b))}</span>`;
+  const statusChip = (b) => b.status !== "cancelled" ? ""
+    : `<span class="chip bad">${b.unpaidReleased ? "Released (unpaid)" : b.cancelReason === "bundle_cancelled" ? "Cancelled with bundle"
+      : `Cancelled${b.cancelReason === "avery_cancelled" ? " by you" : b.cancelReason === "client_cancelled" ? " by student" : ""}`}</span>`;
+  const refundChip = (b) => b.refunded ? '<span class="chip ok">Refunded</span>'
+    : b.refundOwed === "auto" ? `<span class="chip${b.refundStuck ? " bad" : ""}">${b.refundStuck ? "Refund stuck" : "Refund in progress"}</span>`
+    : b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "";
 
   function bookingCard(b) {
-    const paid = payLabel(b);
+    const live = b.status === "confirmed" && !b.past;
     const chips = [
-      `<span class="chip${b.dueCents ? " bad" : ""}">${esc(paid)}</span>`,
+      payChip(b), statusChip(b), refundChip(b),
       b.byAvery ? '<span class="chip">Booked by you</span>' : "",
-      b.status === "cancelled" ? `<span class="chip bad">${b.unpaidReleased ? "Released (unpaid)" : `Cancelled${b.cancelReason === "avery_cancelled" ? " by you" : b.cancelReason === "client_cancelled" ? " by client" : ""}`}</span>` : "",
-      b.refunded ? '<span class="chip ok">Refunded</span>' : "",
-      b.refundOwed === "auto" ? '<span class="chip bad">Refund retrying</span>' : "",
-      b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "",
-      b.status === "confirmed" && !b.past ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
-      b.status === "confirmed" && !b.past ? `<span class="chip ${b.emailed ? "ok" : "bad"}">${b.emailed ? "Emailed" : "Not emailed"}</span>` : "",
+      live ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
+      live && !b.emailed ? '<span class="chip bad">Not emailed</span>' : "",
     ].join("");
     const intake = b.intake ? Object.entries({ Goal: b.intake.goal, Material: b.intake.material, Link: b.intake.link, Notes: b.intake.notes })
       .filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Link" ? `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</dd>`).join("") : "";
-    const canCancel = b.status === "confirmed" && !b.past;
-    return `<div class="card${b.status === "cancelled" || b.past ? " muted" : ""}">
+    const actions = [
+      b.zoomUrl && live ? link("Join Zoom", b.zoomUrl, "Open this session's Zoom meeting", "primary") : "",
+      b.customerId ? btn("Student", `data-student="${esc(b.customerId)}"`, "See this student's details, sessions, and bundles") : "",
+      b.stripeUrl ? link("Payment", b.stripeUrl, "Open this payment in your Stripe dashboard") : "",
+      live ? btn("Change time", `data-move="${esc(b.id)}"`, "Move this session to another date or time. The student gets an updated invite.") : "",
+      live ? btn("Resend invite", `data-resend="${esc(b.id)}"`, "Email the student their invite again (with the payment link if they still owe)") : "",
+      b.refundOwed === "choice" ? btn(`Refund ${money(b.paid)}`, `data-refund="${esc(b.id)}"`, "Refund this cancelled session in full") : "",
+      live ? btn("Cancel session", `data-cancel="${esc(b.id)}"`, "Cancel this session. You'll choose whether to refund and whether to email the student.", "danger") : "",
+    ].filter(Boolean).join("");
+    return `<div class="card${live ? "" : " muted"}">
       <div class="time">${esc(clock(b.start))}<small>${minutes(b)} min</small></div>
       <div class="who">
         <strong>${esc(b.name)}</strong>${b.pronouns ? ` <span class="sub" style="display:inline">(${esc(b.pronouns)})</span>` : ""}
@@ -96,34 +155,8 @@
         <div class="chips">${chips}</div>
         ${intake ? `<details class="intake"><summary>Intake answers</summary><dl>${intake}</dl></details>` : ""}
       </div>
-      <div class="actions">
-        ${b.zoomUrl && canCancel ? `<a class="btn primary" href="${esc(b.zoomUrl)}" target="_blank" rel="noopener">Zoom</a>` : ""}
-        ${b.stripeUrl ? `<a class="btn" href="${esc(b.stripeUrl)}" target="_blank" rel="noopener">Stripe</a>` : ""}
-        ${canCancel ? `<button class="btn" data-move="${esc(b.id)}">Move</button>` : ""}
-        ${canCancel ? `<button class="btn" data-resend="${esc(b.id)}">Resend invite</button>` : ""}
-        ${canCancel ? `<button class="btn danger" data-cancel="${esc(b.id)}">Cancel</button>` : ""}
-        ${b.refundOwed === "choice" ? `<button class="btn" data-refund="${esc(b.id)}">Refund ${money(b.paid)}</button>` : ""}
-      </div>
+      ${actions ? `<div class="actions">${actions}</div>` : ""}
     </div>`;
-  }
-
-  function byDay(list) {
-    // Students in the same group session become one card.
-    const items = [];
-    const groups = new Map();
-    for (const b of list) {
-      if (!b.groupId) { items.push({ start: b.start, one: b }); continue; }
-      if (!groups.has(b.groupId)) { const g = { start: b.start, seats: [] }; groups.set(b.groupId, g); items.push(g); }
-      groups.get(b.groupId).seats.push(b);
-    }
-    let out = "";
-    let last = "";
-    for (const it of items) {
-      const d = dayLabel(it.start);
-      if (d !== last) { out += `<p class="day">${esc(d)}</p>`; last = d; }
-      out += it.one ? bookingCard(it.one) : groupCard(it.seats);
-    }
-    return out;
   }
 
   function groupCard(seats) {
@@ -132,38 +165,200 @@
     const live = active.length && !first.past;
     const rows = seats.map((s) => `<div class="seat">
         <div class="who-line"><strong>${esc(s.name)}</strong>${s.pronouns ? ` (${esc(s.pronouns)})` : ""}<small><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></small></div>
-        <span class="chip${s.dueCents ? " bad" : s.paid && s.paid !== "bundle" ? " ok" : ""}">${esc(payLabel(s))}</span>
-        ${s.status === "cancelled" ? `<span class="chip bad">${s.unpaidReleased ? "Released (unpaid)" : "Cancelled"}</span>` : ""}
-        ${s.refunded ? '<span class="chip ok">Refunded</span>' : ""}
+        <span class="seat-chips">${payChip(s)}${statusChip(s)}${refundChip(s)}</span>
         <span class="seat-actions">
-          ${s.refundOwed === "choice" ? `<button class="btn sm" data-refund="${esc(s.id)}">Refund ${money(s.paid)}</button>` : ""}
-          ${live && s.status === "confirmed" ? `<button class="btn sm" data-resend="${esc(s.id)}">Resend</button><button class="btn sm danger" data-cancel="${esc(s.id)}">Remove</button>` : ""}
+          ${btn("Student", `data-student="${esc(s.customerId)}"`, "See this student's details", "sm")}
+          ${s.refundOwed === "choice" ? btn(`Refund ${money(s.paid)}`, `data-refund="${esc(s.id)}"`, "Refund this student in full", "sm") : ""}
+          ${live && s.status === "confirmed" ? btn("Resend", `data-resend="${esc(s.id)}"`, "Email this student their invite again", "sm")
+            + btn("Remove", `data-cancel="${esc(s.id)}"`, "Take this student out of the group. You'll choose whether to refund them.", "sm danger") : ""}
         </span>
       </div>`).join("");
     return `<div class="card${live ? "" : " muted"}">
       <div class="time">${esc(clock(first.start))}<small>${minutes(first)} min</small></div>
       <div class="who">
         <strong>Group session</strong> <span class="sub" style="display:inline">&middot; ${active.length} of ${seats.length} student${seats.length === 1 ? "" : "s"}</span>
-        <div class="chips"><span class="chip ${first.inCalendar ? "ok" : "bad"}">${first.inCalendar ? "In calendar" : "Not in calendar"}</span></div>
-        <div style="margin-top:8px">${rows}</div>
+        ${live ? `<div class="chips"><span class="chip ${first.inCalendar ? "ok" : "bad"}">${first.inCalendar ? "In calendar" : "Not in calendar"}</span></div>` : ""}
+        <div class="seats">${rows}</div>
       </div>
-      <div class="actions">
-        ${first.zoomUrl && live ? `<a class="btn primary" href="${esc(first.zoomUrl)}" target="_blank" rel="noopener">Zoom</a>` : ""}
-        ${live ? `<button class="btn" data-move-group="${esc(first.groupId)}" data-start="${esc(first.start)}">Move</button>` : ""}
-        ${live ? `<button class="btn danger" data-cancel-group="${esc(first.groupId)}">Cancel session</button>` : ""}
-      </div>
+      ${live ? `<div class="actions">
+        ${first.zoomUrl ? link("Join Zoom", first.zoomUrl, "Open this session's Zoom meeting", "primary") : ""}
+        ${btn("Change time", `data-move="${esc(first.id)}"`, "Move the whole session. Every student gets an updated invite.")}
+        ${btn("Cancel session", `data-cancel-group="${esc(first.groupId)}"`, "Cancel the session for everyone. You'll choose whether to refund those who paid.", "danger")}
+      </div>` : ""}
     </div>`;
   }
 
+  // Sessions in order, with students in the same group session as one entry.
+  function sessionsOf(list) {
+    const items = [];
+    const groups = new Map();
+    for (const b of list) {
+      if (!b.groupId) { items.push({ start: b.start, one: b }); continue; }
+      if (!groups.has(b.groupId)) { const g = { start: b.start, seats: [] }; groups.set(b.groupId, g); items.push(g); }
+      groups.get(b.groupId).seats.push(b);
+    }
+    return items;
+  }
+  const cardFor = (it) => (it.one ? bookingCard(it.one) : groupCard(it.seats));
+
+  function byDay(list) {
+    let out = "";
+    let last = "";
+    for (const it of sessionsOf(list)) {
+      const d = dayLabel(it.start);
+      if (d !== last) { out += `<p class="day">${esc(d)}</p>`; last = d; }
+      out += cardFor(it);
+    }
+    return out;
+  }
+
+  const viewToggle = () => `<div class="viewbar"><div class="seg" role="group" aria-label="Show sessions as">
+      <button type="button" data-view="list" aria-pressed="${view === "list"}">List</button>
+      <button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">Calendar</button>
+    </div></div>`;
+
   function renderUpcoming() {
+    if (view === "calendar") return viewToggle() + renderCalendar();
     const list = data.bookings.filter((b) => b.status === "confirmed" && !b.past);
-    return list.length ? byDay(list) : '<p class="empty">No upcoming sessions.</p>';
+    return viewToggle() + (list.length ? byDay(list) : '<p class="empty">No upcoming sessions.</p>');
   }
 
   function renderRecent() {
     const list = data.bookings.filter((b) => b.past || b.status === "cancelled").reverse();
     return list.length ? byDay(list) : '<p class="empty">Nothing in the last 30 days.</p>';
   }
+
+  /* ── Calendar view (month) ── */
+
+  function renderCalendar() {
+    const today = nyParts(new Date().toISOString()).date;
+    if (!calMonth) calMonth = today.slice(0, 7);
+    const [y, m] = calMonth.split("-").map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1));
+    const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const lead = first.getUTCDay();
+    const byDate = new Map();
+    for (const it of sessionsOf(data.bookings.filter((b) => b.status === "confirmed"))) {
+      const d = nyParts(it.start).date;
+      if (!byDate.has(d)) byDate.set(d, []);
+      byDate.get(d).push(it);
+    }
+    const cells = [];
+    for (let i = 0; i < lead; i++) cells.push('<div class="cal-cell empty"></div>');
+    for (let d = 1; d <= daysIn; d++) {
+      const key = `${calMonth}-${String(d).padStart(2, "0")}`;
+      const items = byDate.get(key) || [];
+      cells.push(`<div class="cal-cell${key === today ? " today" : ""}${key < today ? " past" : ""}">
+        <span class="cal-num">${d}</span>
+        ${items.map((it) => {
+          const b = it.one || it.seats[0];
+          const due = it.one ? b.dueCents : it.seats.some((s) => s.dueCents);
+          const label = it.one ? b.name.split(/\s+/)[0] : `Group (${it.seats.filter((s) => s.status === "confirmed").length})`;
+          return `<button type="button" class="cal-item${due ? " due" : ""}" data-session="${esc(b.id)}" title="${esc(`${clock(b.start)} ${it.one ? b.name : "Group session"}, ${minutes(b)} min${due ? ", payment due" : ""}`)}">${esc(clock(b.start).replace(":00", "").replace(" ", "").toLowerCase())} ${esc(label)}</button>`;
+        }).join("")}
+      </div>`);
+    }
+    const title = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(first);
+    return `<div class="panel cal">
+      <div class="cal-head">
+        ${btn("&lsaquo;", 'data-cal="-1"', "Previous month")}
+        <strong>${esc(title)}</strong>
+        ${btn("&rsaquo;", 'data-cal="1"', "Next month")}
+        ${btn("Today", 'data-cal="0"', "Back to this month")}
+      </div>
+      <div class="cal-grid">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}${cells.join("")}</div>
+      <p class="hint" style="font-size:.75rem;margin:10px 0 0">Click a session for details and actions. Red means a payment is still due. Shows sessions from the last 30 days to 4 months ahead.</p>
+    </div>`;
+  }
+
+  // A session's card in a dialog (from the calendar).
+  function openSession(id) {
+    const b = known.get(id);
+    if (!b) return;
+    const it = b.groupId ? { seats: data.bookings.filter((x) => x.groupId === b.groupId) } : { one: b };
+    showDialog(`<p class="day" style="margin-top:0">${esc(dayLabel(b.start))}</p><div class="dlg-card">${cardFor(it)}</div><div class="row">${cancelButton("Close")}</div>`, "wide");
+  }
+
+  /* ── Students ── */
+
+  let students = null;
+  async function loadStudents() {
+    students = await api("GET", "/api/admin/students");
+    return students;
+  }
+
+  function renderStudents() {
+    if (!students) {
+      loadStudents().then(() => { if (tab === "students") render(); }).catch((err) => { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; });
+      return '<p class="empty">Loading students...</p>';
+    }
+    const q = studentFilter.trim().toLowerCase();
+    const list = students.filter((s) => !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q));
+    return `<div class="viewbar"><input type="search" id="student-search" placeholder="Search by name or email" value="${esc(studentFilter)}" aria-label="Search students"></div>
+      ${list.length ? `<div class="panel student-list">${list.map((s) => `<button type="button" class="student-row" data-student="${esc(s.id)}">
+        <span class="sr-name"><strong>${esc(s.name)}</strong><small>${esc(s.email)}</small></span>
+        <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
+        <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
+        <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}</span>
+        <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${x.remaining} of ${x.total} left`).join(", ") : "None"}</span>
+      </button>`).join("")}</div>` : `<p class="empty">${q ? "No students match that search." : "No students yet."}</p>`}`;
+  }
+
+  async function openStudent(id) {
+    studentOpen = id;
+    let s;
+    try { s = await api("GET", `/api/admin/students/${encodeURIComponent(id)}`); }
+    catch (err) { toast(err.message, true); return; }
+    if (studentOpen !== id) return;
+    for (const x of s.sessions) known.set(x.id, { ...x, name: s.name, email: s.email, customerId: s.id });
+    const upcoming = s.sessions.filter((x) => x.status === "upcoming").reverse();
+    const past = s.sessions.filter((x) => x.status !== "upcoming");
+    const owed = upcoming.reduce((n, x) => n + (x.dueCents || 0), 0);
+    const sessionRow = (x) => `<div class="seat">
+        <div class="who-line"><strong>${esc(fmt(x.start, { weekday: "short", month: "short", day: "numeric" }))}, ${esc(clock(x.start))}</strong>
+          <small>${esc(x.service)}${x.group ? " (group)" : ""}${x.byAvery ? ", booked by you" : ""}</small></div>
+        <span class="seat-chips">${payChip(x)}${statusChip(x)}${x.refunded ? '<span class="chip ok">Refunded</span>' : ""}</span>
+        ${x.status === "upcoming" ? `<span class="seat-actions">
+          ${btn("Change time", `data-move="${esc(x.id)}"`, x.group ? "Move the whole group session" : "Move this session. They get an updated invite.", "sm")}
+          ${btn("Resend", `data-resend="${esc(x.id)}"`, "Email them their invite again", "sm")}
+          ${btn(x.group ? "Remove" : "Cancel", `data-cancel="${esc(x.id)}"`, x.group ? "Take them out of the group session" : "Cancel this session", "sm danger")}
+        </span>` : ""}
+      </div>`;
+    const bundleRow = (p) => {
+      const live = p.status === "active" && !p.expired;
+      const state = p.status === "cancelled"
+        ? `Cancelled${p.cancelReason === "avery_cancelled" ? " by you" : ""}${p.refundDueCents ? `, ${p.refunded ? "refunded" : "refund due"} ${money(p.refundDueCents)}` : ""}`
+        : p.expired ? `Expired ${shortDate(p.expiresAt)}` : `${p.remaining} of ${p.creditsTotal} left, use by ${shortDate(p.expiresAt)}`;
+      return `<div class="seat">
+        <div class="who-line"><strong>${esc(p.bundle)}</strong><small>Bought ${esc(shortDate(p.createdAt))} for ${money(p.paidCents)}</small></div>
+        <span class="seat-chips"><span class="chip${p.status === "cancelled" || p.expired ? "" : " ok"}">${esc(state)}</span></span>
+        ${live ? `<span class="seat-actions">
+          ${btn("+1", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle", "sm")}
+          ${btn("&minus;1", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle", "sm")}
+          ${btn("Extend", `data-extend="${esc(p.id)}"`, "Push back the use-by date", "sm")}
+          ${btn("Cancel bundle", `data-cancel-bundle="${esc(p.id)}"`, "Cancel the bundle and its upcoming sessions. You choose the refund.", "sm danger")}
+        </span>` : ""}
+      </div>`;
+    };
+    showDialog(`<div class="student-detail">
+      <div class="sd-head">
+        <div><h2 id="dlg-title">${esc(s.name)}</h2>
+          <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a>${s.pronouns ? ` &middot; ${esc(s.pronouns)}` : ""} &middot; since ${esc(shortDate(s.since))}</p></div>
+        ${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}
+      </div>
+      ${owed ? `<p class="warn-line">Owes ${money(owed)} for upcoming sessions.</p>` : ""}
+      <h3>Upcoming sessions</h3>
+      ${upcoming.length ? upcoming.map(sessionRow).join("") : '<p class="hint">None booked.</p>'}
+      <h3>Bundles</h3>
+      ${s.bundles.length ? s.bundles.map(bundleRow).join("") : '<p class="hint">No bundles.</p>'}
+      <h3>History</h3>
+      ${past.length ? `<details><summary>${past.length} past or cancelled session${past.length === 1 ? "" : "s"}</summary>${past.map(sessionRow).join("")}</details>` : '<p class="hint">Nothing yet.</p>'}
+    </div>
+    <div class="row">${btn("Close", "data-close-student", "Close")}</div>`, "wide");
+    $dlg.querySelector("[data-close-student]").addEventListener("click", () => $dlg.close());
+  }
+
+  /* ── Bundles ── */
 
   function renderBundles() {
     if (!data.packages.length) return '<p class="empty">No active bundles.</p>';
@@ -174,9 +369,13 @@
         <div class="time">0<small>cancelled</small></div>
         <div class="who"><strong>${esc(p.name)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}</div>
-          <div class="chips">${p.refunded ? '<span class="chip ok">Refunded</span>' : p.refundDueCents ? `<span class="chip bad">Refund due ${money(p.refundDueCents)}</span>` : '<span class="chip">No refund due</span>'}</div>
+          <div class="chips"><span class="chip">Cancelled${p.cancelledByAvery ? " by you" : " by student"}</span>${p.refunded ? `<span class="chip ok">Refunded ${money(p.refundDueCents || 0)}</span>` : p.refundDueCents ? `<span class="chip bad">Refund due ${money(p.refundDueCents)}</span>` : '<span class="chip">No refund</span>'}</div>
+          ${p.refundError ? `<p class="hint">Stripe said: ${esc(p.refundError)}</p>` : ""}
         </div>
-        <div class="actions">${p.stripeUrl && p.refundDueCents && !p.refunded ? `<a class="btn primary" href="${esc(p.stripeUrl)}" target="_blank" rel="noopener">Refund in Stripe</a>` : ""}</div>
+        <div class="actions">
+          ${btn("Student", `data-student="${esc(p.customerId)}"`, "See this student's details")}
+          ${p.stripeUrl && p.refundDueCents && !p.refunded ? link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it", "primary") : ""}
+        </div>
       </div>`;
       }
       return `<div class="card${p.expired ? " muted" : ""}">
@@ -185,51 +384,61 @@
           <strong>${esc(p.name)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}${p.promoCode ? ` (${esc(p.promoCode)})` : ""}</div>
           <div class="meter" aria-hidden="true">${dots}</div>
-          <div class="chips"><span class="chip ${p.expired ? "bad" : ""}">${p.expired ? "Expired" : "Use by"} ${esc(p.expiresAt ? fmt(p.expiresAt, { month: "short", day: "numeric", year: "numeric" }) : "")}</span></div>
+          <div class="chips"><span class="chip ${p.expired ? "bad" : ""}">${p.expired ? "Expired" : "Use by"} ${esc(p.expiresAt ? shortDate(p.expiresAt) : "")}</span></div>
         </div>
         <div class="actions">
-          <button class="btn" data-credit="${esc(p.id)}" data-delta="1">+1 session</button>
-          <button class="btn" data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}>&minus;1 session</button>
-          <button class="btn" data-extend="${esc(p.id)}">Extend</button>
+          ${btn("Student", `data-student="${esc(p.customerId)}"`, "See this student's details")}
+          ${btn("+1 session", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle (e.g. a makeup)")}
+          ${btn("&minus;1 session", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle")}
+          ${btn("Extend", `data-extend="${esc(p.id)}"`, "Push back the use-by date")}
+          ${p.expired ? "" : btn("Cancel bundle", `data-cancel-bundle="${esc(p.id)}"`, "Cancel the bundle and its upcoming sessions. You choose the refund.", "danger")}
         </div>
       </div>`;
     }).join("");
   }
 
+  /* ── Needs attention ── */
+
   function renderAttention() {
-    const { failedEmails, stuck, activeHolds } = data.problems;
+    const { failedEmails, stuck, activeHolds, leftOnCalendar, zoomLeft } = data.problems;
     const parts = [];
-    const owed = sessionRefunds();
+    const panel = (title, body) => `<div class="panel"><p class="day" style="margin-top:0">${title}</p>${body}</div>`;
+    const owed = stuckRefunds();
     if (owed.length) {
-      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Session refunds</p>${owed.map((b) =>
+      parts.push(panel("Session refunds", owed.map((b) =>
         `<p>${esc(b.name)}, ${esc(dayLabel(b.start))}: <strong>${money(b.paid)}</strong> &middot; ${b.refundOwed === "auto"
-          ? `automatic refund hasn't gone through yet${b.refundError ? ` (Stripe said: ${esc(b.refundError)})` : ""}. It keeps retrying.`
+          ? `the automatic refund hasn't gone through${b.refundError ? ` (Stripe said: ${esc(b.refundError)})` : ""}. It keeps retrying.`
           : "you cancelled this one. Refund it if they'd like a refund, or leave it if they're rebooking."}
-          <br><button class="btn" data-refund="${esc(b.id)}" style="margin-top:6px">Refund now</button>${b.stripeUrl ? ` <a class="btn" href="${esc(b.stripeUrl)}" target="_blank" rel="noopener" style="margin-top:6px">Stripe</a>` : ""}</p>`).join("")}</div>`);
+          <br>${btn("Refund now", `data-refund="${esc(b.id)}"`, "Refund this session in full")} ${b.stripeUrl ? link("Payment", b.stripeUrl, "Open the payment in Stripe") : ""}</p>`).join("")));
     }
-    const left = data.problems.leftOnCalendar;
-    if (left.length) {
-      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Cancelled but still on your calendar</p>${left.map((s) =>
-        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.</p>`).join("")}</div>`);
+    if (zoomLeft.length) {
+      parts.push(panel("Zoom meetings not deleted", zoomLeft.map((s) =>
+        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))} is cancelled, but its Zoom meeting couldn't be deleted. It keeps retrying.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")
+        + '<p class="hint">If the error mentions scopes or permissions, the Zoom app needs the "Delete a meeting" permission.</p>'));
+    }
+    if (leftOnCalendar.length) {
+      parts.push(panel("Cancelled but still on your calendar", leftOnCalendar.map((s) =>
+        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")));
     }
     const due = refundsDue();
     if (due.length) {
-      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Bundle refunds to issue</p>${due.map((p) =>
-        `<p>${esc(p.name)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; <a href="${esc(p.stripeUrl)}" target="_blank" rel="noopener">Refund in Stripe</a>` : ""}<br><span style="font-size:.8125rem;color:var(--faint)">Marked done automatically once Stripe records the refund.</span></p>`).join("")}</div>`);
+      parts.push(panel("Bundle refunds to issue", due.map((p) =>
+        `<p>${esc(p.name)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; ${link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it")}` : ""}${p.refundError ? `<br><span class="mono-hint">Stripe said: ${esc(p.refundError)}</span>` : ""}<br><span class="hint">Marked done automatically once Stripe records the refund.</span></p>`).join("")));
     }
     if (stuck.length) {
-      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Bookings missing a step</p>${stuck.map((s) =>
-        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}: ${[!s.inCalendar ? "not in your Coaching calendar" : "", !s.emailed ? "confirmation email not sent" : ""].filter(Boolean).join(" and ")}. It retries every few minutes.</p>`).join("")}</div>`);
+      parts.push(panel("Bookings missing a step", stuck.map((s) =>
+        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}: ${[!s.inCalendar ? "not in your Coaching calendar" : "", !s.emailed ? "confirmation email not sent" : ""].filter(Boolean).join(" and ")}. It retries every few minutes.</p>`).join("")));
     }
     if (failedEmails.length) {
-      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Emails that failed (last 14 days)</p>${failedEmails.map((e) =>
-        `<p><strong>${esc(e.kind.replace(/_/g, " "))}</strong> &middot; ${esc(fmt(e.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}<br><span style="font-family:var(--mono);font-size:.8125rem;color:var(--faint)">${esc(e.error || "")}</span></p>`).join("")}</div>`);
+      parts.push(panel("Emails that failed (last 14 days)", failedEmails.map((e) =>
+        `<p><strong>${esc(e.kind.replace(/_/g, " "))}</strong> &middot; ${esc(fmt(e.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}<br><span class="mono-hint">${esc(e.error || "")}</span></p>`).join("")));
     }
-    parts.push(`<div class="panel"><p class="day" style="margin-top:0">Checkouts in progress</p><p>${activeHolds} time${activeHolds === 1 ? "" : "s"} currently held while someone pays.</p></div>`);
-    return (stuck.length || failedEmails.length || due.length || owed.length || left.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
+    parts.push(panel("Checkouts in progress", `<p>${activeHolds} time${activeHolds === 1 ? "" : "s"} currently held while someone pays.</p>`));
+    return (problemsCount() ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
   }
 
-  /* Settings (editable) */
+  /* ── Settings (editable) ── */
+
   let settings = null;
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const hourLabel = (h) => (h === 0 || h === 24 ? "12 AM" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
@@ -305,13 +514,13 @@
       bookingCalendar: settings.calendars ? fd.get("bookingCalendar") : settings.values.bookingCalendar,
       remindersEnabled: fd.get("remindersEnabled") === "on",
     };
-    const btn = form.querySelector("[type=submit]");
-    btn.disabled = true;
+    const b = form.querySelector("[type=submit]");
+    b.disabled = true;
     try {
       settings = await api("POST", "/api/admin/settings", body);
       toast("Saved.");
       render();
-    } catch (err) { btn.disabled = false; toast(err.message, true); }
+    } catch (err) { b.disabled = false; toast(err.message, true); }
   }
 
   function render() {
@@ -319,52 +528,66 @@
     mode.textContent = data.mode === "test" ? "Test mode" : "Live";
     mode.className = `mode ${data.mode}`;
     renderTabs();
-    $main.innerHTML = { upcoming: renderUpcoming, recent: renderRecent, bundles: renderBundles, attention: renderAttention, settings: renderSettings }[tab]?.() ?? renderUpcoming();
+    const scroll = window.scrollY;
+    $main.innerHTML = {
+      upcoming: renderUpcoming, recent: renderRecent, students: renderStudents, bundles: renderBundles,
+      attention: renderAttention, settings: renderSettings,
+    }[tab]?.() ?? renderUpcoming();
+    window.scrollTo(0, scroll);
+    const search = document.getElementById("student-search");
+    if (search) {
+      search.addEventListener("input", () => {
+        studentFilter = search.value;
+        const pos = search.selectionStart;
+        render();
+        const again = document.getElementById("student-search");
+        again.focus();
+        again.setSelectionRange(pos, pos);
+      });
+    }
   }
 
-  /* Dialogs */
+  /* ── Dialogs: sessions ── */
+
+  // A form dialog: submit runs `onGo` with the form; errors show as a toast.
+  function formDialog(html, onGo, cls = "") {
+    showDialog(`<form id="dlg-form" novalidate>${html}</form>`, cls);
+    const form = $dlg.querySelector("#dlg-form");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!form.reportValidity()) return;
+      const go = form.querySelector("[type=submit]");
+      go.disabled = true;
+      try { await onGo(form); } catch (err) { go.disabled = false; toast(err.message, true); }
+    });
+    return form;
+  }
+
   function openCancel(id) {
-    const b = data.bookings.find((x) => x.id === id);
-    $dlg.className = "";
+    const b = known.get(id);
     const bundle = b.paid === "bundle";
-    $dlg.innerHTML = `<form method="dialog" id="cancel-form">
-      <h2 id="dlg-title">Cancel this session?</h2>
-      <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. ${b.groupId
-        ? "They'll be removed from the group session; it goes ahead for everyone else (if they're the last one, the session is cancelled)."
-        : "The calendar event and Zoom meeting will be removed and the time opens up again."}</p>
+    const inGroup = !!b.groupId;
+    formDialog(`
+      <h2 id="dlg-title">${inGroup ? "Remove from group session?" : "Cancel this session?"}</h2>
+      <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. ${inGroup
+        ? "They'll be taken out of the group session; it goes ahead for everyone else (if they're the last one, the session is cancelled)."
+        : "The calendar event and Zoom meeting are removed and the time opens up again."}</p>
       <label><input type="checkbox" name="notify" checked> Email ${esc(b.name.split(" ")[0])} a cancellation (with a calendar update)</label>
       ${bundle ? '<label><input type="checkbox" name="credit" checked> Return the session to their bundle</label>' : ""}
       ${!bundle && b.paid ? `<label><input type="checkbox" name="refund" checked> Refund ${money(b.paid)} in full now</label>
-      <p>Leave this unticked if they'd rather have a new time. They'll be offered either, and you can refund later from here.</p>` : ""}
+      <p class="hint">Leave this unticked if they'd rather have a new time. They'll be offered either, and you can refund later.</p>` : ""}
       ${bundle ? '<label style="display:block">Note for the record (optional)<textarea name="note" maxlength="300"></textarea></label>' : ""}
-      <div class="row"><button class="btn" value="keep">Keep it</button><button class="btn danger" value="go">Cancel session</button></div>
-    </form>`;
-    $dlg.showModal();
-    $dlg.querySelector("form").addEventListener("submit", async (e) => {
-      if (e.submitter?.value !== "go") return;
-      e.preventDefault();
-      const f = e.target;
-      e.submitter.disabled = true;
-      try {
-        await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/cancel`, {
-          notifyClient: f.notify.checked, returnCredit: !!f.credit?.checked, refund: !!f.refund?.checked, note: f.note?.value || "",
-        });
-        $dlg.close();
-        toast("Cancelled.");
-        load();
-      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
+      <div class="row">${cancelButton("Keep it")}<button type="submit" class="btn danger">${inGroup ? "Remove them" : "Cancel session"}</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/cancel`, {
+        notifyClient: f.notify.checked, returnCredit: !!f.credit?.checked, refund: !!f.refund?.checked, note: f.note?.value || "",
+      });
+      await afterAction(inGroup ? "Removed from the group." : "Cancelled.");
     });
   }
 
-  /* Booking students */
-
   const HOURS = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")}`);
   const hhmmLabel = (hm) => { const [h, m] = hm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
-  const nyParts = (iso) => {
-    const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-      .formatToParts(Date.parse(iso)).map((x) => [x.type, x.value]));
-    return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
-  };
   const whenFields = (date, time) => `
       <label>Date<input type="date" name="date" value="${esc(date)}" required></label>
       <label>Start (Eastern)<select name="time">${HOURS.map((h) => `<option value="${h}"${h === time ? " selected" : ""}>${hhmmLabel(h)}</option>`).join("")}</select></label>`;
@@ -375,29 +598,143 @@
     try {
       const r = await api("POST", "/api/admin/check-time", { serviceId: form.serviceId?.value || extra.serviceId, date: form.date.value, time: form.time.value, ...extra });
       const w = [];
-      if (r.overlapsBooking) w.push('<p class="bad">This overlaps another booking, so it can\'t be booked.</p>');
+      if (r.overlapsBooking) w.push("<p class=\"bad\">This overlaps another booking, so it can't be booked.</p>");
       if (r.calendarClash && r.calendarClash.length) w.push(`<p>Something on your calendar is at ${r.calendarClash.map((c) => `${esc(clock(c.start))} to ${esc(clock(c.end))}`).join(", ")} (within your buffer). You can still book it.</p>`);
       if (r.outsideHours) w.push("<p>This is outside your usual working hours.</p>");
       if (r.withinNotice) w.push("<p>This is sooner than your usual notice period.</p>");
       out.innerHTML = w.join("");
-      return !r.overlapsBooking;
-    } catch (err) { out.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return false; }
+    } catch (err) { out.innerHTML = `<p class="bad">${esc(err.message)}</p>`; }
   }
 
+  function openMove(id) {
+    const b = known.get(id);
+    const target = b.groupId ? { groupId: b.groupId } : { bookingId: b.id };
+    const now = nyParts(b.start);
+    const form = formDialog(`
+      <h2 id="dlg-title">Change the time</h2>
+      <p>Currently ${esc(dayLabel(b.start))} at ${esc(clock(b.start))} (${minutes(b)} min). ${target.groupId ? "Every student in the group" : esc(b.name.split(" ")[0])} gets an updated invite.</p>
+      <div class="fgrid">${whenFields(now.date, now.time)}</div>
+      <div class="warnings"></div>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Move it</button></div>`,
+    async (f) => {
+      const path = target.groupId ? `/api/admin/groups/${encodeURIComponent(target.groupId)}/move` : `/api/admin/bookings/${encodeURIComponent(target.bookingId)}/move`;
+      await api("POST", path, { date: f.date.value, time: f.time.value });
+      await afterAction("Moved. Updated invites sent.");
+    });
+    const extra = { serviceId: b.serviceId, ...(target.groupId ? { movingGroupId: target.groupId } : { movingBookingId: target.bookingId }) };
+    const recheck = () => checkTime(form, extra);
+    form.date.addEventListener("change", recheck);
+    form.time.addEventListener("change", recheck);
+  }
+
+  function openCancelGroup(groupId) {
+    const seats = data.bookings.filter((x) => x.groupId === groupId && x.status === "confirmed");
+    const paidCount = seats.filter((x) => x.paid && x.paid !== "bundle").length;
+    formDialog(`
+      <h2 id="dlg-title">Cancel this group session?</h2>
+      <p>${esc(dayLabel(seats[0].start))} at ${esc(clock(seats[0].start))} &middot; ${seats.length} student${seats.length === 1 ? "" : "s"}. The calendar event and Zoom meeting are removed and the time opens up again. Bundle credits go back.</p>
+      <label><input type="checkbox" name="notify" checked> Email everyone a cancellation</label>
+      ${paidCount ? `<label><input type="checkbox" name="refund" checked> Refund the ${paidCount} student${paidCount === 1 ? "" : "s"} who paid, in full</label>` : ""}
+      <div class="row">${cancelButton("Keep it")}<button type="submit" class="btn danger">Cancel session</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/groups/${encodeURIComponent(groupId)}/cancel`, { notifyClient: f.notify.checked, refund: !!f.refund?.checked });
+      await afterAction("Group session cancelled.");
+    });
+  }
+
+  async function resend(id, b) {
+    b.disabled = true;
+    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`); toast("Invite sent again."); }
+    catch (err) { toast(err.message, true); }
+    b.disabled = false;
+  }
+
+  async function refundNow(id, b) {
+    const x = known.get(id);
+    if (!confirm(`Refund ${money(x.paid)} to ${x.name} in full?`)) return;
+    b.disabled = true;
+    try {
+      const r = await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/refund`);
+      await afterAction(r.message || "Refunded.");
+    } catch (err) { b.disabled = false; toast(err.message, true); }
+  }
+
+  /* ── Dialogs: bundles ── */
+
+  function openCredit(id, delta) {
+    formDialog(`
+      <h2 id="dlg-title">${delta > 0 ? "Add a session" : "Remove a session"}</h2>
+      <p>${delta > 0 ? "Adds one session to this bundle." : "Removes one unused session from this bundle."}</p>
+      <label style="display:block">Reason (for the record)<textarea name="note" maxlength="300" placeholder="${delta > 0 ? "Makeup for a session I had to move" : "Late cancellation"}"></textarea></label>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">${delta > 0 ? "Add 1" : "Remove 1"}</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/credits`, { delta, note: f.note.value });
+      await afterAction(delta > 0 ? "Session added." : "Session removed.");
+    });
+  }
+
+  function openExtend(id) {
+    showDialog(`<div>
+      <h2 id="dlg-title">Extend the use-by date</h2>
+      <p>Pushes back when this bundle's sessions need to be used by.</p>
+      <div class="row" style="justify-content:flex-start">
+        <button type="button" class="btn" data-days="7">+7 days</button><button type="button" class="btn" data-days="14">+14 days</button><button type="button" class="btn" data-days="30">+30 days</button>
+      </div>
+      <div class="row">${cancelButton()}</div>
+    </div>`);
+    for (const b of $dlg.querySelectorAll("[data-days]")) {
+      b.addEventListener("click", async () => {
+        try {
+          await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/extend`, { days: Number(b.dataset.days) });
+          await afterAction(`Extended by ${b.dataset.days} days.`);
+        } catch (err) { toast(err.message, true); }
+      });
+    }
+  }
+
+  async function openCancelBundle(id) {
+    let q;
+    try { q = await api("GET", `/api/admin/packages/${encodeURIComponent(id)}/cancel`); }
+    catch (err) { toast(err.message, true); return; }
+    const full = q.paidCents;
+    const form = formDialog(`
+      <h2 id="dlg-title">Cancel ${esc(q.name.split(" ")[0])}'s bundle?</h2>
+      <p>${esc(q.bundleName)}, paid ${money(full)}. ${q.used} session${q.used === 1 ? "" : "s"} used.${q.upcoming.length
+        ? ` These booked sessions will be cancelled too: ${q.upcoming.map((s) => `${esc(fmt(s, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(clock(s))}`).join("; ")}.` : ""}</p>
+      ${q.canRefund ? `<fieldset class="choices"><legend>Refund</legend>
+        <label><input type="radio" name="refund" value="${q.policyRefundCents}" checked> ${money(q.policyRefundCents)} (your policy: used sessions charged at the single-session price)</label>
+        ${full !== q.policyRefundCents ? `<label><input type="radio" name="refund" value="${full}"> ${money(full)} (everything they paid)</label>` : ""}
+        ${q.policyRefundCents ? '<label><input type="radio" name="refund" value="0"> No refund</label>' : ""}
+        <label><input type="radio" name="refund" value="custom"> Another amount: $<input type="number" name="custom" min="0" max="${full / 100}" step="0.01" style="width:110px"></label>
+      </fieldset>
+      <p class="hint">The refund is sent through Stripe straight away.</p>` : '<p class="hint">There was no card payment for this bundle, so there\'s nothing to refund.</p>'}
+      <label><input type="checkbox" name="notify" checked> Email ${esc(q.name.split(" ")[0])} a cancellation</label>
+      <div class="row">${cancelButton("Keep it")}<button type="submit" class="btn danger">Cancel bundle</button></div>`,
+    async (f) => {
+      const pick = q.canRefund ? f.querySelector("[name=refund]:checked").value : "0";
+      const refundCents = pick === "custom" ? Math.round(Number(f.custom.value || 0) * 100) : Number(pick);
+      const r = await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/cancel`, { refundCents, notifyClient: f.notify.checked });
+      if (!r.refunded) toast(r.message, true);
+      await afterAction(r.refunded ? `Bundle cancelled${refundCents ? `, ${money(refundCents)} refunded` : ""}.` : "");
+    });
+    form.custom?.addEventListener("focus", () => { form.querySelector('[name=refund][value="custom"]').checked = true; });
+  }
+
+  /* ── Booking students ── */
+
   let services = null;
-  let students = null;
-  async function openNewSession() {
+  async function openNewSession(prefillCustomerId) {
     try {
       [services, students] = await Promise.all([
         services ?? fetch("/api/services", { cache: "no-store" }).then((r) => r.json()),
-        api("GET", "/api/admin/students"),
+        loadStudents(),
       ]);
     } catch (err) { toast(err.message, true); return; }
     const lengths = services.filter((x) => x.kind !== "bundle");
     const priceOf = (id) => lengths.find((x) => x.id === id)?.priceCents ?? 0;
+    const byName = [...students].sort((a, b) => a.name.localeCompare(b.name));
     const tomorrow = nyParts(new Date(Date.now() + 86400000).toISOString()).date;
-    $dlg.className = "wide";
-    $dlg.innerHTML = `<form method="dialog" id="new-form">
+    const form = formDialog(`
       <h2 id="dlg-title">Book a student</h2>
       <p>One student is a private session; two or more is a group session. Each student gets their own invite, with a link to pay if they owe anything.</p>
       <div class="fgrid">
@@ -406,7 +743,7 @@
       </div>
       <div class="warnings"></div>
       <div id="students"></div>
-      <p><button type="button" class="btn" id="add-student">+ Add another student</button></p>
+      <p><button type="button" class="btn" id="add-student" title="Add another student to make this a group session">+ Add another student</button></p>
       <div class="fgrid">
         <label>Payment deadline<select name="payBy">
           <option value="none">No deadline (reminder only)</option>
@@ -415,218 +752,109 @@
           <option value="before24">24 hours before the session</option>
         </select></label>
       </div>
-      <p class="hint" style="font-size:.75rem;margin:-4px 0 10px">With a deadline, anyone who hasn't paid by then is released automatically and emailed.</p>
+      <p class="hint">With a deadline, anyone who hasn't paid by then is released automatically and emailed. Zoom links are sent once they've paid.</p>
       <label class="field">Note in the invite (optional)<textarea name="message" maxlength="1000" placeholder="What to prepare, sides to read..."></textarea></label>
-      <div class="row"><button class="btn" value="keep">Never mind</button><button class="btn primary" value="go">Book and send invites</button></div>
-    </form>
-    <datalist id="known-emails">${students.map((x) => `<option value="${esc(x.email)}">${esc(x.name)}</option>`).join("")}</datalist>`;
-    const form = $dlg.querySelector("form");
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Book and send invites</button></div>`,
+    async (f) => {
+      const body = {
+        serviceId: f.serviceId.value, date: f.date.value, time: f.time.value, payBy: f.payBy.value, message: f.message.value,
+        students: [...list.children].map((d) => {
+          const useBundle = d.querySelector("[name=useBundle]");
+          const price = d.querySelector("[name=price]").value;
+          return {
+            name: d.querySelector("[name=name]").value, email: d.querySelector("[name=email]").value.trim(),
+            pronouns: d.querySelector("[name=pronouns]").value,
+            ...(useBundle && useBundle.checked && !useBundle.disabled ? { packageId: useBundle.value }
+              : price === "" ? {} : { priceCents: Math.round(Number(price) * 100) }),
+          };
+        }),
+      };
+      await api("POST", "/api/admin/sessions", body);
+      students = null;
+      await afterAction(body.students.length > 1 ? "Group session booked. Invites sent." : "Booked. Invite sent.");
+    }, "wide");
     const list = form.querySelector("#students");
-    const addRow = () => {
+
+    // Payment for one student: a price, or (only if they have one) their bundle.
+    const refreshPayment = (div) => {
+      const email = div.querySelector("[name=email]").value.trim().toLowerCase();
+      const who = students.find((x) => x.email.toLowerCase() === email);
+      const bundle = who && who.bundles[0];
+      const slot = div.querySelector(".bundle-slot");
+      const hour = form.serviceId.value === "coaching-60";
+      slot.innerHTML = bundle ? `<label class="check"><input type="checkbox" name="useBundle" value="${esc(bundle.id)}"${hour ? "" : " disabled"}>
+          Use their bundle instead (${bundle.remaining} of ${bundle.total} left, use by ${esc(shortDate(bundle.expiresAt))})</label>
+          ${hour ? "" : '<span class="hint">Bundle credits are for 1 hour sessions.</span>'}` : "";
+      const price = div.querySelector("[name=price]");
+      const sync = () => { const on = slot.querySelector("[name=useBundle]")?.checked && hour; price.disabled = !!on; div.classList.toggle("on-bundle", !!on); };
+      slot.querySelector("[name=useBundle]")?.addEventListener("change", sync);
+      sync();
+    };
+    const fill = (div, who) => {
+      div.querySelector("[name=name]").value = who ? who.name : "";
+      div.querySelector("[name=email]").value = who ? who.email : "";
+      div.querySelector("[name=pronouns]").value = who && who.pronouns ? who.pronouns : "";
+      refreshPayment(div);
+    };
+    const addRow = (preset) => {
       const div = document.createElement("div");
       div.className = "student";
-      div.innerHTML = `<button type="button" class="remove" aria-label="Remove this student">&times;</button>
+      div.innerHTML = `<button type="button" class="remove" aria-label="Remove this student" title="Remove this student">&times;</button>
+        <label class="field pick">Existing student (optional)<select name="existing">
+          <option value="">New student, or type their details below</option>
+          ${byName.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} (${esc(x.email)})</option>`).join("")}
+        </select></label>
         <div class="fgrid">
-          <label>Email<input type="email" name="email" list="known-emails" required autocomplete="off"></label>
           <label>Name<input type="text" name="name" required maxlength="120"></label>
+          <label>Email<input type="email" name="email" required maxlength="200" autocomplete="off"></label>
           <label>Pronouns<input type="text" name="pronouns" maxlength="40" placeholder="optional"></label>
-          <label>Payment<select name="pay"><option value="price">Pays a price</option></select></label>
-          <label class="price">Price ($)<input type="number" name="price" min="0" step="0.01" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
-        </div>`;
+          <label>Price ($)<input type="number" name="price" min="0" step="0.01" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
+        </div>
+        <div class="bundle-slot"></div>`;
       list.appendChild(div);
-      const email = div.querySelector("[name=email]");
-      email.addEventListener("change", () => fillStudent(div));
-      div.querySelector("[name=pay]").addEventListener("change", () => { div.querySelector(".price").hidden = div.querySelector("[name=pay]").value !== "price"; });
+      const pick = div.querySelector("[name=existing]");
+      pick.addEventListener("change", () => fill(div, students.find((x) => x.id === pick.value)));
+      div.querySelector("[name=email]").addEventListener("change", () => refreshPayment(div));
       div.querySelector(".remove").addEventListener("click", () => { if (list.children.length > 1) div.remove(); });
-      email.focus();
+      if (preset) { pick.value = preset.id; fill(div, preset); }
+      return div;
     };
-    // A known student: fill in their details and offer their bundle.
-    const fillStudent = (div) => {
-      const known = students.find((x) => x.email.toLowerCase() === div.querySelector("[name=email]").value.trim().toLowerCase());
-      const pay = div.querySelector("[name=pay]");
-      if (known) {
-        if (!div.querySelector("[name=name]").value) div.querySelector("[name=name]").value = known.name;
-        if (!div.querySelector("[name=pronouns]").value && known.pronouns) div.querySelector("[name=pronouns]").value = known.pronouns;
-      }
-      const bundles = known && form.serviceId.value === "coaching-60" ? known.bundles : [];
-      pay.innerHTML = '<option value="price">Pays a price</option>'
-        + bundles.map((x) => `<option value="${esc(x.id)}">Use bundle (${x.remaining} left)</option>`).join("");
-      div.querySelector(".price").hidden = false;
-    };
-    form.querySelector("#add-student").addEventListener("click", addRow);
-    addRow();
+    form.querySelector("#add-student").addEventListener("click", () => addRow().querySelector("[name=existing]").focus());
+    addRow(prefillCustomerId ? students.find((x) => x.id === prefillCustomerId) : null);
     const recheck = () => checkTime(form, {});
     form.serviceId.addEventListener("change", () => {
-      for (const d of list.children) { d.querySelector("[name=price]").placeholder = (priceOf(form.serviceId.value) / 100).toFixed(2); fillStudent(d); }
+      for (const d of list.children) { d.querySelector("[name=price]").placeholder = (priceOf(form.serviceId.value) / 100).toFixed(2); refreshPayment(d); }
       recheck();
     });
     form.date.addEventListener("change", recheck);
     form.time.addEventListener("change", recheck);
     recheck();
-    $dlg.showModal();
-    form.addEventListener("submit", async (e) => {
-      if (e.submitter?.value !== "go") return;
-      e.preventDefault();
-      if (!form.reportValidity()) return;
-      const body = {
-        serviceId: form.serviceId.value, date: form.date.value, time: form.time.value,
-        payBy: form.payBy.value, message: form.message.value,
-        students: [...list.children].map((d) => {
-          const pay = d.querySelector("[name=pay]").value;
-          const price = d.querySelector("[name=price]").value;
-          return {
-            name: d.querySelector("[name=name]").value, email: d.querySelector("[name=email]").value.trim(),
-            pronouns: d.querySelector("[name=pronouns]").value,
-            ...(pay === "price" ? (price === "" ? {} : { priceCents: Math.round(Number(price) * 100) }) : { packageId: pay }),
-          };
-        }),
-      };
-      e.submitter.disabled = true;
-      try {
-        await api("POST", "/api/admin/sessions", body);
-        $dlg.close();
-        toast(body.students.length > 1 ? "Group session booked. Invites sent." : "Booked. Invite sent.");
-        load();
-      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
-    });
   }
 
-  function openMove(target, startIso, mins) {
-    const now = nyParts(startIso);
-    $dlg.className = "";
-    $dlg.innerHTML = `<form method="dialog">
-      <h2 id="dlg-title">Move this session</h2>
-      <p>Currently ${esc(dayLabel(startIso))} at ${esc(clock(startIso))} (${mins} min). ${target.groupId ? "Every student" : "The student"} gets an updated invite.</p>
-      <div class="fgrid">${whenFields(now.date, now.time)}</div>
-      <div class="warnings"></div>
-      <div class="row"><button class="btn" value="keep">Never mind</button><button class="btn primary" value="go">Move it</button></div>
-    </form>`;
-    const form = $dlg.querySelector("form");
-    const b = data.bookings.find((x) => (target.groupId ? x.groupId === target.groupId : x.id === target.bookingId));
-    const extra = { serviceId: b.serviceId, ...(target.groupId ? { movingGroupId: target.groupId } : { movingBookingId: target.bookingId }) };
-    const recheck = () => checkTime(form, extra);
-    form.date.addEventListener("change", recheck);
-    form.time.addEventListener("change", recheck);
-    $dlg.showModal();
-    form.addEventListener("submit", async (e) => {
-      if (e.submitter?.value !== "go") return;
-      e.preventDefault();
-      e.submitter.disabled = true;
-      try {
-        const path = target.groupId ? `/api/admin/groups/${encodeURIComponent(target.groupId)}/move` : `/api/admin/bookings/${encodeURIComponent(target.bookingId)}/move`;
-        await api("POST", path, { date: form.date.value, time: form.time.value });
-        $dlg.close();
-        toast("Moved. Updated invites sent.");
-        load();
-      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
-    });
-  }
-
-  function openCancelGroup(groupId) {
-    const seats = data.bookings.filter((x) => x.groupId === groupId && x.status === "confirmed");
-    const paidCount = seats.filter((x) => x.paid && x.paid !== "bundle").length;
-    $dlg.className = "";
-    $dlg.innerHTML = `<form method="dialog">
-      <h2 id="dlg-title">Cancel this group session?</h2>
-      <p>${esc(dayLabel(seats[0].start))} at ${esc(clock(seats[0].start))} &middot; ${seats.length} student${seats.length === 1 ? "" : "s"}. The calendar event and Zoom meeting will be removed and the time opens up again. Bundle credits go back.</p>
-      <label><input type="checkbox" name="notify" checked> Email everyone a cancellation</label>
-      ${paidCount ? `<label><input type="checkbox" name="refund" checked> Refund the ${paidCount} student${paidCount === 1 ? "" : "s"} who paid, in full</label>` : ""}
-      <div class="row"><button class="btn" value="keep">Keep it</button><button class="btn danger" value="go">Cancel session</button></div>
-    </form>`;
-    $dlg.showModal();
-    $dlg.querySelector("form").addEventListener("submit", async (e) => {
-      if (e.submitter?.value !== "go") return;
-      e.preventDefault();
-      e.submitter.disabled = true;
-      try {
-        await api("POST", `/api/admin/groups/${encodeURIComponent(groupId)}/cancel`, { notifyClient: e.target.notify.checked, refund: !!e.target.refund?.checked });
-        $dlg.close();
-        toast("Group session cancelled.");
-        load();
-      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
-    });
-  }
-
-  async function resend(id, btn) {
-    btn.disabled = true;
-    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`); toast("Invite sent again."); }
-    catch (err) { toast(err.message, true); }
-    btn.disabled = false;
-  }
-
-  document.getElementById("new-session").addEventListener("click", openNewSession);
-
-  async function refundNow(id, btn) {
-    const b = data.bookings.find((x) => x.id === id);
-    if (!confirm(`Refund ${money(b.paid)} to ${b.name} in full?`)) return;
-    btn.disabled = true;
-    try {
-      const r = await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/refund`);
-      toast(r.message || "Refunded.", !r.ok);
-      load();
-    } catch (err) { btn.disabled = false; toast(err.message, true); }
-  }
-
-  function openCredit(id, delta) {
-    const p = data.packages.find((x) => x.id === id);
-    $dlg.className = "";
-    $dlg.innerHTML = `<form method="dialog">
-      <h2 id="dlg-title">${delta > 0 ? "Add a session" : "Remove a session"}</h2>
-      <p>${esc(p.name)} &middot; ${esc(p.bundle)} &middot; ${p.remaining} left now.</p>
-      <label style="display:block">Reason (for the record)<textarea name="note" maxlength="300" placeholder="${delta > 0 ? "Makeup for a session I had to move" : "Late cancellation"}"></textarea></label>
-      <div class="row"><button class="btn" value="keep">Never mind</button><button class="btn primary" value="go">${delta > 0 ? "Add 1" : "Remove 1"}</button></div>
-    </form>`;
-    $dlg.showModal();
-    $dlg.querySelector("form").addEventListener("submit", async (e) => {
-      if (e.submitter?.value !== "go") return;
-      e.preventDefault();
-      e.submitter.disabled = true;
-      try {
-        await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/credits`, { delta, note: e.target.note.value });
-        $dlg.close();
-        toast(delta > 0 ? "Session added." : "Session removed.");
-        load();
-      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
-    });
-  }
-
-  function openExtend(id) {
-    const p = data.packages.find((x) => x.id === id);
-    $dlg.className = "";
-    $dlg.innerHTML = `<form method="dialog">
-      <h2 id="dlg-title">Extend use-by date</h2>
-      <p>${esc(p.name)} &middot; currently ${esc(p.expiresAt ? fmt(p.expiresAt, { month: "long", day: "numeric" }) : "")}.</p>
-      <div class="row" style="justify-content:flex-start">
-        <button class="btn" value="7">+7 days</button><button class="btn" value="14">+14 days</button><button class="btn" value="30">+30 days</button>
-      </div>
-      <div class="row"><button class="btn" value="keep">Never mind</button></div>
-    </form>`;
-    $dlg.showModal();
-    $dlg.querySelector("form").addEventListener("submit", async (e) => {
-      const days = Number(e.submitter?.value);
-      if (!days) return;
-      e.preventDefault();
-      try {
-        await api("POST", `/api/admin/packages/${encodeURIComponent(id)}/extend`, { days });
-        $dlg.close();
-        toast(`Extended by ${days} days.`);
-        load();
-      } catch (err) { toast(err.message, true); }
-    });
-  }
+  /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-tab],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-move-group],[data-cancel-group],[data-resend]");
-    if (!t) return;
-    if (t.dataset.tab) { tab = t.dataset.tab; history.replaceState(null, "", `#${tab}`); render(); }
-    else if (t.dataset.cancel) openCancel(t.dataset.cancel);
-    else if (t.dataset.credit) openCredit(t.dataset.credit, Number(t.dataset.delta));
-    else if (t.dataset.extend) openExtend(t.dataset.extend);
-    else if (t.dataset.refund) refundNow(t.dataset.refund, t);
-    else if (t.dataset.move) { const b = data.bookings.find((x) => x.id === t.dataset.move); openMove({ bookingId: b.id }, b.start, minutes(b)); }
-    else if (t.dataset.moveGroup) { const b = data.bookings.find((x) => x.groupId === t.dataset.moveGroup); openMove({ groupId: b.groupId }, b.start, minutes(b)); }
-    else if (t.dataset.cancelGroup) openCancelGroup(t.dataset.cancelGroup);
-    else if (t.dataset.resend) resend(t.dataset.resend, t);
+    const t = e.target.closest("[data-tab],[data-view],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend]");
+    if (!t || t.disabled) return;
+    const d = t.dataset;
+    if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
+    else if (d.view) { view = d.view; store.set("admin-view", view); render(); }
+    else if (d.cal !== undefined) {
+      if (d.cal === "0") calMonth = null;
+      else { const [y, m] = calMonth.split("-").map(Number); const n = new Date(Date.UTC(y, m - 1 + Number(d.cal), 1)); calMonth = `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, "0")}`; }
+      render();
+    }
+    else if (d.session) openSession(d.session);
+    else if (d.student) openStudent(d.student);
+    else if (d.bookStudent) { const id = d.bookStudent; studentOpen = null; openNewSession(id); }
+    else if (d.cancel) openCancel(d.cancel);
+    else if (d.credit) openCredit(d.credit, Number(d.delta));
+    else if (d.extend) openExtend(d.extend);
+    else if (d.refund) refundNow(d.refund, t);
+    else if (d.move) openMove(d.move);
+    else if (d.cancelGroup) openCancelGroup(d.cancelGroup);
+    else if (d.cancelBundle) openCancelBundle(d.cancelBundle);
+    else if (d.resend) resend(d.resend, t);
   });
 
   document.addEventListener("submit", (e) => {
@@ -636,6 +864,16 @@
     if (e.target.id !== "settings-reset") return;
     if (!confirm("Go back to the default settings?")) return;
     try { settings = await api("POST", "/api/admin/settings/reset"); toast("Back to defaults."); render(); } catch (err) { toast(err.message, true); }
+  });
+
+  document.getElementById("new-session").addEventListener("click", () => { studentOpen = null; openNewSession(); });
+  document.getElementById("refresh").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    students = null;
+    await load();
+    b.disabled = false;
+    toast("Up to date.");
   });
 
   load();

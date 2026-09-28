@@ -54,6 +54,13 @@ function range(start: number, end: number, tz: string) {
 }
 const timeRange = (b: BookingView, tz: string) => range(b.start, b.end, tz);
 
+// Students who still owe for a session Avery booked get the Zoom link once they've paid.
+const zoomFor = (b: BookingView) => ((b.dueCents ?? 0) > 0 ? null : b.zoomUrl ?? null);
+const noZoomText = (b: BookingView) => ((b.dueCents ?? 0) > 0 ? "Sent once you've paid" : "Link to follow");
+const noZoomPara = (b: BookingView) => para((b.dueCents ?? 0) > 0
+  ? "Your Zoom link will arrive as soon as you've paid."
+  : "I'll send your Zoom link before the session.");
+
 // ── Shared pieces ──
 
 const FONT = "Helvetica,Arial,sans-serif";
@@ -124,7 +131,7 @@ function sessionRows(b: BookingView, tz: string, withPaid: boolean): [string, st
     ["Session", esc(b.serviceName)],
     ["Date", esc(day(b.start, tz))],
     ["Time", esc(timeRange(b, tz))],
-    ["Where", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">Join on Zoom</a>` : "Zoom (link to follow)"],
+    ["Where", zoomFor(b) ? `<a href="${esc(zoomFor(b)!)}" style="color:#1f47f5;">Join on Zoom</a>` : `Zoom (${noZoomText(b).toLowerCase()})`],
   ];
   if (withPaid && b.bundleNote) rows.push(["Paid", esc(b.bundleNote)]);
   else if (withPaid && b.amountCents > 0) rows.push(["Paid", esc(money(b.amountCents) + (b.promoCode ? ` (code ${b.promoCode})` : ""))]);
@@ -147,7 +154,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
       ? "Thanks for booking an intro chat. I'm looking forward to meeting you and hearing what you're working on."
       : "You're all set. I'm looking forward to working with you."),
     details(sessionRows(b, tz, true)),
-    b.zoomUrl ? zoomButton(b.zoomUrl) : para("I'll send your Zoom link before the session."),
+    zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
     manageBlock(manageUrl, b.amountCents > 0),
     para("See you soon,<br>Avery"),
@@ -186,7 +193,7 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
     b.message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(b.message)}</p>` : "",
     details(rows),
     due ? para(esc(dueLine(b, tz))) + button(payUrl!, `Pay ${money(b.dueCents!)}`) : "",
-    b.zoomUrl ? (due ? ghostButton(b.zoomUrl, "Join on Zoom") : zoomButton(b.zoomUrl)) : para("I'll send your Zoom link before the session."),
+    zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
     b.group
       ? small("Can't make it? You can cancel your spot up to 24 hours before the session.") + ghostButton(manageUrl, "View or cancel")
@@ -201,7 +208,7 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
       `Hi ${firstName(b.name)},`, "",
       b.group ? "I've booked you into a group coaching session." : "I've booked a session for you.", "",
       ...(b.message ? [b.message, ""] : []),
-      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
       ...(due ? [dueLine(b, tz), `Pay here: ${payUrl}`, ""] : []),
       `${b.group ? "View or cancel your spot" : "Reschedule or cancel"} (up to 24 hours before): ${manageUrl}`, "",
       "See you soon,", "Avery",
@@ -210,13 +217,13 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
   };
 }
 
-export function paymentReceived(b: BookingView, manageUrl: string): Email {
+export function paymentReceived(b: BookingView, manageUrl: string, ics?: string): Email {
   const tz = b.clientTimeZone;
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
-    para(`Thanks, your payment of ${esc(money(b.amountCents))} went through. You're all set.`),
+    para(`Thanks, your payment of ${esc(money(b.amountCents))} went through. You're all set.${b.zoomUrl ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
     details(sessionRows(b, tz, true)),
-    b.zoomUrl ? zoomButton(b.zoomUrl) : "",
+    zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
     ghostButton(manageUrl, b.group ? "View or cancel" : "Reschedule or cancel"),
     para("See you soon,<br>Avery"),
   ].join("\n");
@@ -227,6 +234,7 @@ export function paymentReceived(b: BookingView, manageUrl: string): Email {
     text: [`Hi ${firstName(b.name)},`, "", `Thanks, your payment of ${money(b.amountCents)} went through. You're all set.`, "",
       textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
       `Manage your session: ${manageUrl}`, "", "See you soon,", "Avery"].join("\n"),
+    ...(ics ? { attachments: icsAttachment(ics, "REQUEST") } : {}),
   };
 }
 
@@ -392,6 +400,7 @@ export function bundleExpiring(p: BundleView, bundleUrl: string): Email {
 }
 
 export type BundleCancelView = BundleView & {
+  byAvery?: boolean;          // cancelled from the admin page (at the client's request)
   used: number;               // sessions that happened or were too close to cancel
   refundCents: number;
   cancelledSessions: number[];  // start times of sessions cancelled with the bundle
@@ -406,12 +415,12 @@ export function bundleCancelled(p: BundleCancelView): Email {
     para(`Your ${esc(p.bundleName)} has been cancelled.`),
     details([
       ["Sessions used", String(p.used)],
-      ["Refund", p.refundCents > 0 ? esc(money(p.refundCents)) : "None (all sessions were used)"],
+      ["Refund", p.refundCents > 0 ? esc(money(p.refundCents)) : p.byAvery ? "None" : "None (all sessions were used)"],
       ...(p.cancelledSessions.length ? [["Cancelled", p.cancelledSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
       ...(p.keptSessions.length ? [["Still on", p.keptSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
     ]),
     p.refundCents > 0 ? para(`Your refund of ${esc(money(p.refundCents))} is being processed and may take a few business days to appear.`) : "",
-    p.keptSessions.length ? small("Sessions less than 24 hours away can't be cancelled online, so they're still on. Reply to this email if you can't make it.") : "",
+    p.keptSessions.length && !p.byAvery ? small("Sessions less than 24 hours away can't be cancelled online, so they're still on. Reply to this email if you can't make it.") : "",
     p.cancelledSessions.length ? small("Calendar invites for the cancelled sessions will be removed.") : "",
     para("Thanks for working with me. You're always welcome back.<br>Avery"),
   ].join("\n");
@@ -460,7 +469,7 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
     para(`Hi ${esc(firstName(b.name))},`),
     para("Your session has been moved. Here are the new details:"),
     details([...sessionRows(b, tz, false), ["Was", `<span style="color:#6b727b;text-decoration:line-through;">${esc(was)}</span>`]]),
-    b.zoomUrl ? zoomButton(b.zoomUrl) : "",
+    zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
     para("The attached invite updates the event already in your calendar."),
     manageBlock(manageUrl, false),
     para("See you then,<br>Avery"),
@@ -470,7 +479,7 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
     subject: `Rescheduled: ${b.serviceName} now on ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
     html: layout({ preheader: `New time: ${day(b.start, tz)}, ${timeRange(b, tz)}`, tag: tagFor(b), title: "Session rescheduled", body }),
     text: [`Hi ${firstName(b.name)},`, "", "Your session has been moved.", "",
-      textRows([["Session", b.serviceName], ["New date", day(b.start, tz)], ["New time", timeRange(b, tz)], ["Was", was], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      textRows([["Session", b.serviceName], ["New date", day(b.start, tz)], ["New time", timeRange(b, tz)], ["Was", was], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
       `Reschedule or cancel: ${manageUrl}`, "", "See you then,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "REQUEST"),
   };
@@ -630,7 +639,7 @@ export function sessionReminder(b: BookingView, now: number): Email {
     para(`Hi ${esc(firstName(b.name))},`),
     para(`Just a reminder that your ${esc(b.serviceName.toLowerCase())} is ${esc(when)} at <strong>${esc(clock(b.start, tz))} ${esc(zoneName(b.start, tz))}</strong>.`),
     details(sessionRows(b, tz, false)),
-    b.zoomUrl ? zoomButton(b.zoomUrl) : para("I'll send your Zoom link before the session."),
+    zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     b.kind === "intro"
       ? para("Come as you are. It's a relaxed chat to get to know each other and what you're working on.")
       : para("To make the most of our time, have your material open and ready, and find a quiet spot with a good connection."),
@@ -640,9 +649,9 @@ export function sessionReminder(b: BookingView, now: number): Email {
   return {
     to: b.email,
     subject: `Reminder: your ${b.serviceName.toLowerCase()} ${when} at ${clock(b.start, tz)}`,
-    html: layout({ preheader: `${day(b.start, tz)}, ${timeRange(b, tz)}${b.zoomUrl ? ". Zoom link inside." : ""}`, tag: tagFor(b), title: "See you soon", body }),
+    html: layout({ preheader: `${day(b.start, tz)}, ${timeRange(b, tz)}${zoomFor(b) ? ". Zoom link inside." : ""}`, tag: tagFor(b), title: "See you soon", body }),
     text: [`Hi ${firstName(b.name)},`, "", `Just a reminder that your ${b.serviceName.toLowerCase()} is ${when} at ${clock(b.start, tz)} ${zoneName(b.start, tz)}.`, "",
-      textRows([["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      textRows([["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
       "Can't make it? Please reply to this email.", "", "See you soon,", "Avery"].join("\n"),
   };
 }

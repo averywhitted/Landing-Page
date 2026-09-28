@@ -427,3 +427,87 @@ export async function sendBundleReminders(env: Env, now: number): Promise<number
   }
   return sent;
 }
+
+/* ── Avery cancels a bundle (e.g. the client asked) ──
+   Every upcoming session from it is cancelled, even inside 24 hours, and
+   Avery chooses the refund: the policy amount, all of it, none, or her own. */
+
+async function upcomingFromBundle(env: Env, pkgId: string, now: number) {
+  return (await env.DB.prepare(
+    "SELECT id, start_utc FROM bookings WHERE package_id = ?1 AND status = 'confirmed' AND start_utc > ?2 ORDER BY start_utc",
+  ).bind(pkgId, iso(now)).all<{ id: string; start_utc: string }>()).results;
+}
+
+export async function adminPackageCancelPreview(env: Env, id: string, now: number) {
+  const pkg = await loadPackage(env, "id", id);
+  if (!pkg || pkg.status !== "active") throw new BookingError(404, "Bundle not found.");
+  const q = await cancelQuote(env, pkg, now);
+  const upcoming = await upcomingFromBundle(env, pkg.id, now);
+  return {
+    name: pkg.name, bundleName: bundleName(findService(pkg.service_id)!), paidCents: pkg.amount_cents,
+    canRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents > 0,
+    policyRefundCents: q.refundCents, used: pkg.credits_used - upcoming.length,
+    upcoming: upcoming.map((b) => b.start_utc),
+  };
+}
+
+export async function adminCancelPackage(env: Env, id: string, opts: { refundCents: number; notifyClient: boolean },
+  ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const pkg = await loadPackage(env, "id", id);
+  if (!pkg || pkg.status !== "active") throw new BookingError(409, "This bundle isn't active.");
+  const refund = Math.round(opts.refundCents);
+  if (!Number.isInteger(refund) || refund < 0 || refund > pkg.amount_cents) {
+    throw new BookingError(400, `The refund has to be between $0 and what they paid (${(pkg.amount_cents / 100).toFixed(2)}).`);
+  }
+  if (refund > 0 && !pkg.stripe_payment_intent_id) throw new BookingError(400, "There's no Stripe payment to refund for this bundle.");
+  const now = ctx.now;
+  const upcoming = await upcomingFromBundle(env, pkg.id, now);
+  let res;
+  try {
+    res = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE packages SET status = 'cancelled', cancel_reason = 'avery_cancelled', cancelled_at = ?1, refund_due_cents = ?2,
+           credits_used = credits_used - ?3, updated_at = ?1 WHERE id = ?4 AND status = 'active'`,
+      ).bind(iso(now), refund, upcoming.length, pkg.id),
+      ...upcoming.flatMap((b) => [
+        env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'bundle_cancelled')").bind(pkg.id, b.id),
+        env.DB.prepare(
+          `UPDATE bookings SET status = 'cancelled', cancel_reason = 'bundle_cancelled', cancelled_at = ?1,
+             ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+        ).bind(iso(now), b.id),
+        env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(b.id),
+      ]),
+      env.DB.prepare(
+        `INSERT INTO credit_ledger (package_id, delta, reason, note) SELECT ?1, 0, 'avery_cancelled', ?2
+         WHERE EXISTS (SELECT 1 FROM packages WHERE id = ?1 AND status = 'cancelled' AND cancelled_at = ?3)`,
+      ).bind(pkg.id, `cancelled by Avery, refund ${(refund / 100).toFixed(2)}`, iso(now)),
+    ]);
+  } catch (err) {
+    if (ONCE_ONLY.test((err as Error).message)) throw new BookingError(409, "This bundle is already cancelled.");
+    throw err;
+  }
+  if (!res[0].meta.changes) throw new BookingError(409, "This bundle is already cancelled.");
+
+  let refunded = refund === 0;
+  if (refund > 0) {
+    try {
+      await stripe.refundPayment(env, pkg.stripe_payment_intent_id!, pkg.id, refund);
+      await env.DB.prepare("UPDATE packages SET refunded_at = ?1, refund_error = NULL WHERE id = ?2").bind(iso(now), pkg.id).run();
+      refunded = true;
+    } catch (err) {
+      const msg = (err as Error).message.slice(0, 300);
+      console.error("bundle refund failed:", msg);
+      await env.DB.prepare("UPDATE packages SET refund_error = ?1 WHERE id = ?2").bind(msg, pkg.id).run();
+    }
+  }
+  ctx.waitUntil((async () => {
+    for (const b of upcoming) await afterCancelShared(env, b.id, { notifyClient: false, notifyAvery: false });
+    if (!opts.notifyClient) return;
+    const fresh = (await loadPackage(env, "id", pkg.id))!;
+    await sendEmail(env, "bundle_cancelled", null, T.bundleCancelled({
+      ...bundleView(fresh), byAvery: true, used: pkg.credits_used - upcoming.length, refundCents: refund,
+      cancelledSessions: upcoming.map((b) => Date.parse(b.start_utc)), keptSessions: [],
+    }));
+  })());
+  return { ok: true, refunded, message: refunded ? "Bundle cancelled." : "Bundle cancelled, but Stripe didn't accept the refund. Refund it in Stripe." };
+}

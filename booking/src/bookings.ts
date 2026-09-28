@@ -412,11 +412,12 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
 
 // The invite attached to the client's emails (same UID for the booking's whole life).
 export function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "REQUEST" | "CANCEL"): string {
+  const zoom = v.dueCents ? null : v.zoomUrl; // sent once they've paid
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end, method, cancelled: method === "CANCEL",
     summary: v.kind === "intro" ? "Intro chat with Avery Whitted" : "Private coaching with Avery Whitted",
-    description: `${v.zoomUrl ? `Join on Zoom: ${v.zoomUrl}\n\n` : ""}Reschedule or cancel up to 24 hours before using the link in your confirmation email.`,
-    location: v.zoomUrl ?? "Zoom (link to follow)",
+    description: `${zoom ? `Join on Zoom: ${zoom}\n\n` : ""}Reschedule or cancel up to 24 hours before using the link in your confirmation email.`,
+    location: zoom ?? (v.dueCents ? "Zoom (link sent once you've paid)" : "Zoom (link to follow)"),
     organizer: { name: "Avery Whitted", email: env.EMAIL_REPLY_TO },
     attendee: { name: row.name, email: row.email },
   });
@@ -649,7 +650,7 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
     end: row.end_utc,
     timeZone: row.client_time_zone || AVERY_TZ,
     firstName: row.name.trim().split(/\s+/)[0],
-    zoomUrl: row.status === "confirmed" ? row.zoom_join_url : null,
+    zoomUrl: row.status === "confirmed" && !dueCents(row) ? row.zoom_join_url : null,
     amountCents: row.amount_cents,
     cancelReason: row.cancel_reason,
     // Bundle sessions link back to the bundle page, and must stay before its use-by date.
@@ -745,20 +746,22 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
 export async function removeCancelled(env: Env, row: BookingRow): Promise<{ calendarRemoved: boolean; zoomRemoved: boolean }> {
   let calendarRemoved = !row.calendar_event_url;
   let zoomRemoved = !row.zoom_meeting_id;
+  const errors: string[] = [];
   if (row.calendar_event_url) {
     try {
       await calendarFor(env).deleteEvent(row.calendar_event_url);
       await env.DB.prepare("UPDATE bookings SET calendar_event_url = NULL WHERE id = ?1 AND status = 'cancelled'").bind(row.id).run();
       calendarRemoved = true;
-    } catch (err) { console.error("cancel: calendar delete failed:", (err as Error).message); }
+    } catch (err) { console.error("cancel: calendar delete failed:", (err as Error).message); errors.push((err as Error).message); }
   }
   if (row.zoom_meeting_id) {
     try {
       await deleteMeeting(env, row.zoom_meeting_id);
       await env.DB.prepare("UPDATE bookings SET zoom_meeting_id = NULL WHERE id = ?1 AND status = 'cancelled'").bind(row.id).run();
       zoomRemoved = true;
-    } catch (err) { console.error("cancel: zoom delete failed:", (err as Error).message); }
+    } catch (err) { console.error("cancel: zoom delete failed:", (err as Error).message); errors.push((err as Error).message); }
   }
+  await env.DB.prepare("UPDATE bookings SET cleanup_error = ?1 WHERE id = ?2").bind(errors.join("; ").slice(0, 300) || null, row.id).run();
   return { calendarRemoved, zoomRemoved };
 }
 
@@ -766,8 +769,8 @@ export async function removeCancelled(env: Env, row: BookingRow): Promise<{ cale
 export async function cleanUpCancelled(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT id FROM bookings WHERE status = 'cancelled' AND (calendar_event_url IS NOT NULL OR zoom_meeting_id IS NOT NULL)
-       AND updated_at <= ?1 LIMIT 20`,
-  ).bind(iso(now - 2 * MIN)).all<{ id: string }>();
+       AND updated_at <= ?1 AND end_utc > ?2 LIMIT 20`,
+  ).bind(iso(now - 2 * MIN), iso(now)).all<{ id: string }>();
   for (const { id } of rows.results) {
     const row = await loadBooking(env, "id", id);
     if (row) await removeCancelled(env, row);

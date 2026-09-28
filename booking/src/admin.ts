@@ -76,7 +76,8 @@ export async function adminOverview(env: Env, now: number) {
             COALESCE(g.calendar_event_url, b.calendar_event_url) IS NOT NULL AS in_calendar, b.calendar_event_url IS NOT NULL AS own_calendar,
             b.group_id, b.created_by, b.price_cents, b.paid_at, b.pay_by, b.invite_message,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
-            b.refund_requested_at, b.refund_error, ${CLIENT_COLUMNS("b")}
+            b.refund_requested_at, b.refund_error, b.cleanup_error, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
+            ${CLIENT_COLUMNS("b")}
      FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
      ORDER BY b.start_utc`,
@@ -84,10 +85,11 @@ export async function adminOverview(env: Env, now: number) {
 
   const packages = await env.DB.prepare(
     `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
-            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, ${CLIENT_COLUMNS("p")}
+            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
+            c.id AS customer_id, ${CLIENT_COLUMNS("p")}
      FROM packages p JOIN customers c ON c.id = p.customer_id
      WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
-        OR (p.status = 'cancelled' AND p.cancel_reason = 'client_cancelled' AND p.cancelled_at >= ?2)
+        OR (p.status = 'cancelled' AND p.cancel_reason IN ('client_cancelled', 'avery_cancelled') AND p.cancelled_at >= ?2)
      ORDER BY p.status, p.expires_at`,
   ).bind(iso(now - 60 * DAY), iso(now - 30 * DAY)).all<Record<string, any>>();
 
@@ -131,9 +133,12 @@ export async function adminOverview(env: Env, now: number) {
       refundOwed: b.status === "cancelled" && !b.refunded_at && !b.package_id && b.amount_cents > 0 && b.stripe_payment_intent_id
         && ["client_cancelled", "slot_taken_after_payment", "avery_cancelled"].includes(b.cancel_reason)
         ? (b.refund_requested_at ? "auto" : "choice") : null,
+      // An automatic refund only counts as stuck after 15 minutes (it's usually done within seconds).
+      refundStuck: !!b.refund_requested_at && !b.refunded_at && Date.parse(b.refund_requested_at) < now - 15 * 60000,
       refundError: b.refund_error,
       stripeUrl: stripeUrl(b.stripe_payment_intent_id),
       packageId: b.package_id,
+      customerId: b.customer_id,
       name: b.name,
       email: b.email,
       pronouns: b.pronouns,
@@ -155,6 +160,9 @@ export async function adminOverview(env: Env, now: number) {
       refundDueCents: p.refund_due_cents,
       refunded: !!p.refunded_at,
       stripeUrl: stripeUrl(p.stripe_payment_intent_id),
+      refundError: p.refund_error,
+      cancelledByAvery: p.cancel_reason === "avery_cancelled",
+      customerId: p.customer_id,
     })),
     problems: {
       failedEmails: failedEmails.results.map((e) => ({ kind: e.kind, error: e.error, at: e.created_at })),
@@ -162,7 +170,10 @@ export async function adminOverview(env: Env, now: number) {
         .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
       // Cancelled but still on the Coaching calendar (removal keeps retrying).
       leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.own_calendar && Date.parse(b.end_utc) > now)
-        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc })),
+        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, error: b.cleanup_error })),
+      // Cancelled sessions whose Zoom meeting couldn't be deleted (keeps retrying).
+      zoomLeft: bookings.results.filter((b) => b.status === "cancelled" && b.zoom_left && Date.parse(b.end_utc) > now)
+        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, error: b.cleanup_error })),
       activeHolds: holds?.n ?? 0,
     },
   };
