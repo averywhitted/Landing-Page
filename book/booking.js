@@ -172,18 +172,34 @@
         <h2 class="bk-title" id="${inModal ? "bk-dialog-title" : "bk-inline-title"}" tabindex="-1"></h2>
         <ol class="bk-steps" aria-label="Booking steps"></ol>
       </div>
-      <div class="bk-body" aria-live="polite"></div>
+      <div class="bk-body"></div>
+      <p class="bk-sr" aria-live="polite" aria-atomic="true"></p>
       <div class="bk-foot"></div>`;
     const $title = root.querySelector(".bk-title");
     const $steps = root.querySelector(".bk-steps");
     const $body = root.querySelector(".bk-body");
     const $foot = root.querySelector(".bk-foot");
+    const $live = root.querySelector(".bk-sr");
+    // Short spoken updates for screen readers ("Step 2 of 3: Pick a time").
+    function announce(text) {
+      $live.textContent = "";
+      setTimeout(() => { $live.textContent = text; }, 50);
+    }
 
     const isBundle = () => !!(state.service && state.service.kind === "bundle");
     const single60 = () => (state.services || []).find((s) => s.kind === "single" && s.durationMinutes === 60);
 
     /* Rendering */
+    // The widget redraws itself on each change; put keyboard focus back on the
+    // same control afterwards so keyboard users don't lose their place.
+    function focusKey(el) {
+      if (!el || !root.contains(el) || !el.dataset || !el.dataset.action) return null;
+      const attrs = ["action", "date", "start", "id", "view", "step"].filter((k) => el.dataset[k] !== undefined);
+      return attrs.map((k) => `[data-${k}="${CSS.escape(el.dataset[k])}"]`).join("");
+    }
+
     function render() {
+      const keep = focusKey(document.activeElement);
       $title.textContent = reschedule ? reschedule.title : [inModal ? "Book a session" : "Choose a session", "Pick a time", "Your details"][state.step];
       $steps.hidden = !!reschedule;
       const flow = isBundle() ? [[0, "Bundle"], [2, "Details"]] : STEPS.map((name, i) => [i, name]);
@@ -197,6 +213,10 @@
       }).join("");
       $body.innerHTML = [renderServices, renderTimes, renderDetails][state.step]();
       $foot.innerHTML = renderFoot();
+      if (keep) {
+        const again = root.querySelector(keep);
+        if (again && !again.disabled) again.focus({ preventScroll: true });
+      }
       if (state.step === 1) {
         const picked = $body.querySelector('.bk-day[aria-pressed="true"]');
         if (picked) picked.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -310,11 +330,11 @@
         slotsHtml = `
           <div class="bk-slots-head">
             <p class="bk-label">${esc(keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" }))} &middot; ${esc(tzShort)}</p>
-            <div class="bk-view" role="radiogroup" aria-label="Show times as" data-view="${state.view}">
+            <div class="bk-view" role="group" aria-label="Show times as" data-view="${state.view}">
               <span class="bk-view-thumb" aria-hidden="true"></span>
-              <button type="button" role="radio" data-action="view" data-view="grid" aria-checked="${state.view === "grid"}">
+              <button type="button" data-action="view" data-view="grid" aria-pressed="${state.view === "grid"}">
                 <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1h4v4H1zM7 1h4v4H7zM1 7h4v4H1zM7 7h4v4H7z" fill="currentColor"/></svg>Grid</button>
-              <button type="button" role="radio" data-action="view" data-view="list" aria-checked="${state.view === "list"}">
+              <button type="button" data-action="view" data-view="list" aria-pressed="${state.view === "list"}">
                 <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 2h10M1 6h10M1 10h10" stroke="currentColor" stroke-width="1.6"/></svg>List</button>
             </div>
           </div>
@@ -334,7 +354,7 @@
     function renderSlotLayout(daySlots) {
       const time = (ms) => esc(fmt(state.tz, { hour: "numeric", minute: "2-digit" }).format(ms));
       if (state.view === "grid") {
-        return `<div class="bk-slots">${daySlots.map((ms) => `
+        return `<div class="bk-slots" role="group" aria-label="Times on ${esc(state.day ? keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" }) : "")}">${daySlots.map((ms) => `
           <button type="button" class="bk-slot${isCurrent(ms) ? " is-current" : ""}" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}"${isCurrent(ms) ? ' disabled title="Your current time"' : ""}>${time(ms)}</button>`).join("")}</div>`;
       }
       // List: bigger rows grouped by part of the day, each showing its end time.
@@ -345,8 +365,8 @@
       }
       const len = state.service.durationMinutes * 60000;
       return `<div class="bk-list">${groups.filter(([, list]) => list.length).map(([label, list]) => `
-        <div class="bk-list-group">
-          <p class="bk-list-label">${label}</p>
+        <div class="bk-list-group" role="group" aria-label="${label}">
+          <p class="bk-list-label" aria-hidden="true">${label}</p>
           ${list.map((ms) => `
             <button type="button" class="bk-row${isCurrent(ms) ? " is-current" : ""}" data-action="slot" data-start="${ms}" aria-pressed="${ms === state.slot}"${isCurrent(ms) ? " disabled" : ""}>
               <span class="bk-row-time">${time(ms)}</span>
@@ -433,6 +453,10 @@
       render();
       $body.scrollTop = 0;
       $title.focus({ preventScroll: true });
+      if (!reschedule) {
+        const flow = isBundle() ? [0, 2] : [0, 1, 2];
+        announce(`Step ${flow.indexOf(step) + 1} of ${flow.length}: ${$title.textContent}`);
+      }
     }
 
     async function loadWeek() {
@@ -447,6 +471,8 @@
         const days = dayList(byDay);
         if (!state.day || !(byDay.get(state.day) || []).length) state.day = days.find((k) => (byDay.get(k) || []).length) || days[0];
         if (state.slot && !data.slots.some((iso) => Date.parse(iso) === state.slot)) state.slot = null;
+        const n = (byDay.get(state.day) || []).length;
+        announce(data.slots.length ? `${n} time${n === 1 ? "" : "s"} available on ${keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" })}` : "No openings this week.");
         if (state.resumeTo) {
           const stillOpen = state.slot === state.resumeTo;
           state.resumeTo = null;
@@ -494,6 +520,7 @@
         render();
         const fresh = root.querySelector("#bk-form");
         fresh.classList.add("was-validated");
+        for (const el of fresh.elements) if (el.willValidate) el.setAttribute("aria-invalid", String(!el.checkValidity()));
         const bad = fresh.querySelector(":invalid");
         if (bad) bad.focus();
         return;
@@ -562,8 +589,17 @@
       else if (a === "next-week") { state.weekStart = addDays(state.weekStart, 7); state.day = null; loadWeek(); }
       else if (a === "retry-week") loadWeek();
       else if (a === "retry-services") init();
-      else if (a === "day") { state.day = t.dataset.date; render(); }
-      else if (a === "slot") { state.slot = +t.dataset.start; render(); }
+      else if (a === "day") {
+        state.day = t.dataset.date;
+        render();
+        const n = root.querySelectorAll(".bk-slot, .bk-row").length;
+        announce(`${n} time${n === 1 ? "" : "s"} on ${keyToLabel(state.day, { weekday: "long", month: "long", day: "numeric" })}`);
+      }
+      else if (a === "slot") {
+        state.slot = +t.dataset.start;
+        render();
+        announce(`Selected ${fmt(state.tz, { weekday: "long", hour: "numeric", minute: "2-digit" }).format(state.slot)}. ${reschedule ? "Confirm below." : "Continue when you're ready."}`);
+      }
       else if (a === "to-details") { if (state.slot) { go(2); loadTurnstile().catch(() => {}); } }
       else if (a === "view") setView(t.dataset.view);
       else if (a === "keep" && reschedule) reschedule.onCancel();
@@ -593,7 +629,7 @@
       const toggle = $body.querySelector(".bk-view");
       if (toggle) {
         toggle.dataset.view = view;
-        for (const b of toggle.querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.view === view));
+        for (const b of toggle.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
       }
       const wrap = $body.querySelector(".bk-times");
       const byDay = state.week && state.week.data ? groupByDay(state.week.data.slots) : new Map();
@@ -613,7 +649,10 @@
         render();
       }
     });
-    root.addEventListener("input", () => { if (state.step === 2) saveForm(); });
+    root.addEventListener("input", (e) => {
+      if (e.target.getAttribute && e.target.getAttribute("aria-invalid") === "true" && e.target.checkValidity()) e.target.setAttribute("aria-invalid", "false");
+      if (state.step === 2) saveForm();
+    });
     root.addEventListener("submit", (e) => { e.preventDefault(); if (!state.submitting) submit(e.target); });
 
     async function init() {

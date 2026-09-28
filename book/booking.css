@@ -333,7 +333,7 @@ html.bk-lock { overflow: hidden; }
   cursor: pointer;
   transition: color 0.15s ease;
 }
-.bk-view button[aria-checked="true"] { color: var(--bk-text); }
+.bk-view button[aria-pressed="true"] { color: var(--bk-text); }
 .bk-view button:hover { color: var(--bk-a); }
 
 /* List layout: larger rows grouped by part of day */
@@ -577,3 +577,6 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 .bk-svc.is-bundle .bk-svc-num small { opacity: 0.85; }
 /* Promo code note in the summary */
 .bk-promo { display: inline-block; padding: 3px 8px; border-radius: 4px; background: var(--bk-lime); color: var(--bk-lime-ink); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.04em; }
+
+/* Screen-reader-only text (spoken updates) */
+.bk-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
