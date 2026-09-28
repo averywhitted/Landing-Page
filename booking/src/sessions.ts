@@ -18,7 +18,7 @@ import type { Env } from "./env";
 import { findService, type Service } from "./services";
 import { RULES } from "./settings";
 import { blocksFor } from "./availability";
-import { iso, zonedToUtc } from "./time";
+import { iso, zonedDate, zonedToUtc } from "./time";
 import * as stripe from "./stripe";
 import { sendEmail } from "./email";
 import * as T from "./templates";
@@ -117,6 +117,13 @@ function mapWriteError(err: unknown): never {
   throw err;
 }
 
+// Days switched off in Settings can't be booked, even from the admin page.
+async function isDayOff(env: Env, start: number): Promise<boolean> {
+  const [y, m, d] = zonedDate(start, AVERY_TZ);
+  return !(await scheduling(env)).workDays.includes(new Date(Date.UTC(y, m - 1, d)).getUTCDay());
+}
+const DAY_OFF = "That's one of your days off (Settings, Working days). Turn the day back on there to book it.";
+
 /* ── Checking a time before booking it ── */
 
 export async function adminCheckTime(env: Env, body: unknown, now: number) {
@@ -149,6 +156,7 @@ export async function adminCheckTime(env: Env, body: unknown, now: number) {
     overlapsBooking: (taken?.n ?? 0) > 0,
     calendarClash,
     outsideHours: h < cfg.dayStartHour || endMinutes > cfg.dayEndHour * 60,
+    dayOff: await isDayOff(env, start),
     withinNotice: start - now < cfg.minNoticeHours * 60 * MIN,
   };
 }
@@ -159,6 +167,7 @@ export async function adminCreateSession(env: Env, body: unknown, ctx: { now: nu
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const now = ctx.now;
   const { service, start, end } = parseWhen(b, now);
+  if (await isDayOff(env, start)) throw new BookingError(400, DAY_OFF);
   const students = parseStudents(b, service);
   const anyoneOwes = students.some((s) => !s.packageId && s.priceCents > 0);
   const payBy = parsePayBy(b, start, now, anyoneOwes);
@@ -363,6 +372,7 @@ export async function adminMove(env: Env, target: { bookingId?: string; groupId?
     if (row.group_id) return adminMove(env, { groupId: row.group_id }, body, ctx);
     const { service, start, end } = parseWhen({ ...b, serviceId: row.service_id }, now);
     if (start === Date.parse(row.start_utc)) throw new BookingError(400, "That's already the session time.");
+    if (await isDayOff(env, start)) throw new BookingError(400, DAY_OFF);
     const buffer = row.created_by === "admin" ? 0 : (await scheduling(env)).bufferMinutes;
     let res;
     try {
@@ -386,6 +396,7 @@ export async function adminMove(env: Env, target: { bookingId?: string; groupId?
   if (!g || g.status !== "active") throw new BookingError(409, "This group session isn't active.");
   const { service, start, end } = parseWhen({ ...b, serviceId: g.service_id }, now);
   if (start === Date.parse(g.start_utc)) throw new BookingError(400, "That's already the session time.");
+  if (await isDayOff(env, start)) throw new BookingError(400, DAY_OFF);
   let res;
   try {
     res = await env.DB.batch([
@@ -446,7 +457,8 @@ export async function adminStudents(env: Env, now: number) {
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS past,
        (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.created_by = 'admin'
           AND b.paid_at IS NULL AND b.package_id IS NULL AND b.price_cents > 0) AS owed_cents,
-       (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked
+       (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked,
+       (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows
      FROM customers c
      WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
         OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status IN ('active', 'cancelled') AND p.cancel_reason IS NOT 'checkout_expired')
@@ -458,7 +470,7 @@ export async function adminStudents(env: Env, now: number) {
   ).bind(t).all<{ id: string; customer_id: string; service_id: string; credits_total: number; credits_used: number; expires_at: string }>();
   return people.results.map((p) => ({
     id: p.id, name: p.name, email: p.email, pronouns: p.pronouns,
-    upcoming: p.upcoming, nextStart: p.next_start, lastStart: p.last_start, pastSessions: p.past, owedCents: p.owed_cents,
+    upcoming: p.upcoming, nextStart: p.next_start, lastStart: p.last_start, pastSessions: p.past, owedCents: p.owed_cents, noShows: p.no_shows,
     bundles: bundles.results.filter((x) => x.customer_id === p.id).map((x) => ({
       id: x.id, remaining: x.credits_total - x.credits_used, total: x.credits_total, expiresAt: x.expires_at,
     })),
@@ -467,8 +479,8 @@ export async function adminStudents(env: Env, now: number) {
 
 // One student's full history, for the Students detail view.
 export async function adminStudentDetail(env: Env, customerId: string, now: number) {
-  const c = await env.DB.prepare("SELECT id, name, email, pronouns, created_at FROM customers WHERE id = ?1").bind(customerId)
-    .first<{ id: string; name: string; email: string; pronouns: string | null; created_at: string }>();
+  const c = await env.DB.prepare("SELECT id, name, email, pronouns, notes, created_at FROM customers WHERE id = ?1").bind(customerId)
+    .first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; created_at: string }>();
   if (!c) throw new BookingError(404, "Student not found.");
   const bookings = await env.DB.prepare(
     `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
@@ -479,7 +491,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
      ORDER BY created_at DESC`,
   ).bind(customerId).all<Record<string, any>>();
   return {
-    id: c.id, name: c.name, email: c.email, pronouns: c.pronouns, since: c.created_at,
+    id: c.id, name: c.name, email: c.email, pronouns: c.pronouns, notes: c.notes, since: c.created_at,
     sessions: bookings.results.map((b) => {
       const service = findService(b.service_id)!;
       return {
@@ -487,6 +499,8 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
         status: b.status === "confirmed" ? (Date.parse(b.end_utc) <= now ? "past" : "upcoming") : "cancelled",
         cancelReason: b.cancel_reason, group: !!b.group_id, groupId: b.group_id, byAvery: b.created_by === "admin",
         paid: b.package_id ? "bundle" : b.amount_cents, dueCents: dueCents(b), payBy: b.pay_by, refunded: !!b.refunded_at,
+        refundedCents: b.refunded_cents ?? 0, noShow: b.attendance === "no_show", remindersSent: b.payment_reminders_sent,
+        lastReminderAt: b.last_payment_reminder_at, nextReminderAt: nextAutoReminder(b, now),
         intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message,
       };
     }),
@@ -494,7 +508,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
       id: p.id, bundle: `${findService(p.service_id)?.credits ?? p.credits_total} session bundle`, status: p.status,
       expired: !!p.expires_at && Date.parse(p.expires_at) <= now, creditsTotal: p.credits_total, creditsUsed: p.credits_used,
       remaining: p.credits_total - p.credits_used, expiresAt: p.expires_at, paidCents: p.amount_cents, cancelReason: p.cancel_reason,
-      refundDueCents: p.refund_due_cents, refunded: !!p.refunded_at, refundError: p.refund_error, createdAt: p.created_at,
+      refundDueCents: p.refund_due_cents, refunded: !!p.refunded_at, refundedCents: p.refunded_cents ?? 0, refundError: p.refund_error, createdAt: p.created_at,
     })),
   };
 }
@@ -505,13 +519,31 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
 export async function adminRemind(env: Env, bookingId: string, now: number) {
   const row = await loadBooking(env, "id", bookingId);
   if (!row || !dueCents(row)) throw new BookingError(409, "Nothing is owed on this session.");
-  const recent = await env.DB.prepare(
-    "SELECT 1 AS x FROM email_log WHERE booking_id = ?1 AND kind = 'payment_reminder_manual' AND status = 'sent' AND created_at > ?2",
-  ).bind(row.id, iso(now - 10 * MIN)).first();
-  if (recent) throw new BookingError(429, "A reminder for this session went out in the last few minutes.");
-  const ok = await sendEmail(env, "payment_reminder_manual", row.id, T.paymentReminder(view(row), payUrl(await manageUrl(env, row.id))));
+  const last = row.last_payment_reminder_at ? Date.parse(row.last_payment_reminder_at) : 0;
+  if (last > now - REMINDER_GAP) {
+    const fmt = (ms: number) => new Intl.DateTimeFormat("en-US", { timeZone: RULES.timeZone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(ms);
+    throw new BookingError(429, `A reminder went out ${fmt(last)}. You can send another after ${fmt(last + REMINDER_GAP)}.`);
+  }
+  const ok = await sendEmail(env, "payment_reminder_manual", row.id, T.paymentReminder(view(row), payUrl(await manageUrl(env, row.id)), await manageUrl(env, row.id)));
   if (!ok) throw new BookingError(502, "The reminder couldn't be sent. Please try again.");
+  await recordReminder(env, row.id, now);
   return { ok: true, sent: 1 };
+}
+
+// Reminders (automatic or Avery's) are at least 12 hours apart.
+export const REMINDER_GAP = 12 * 60 * MIN;
+const recordReminder = (env: Env, id: string, now: number) => env.DB.prepare(
+  "UPDATE bookings SET payment_reminders_sent = payment_reminders_sent + 1, last_payment_reminder_at = ?1 WHERE id = ?2",
+).bind(iso(now), id).run();
+
+// When the one automatic reminder is due (null if it's been sent or isn't needed).
+export function nextAutoReminder(row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status" | "payment_reminder_sent_at" | "pay_by" | "start_utc" | "created_at" | "last_payment_reminder_at">, now: number): string | null {
+  if (!dueCents(row) || row.payment_reminder_sent_at) return null;
+  const start = Date.parse(row.start_utc);
+  let at = row.pay_by ? Date.parse(row.pay_by) - 24 * 60 * MIN : start - 2 * 24 * 60 * MIN;
+  at = Math.max(at, Date.parse(row.created_at) + 6 * 60 * MIN, row.last_payment_reminder_at ? Date.parse(row.last_payment_reminder_at) + REMINDER_GAP : 0, now);
+  const latest = row.pay_by ? Date.parse(row.pay_by) - 30 * MIN : start - 2 * 60 * MIN;
+  return at < latest ? iso(at) : null;
 }
 
 // Everything one student owes: a reminder per unpaid session.
@@ -693,15 +725,17 @@ export async function sendPaymentReminders(env: Env, now: number): Promise<numbe
   const rows = await env.DB.prepare(
     `SELECT id FROM bookings WHERE status = 'confirmed' AND created_by = 'admin' AND paid_at IS NULL AND package_id IS NULL
        AND price_cents > 0 AND payment_reminder_sent_at IS NULL AND created_at <= ?1 AND start_utc > ?2
+       AND (last_payment_reminder_at IS NULL OR last_payment_reminder_at <= ?7)
        AND ((pay_by IS NOT NULL AND pay_by <= ?3 AND pay_by > ?4) OR (pay_by IS NULL AND start_utc <= ?5 AND start_utc > ?6))
      LIMIT 20`,
-  ).bind(iso(now - 6 * 60 * MIN), iso(now), iso(now + DAY), iso(now + 30 * MIN), iso(now + 2 * DAY), iso(now + 2 * 60 * MIN)).all<{ id: string }>();
+  ).bind(iso(now - 6 * 60 * MIN), iso(now), iso(now + DAY), iso(now + 30 * MIN), iso(now + 2 * DAY), iso(now + 2 * 60 * MIN), iso(now - REMINDER_GAP)).all<{ id: string }>();
   let sent = 0;
   for (const { id } of rows.results) {
     const row = await loadBooking(env, "id", id);
     if (!row || !dueCents(row)) continue;
-    if (await sendEmail(env, "payment_reminder", id, T.paymentReminder(view(row), payUrl(await manageUrl(env, id))))) {
+    if (await sendEmail(env, "payment_reminder", id, T.paymentReminder(view(row), payUrl(await manageUrl(env, id)), await manageUrl(env, id)))) {
       await env.DB.prepare("UPDATE bookings SET payment_reminder_sent_at = ?1 WHERE id = ?2").bind(iso(now), id).run();
+      await recordReminder(env, id, now);
       sent++;
     }
   }

@@ -15,6 +15,7 @@ import { iso } from "./time";
 import { BookingError, CLIENT_COLUMNS, ONCE_ONLY, afterCancelShared, dueCents, issueRefund, loadBooking, serviceLabel } from "./bookings";
 import { SettingsError, defaults, loadScheduling, resetScheduling, saveScheduling, validate } from "./config";
 import { calendarFor } from "./calendar";
+import { nextAutoReminder } from "./sessions";
 import { scheduling } from "./config";
 import { sendEmail } from "./email";
 import * as T from "./templates";
@@ -85,7 +86,8 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
             COALESCE(g.calendar_event_url, b.calendar_event_url) IS NOT NULL AS in_calendar, b.calendar_event_url IS NOT NULL AS own_calendar,
             b.group_id, b.created_by, b.price_cents, b.paid_at, b.pay_by, b.invite_message,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
-            b.refund_requested_at, b.refund_error, b.cleanup_error, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
+            b.refund_requested_at, b.refund_error, b.cleanup_error, b.refunded_cents, b.attendance, b.payment_reminders_sent,
+            b.last_payment_reminder_at, b.payment_reminder_sent_at, b.created_at, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
             ${CLIENT_COLUMNS("b")}
      FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
@@ -109,6 +111,12 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
       priceCents: b.price_cents,
       dueCents: dueCents(b as any),
       payBy: b.pay_by,
+      remindersSent: b.payment_reminders_sent,
+      lastReminderAt: b.last_payment_reminder_at,
+      nextReminderAt: nextAutoReminder(b as any, now),
+      refundedCents: b.refunded_cents,
+      noShow: b.attendance === "no_show",
+      studentNotes: b.student_notes,
       unpaidReleased: b.cancel_reason === "unpaid",
       promoCode: b.promo_code,
       zoomUrl: b.zoom_join_url,
@@ -139,7 +147,7 @@ export async function adminOverview(env: Env, now: number) {
 
   const packages = await env.DB.prepare(
     `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
-            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
+            p.created_at, p.refund_due_cents, p.refunded_at, p.refunded_cents, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
             c.id AS customer_id, ${CLIENT_COLUMNS("p")}
      FROM packages p JOIN customers c ON c.id = p.customer_id
      WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
@@ -179,9 +187,11 @@ export async function adminOverview(env: Env, now: number) {
       cancelled: p.status === "cancelled",
       refundDueCents: p.refund_due_cents,
       refunded: !!p.refunded_at,
+      refundedCents: p.refunded_cents,
       stripeUrl: stripeUrl(p.stripe_payment_intent_id),
       refundError: p.refund_error,
       cancelledByAvery: p.cancel_reason === "avery_cancelled",
+      cancelledAt: p.cancelled_at,
       customerId: p.customer_id,
     })),
     problems: {
@@ -195,7 +205,10 @@ export async function adminOverview(env: Env, now: number) {
       zoomLeft: bookings.results.filter((b) => b.status === "cancelled" && b.zoom_left && Date.parse(b.end_utc) > now)
         .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, error: b.cleanup_error })),
       activeHolds: holds?.n ?? 0,
+      refundRequests: await (await import("./refunds")).openRefundRequests(env),
+      icloud: await (await import("./extras")).calendarHealth(env),
     },
+    backups: { on: !!env.BACKUPS, last: await (await import("./extras")).lastBackup(env) },
   };
 }
 
@@ -229,7 +242,8 @@ export async function adminCalendar(env: Env, fromRaw: unknown, toRaw: unknown, 
   } catch (err) {
     console.error("admin calendar: busy lookup failed:", (err as Error).message);
   }
-  return { bookings: list, busy };
+  const cfg = await scheduling(env);
+  return { bookings: list, busy, rules: { workDays: cfg.workDays, dayStartHour: cfg.dayStartHour, dayEndHour: cfg.dayEndHour } };
 }
 
 /* ── Editable settings ── */

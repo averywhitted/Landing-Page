@@ -30,7 +30,7 @@ export type PackageRow = {
   promo_code: string | null; stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null;
   intake_json: string | null; client_time_zone: string | null; confirmation_sent_at: string | null;
   admin_email_sent_at: string | null; expiry_notice_sent_at: string | null; created_at: string;
-  cancel_reason: string | null; cancelled_at: string | null; refund_due_cents: number | null; refunded_at: string | null;
+  cancel_reason: string | null; cancelled_at: string | null; refund_due_cents: number | null; refunded_at: string | null; refunded_cents: number;
   reminder_sent_at: string | null;
   name: string; email: string; pronouns: string | null;
 };
@@ -204,6 +204,10 @@ export async function packageView(env: Env, id: unknown, token: unknown, now: nu
     cancelQuote: quote,
     refundDueCents: pkg.cancel_reason === "client_cancelled" ? pkg.refund_due_cents : null,
     refunded: !!pkg.refunded_at,
+    canRequestRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents - (pkg.refunded_cents ?? 0) > 0
+      && !(pkg.status === "active" && !expired && remaining > 0)
+      && !(pkg.status === "cancelled" && (pkg.refund_due_cents ?? 0) > (pkg.refunded_cents ?? 0)),
+    refundRequest: await (await import("./refunds")).refundRequestStatus(env, "package", pkg.id),
     canBook: pkg.status === "active" && !expired && remaining > 0,
     bundleName: bundleName(findService(pkg.service_id)!),
     credits: pkg.credits_total,

@@ -16,6 +16,12 @@ database_name = "averywhitted-booking"
 database_id = "6055038c-44cb-4682-824e-751176c5f923"
 migrations_dir = "migrations"
 
+# Nightly backups of the database, kept 30 days. Private (never public).
+# Create it once before deploying: npm run cf -- r2 bucket create averywhitted-booking-backups
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "averywhitted-booking-backups"
+
 # Bundle images (the email wordmark) into the service as raw bytes.
 [[rules]]
 type = "Data"

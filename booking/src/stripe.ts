@@ -140,12 +140,12 @@ export async function expireCheckoutSession(env: Env, sessionId: string): Promis
 
 // Refunds one payment in full. Keyed by the payment, so the same payment is
 // never refunded twice (and Stripe refuses a second refund of it anyway).
-export function refundPayment(env: Env, paymentIntentId: string, bookingId: string, amountCents?: number) {
+export function refundPayment(env: Env, paymentIntentId: string, bookingId: string, amountCents?: number, idempotencyKey?: string) {
   return stripe<{ id: string; status: string }>(env, "POST", "refunds", {
     payment_intent: paymentIntentId,
-    ...(amountCents !== undefined && { amount: amountCents }), // part of it (bundles); otherwise all of it
+    ...(amountCents !== undefined && { amount: amountCents }), // part of it; otherwise all of it
     metadata: { booking_id: bookingId },
-  }, `refund-${paymentIntentId}`);
+  }, idempotencyKey ?? `refund-${paymentIntentId}`);
 }
 
 // ── Webhook signatures ──

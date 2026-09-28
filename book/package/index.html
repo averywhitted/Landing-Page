@@ -34,6 +34,7 @@
       .pk-meter { display: flex; align-items: center; gap: 18px; margin: 22px 0 8px; padding: 18px 20px; border-radius: 16px; background: var(--bg1); }
       .pk-count { font-family: var(--display); font-size: 2.75rem; line-height: 1; }
       .pk-count small { font-family: var(--body); font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-left: 6px; }
+      .linkish { padding: 0; border: 0; background: none; font: inherit; color: var(--a); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
       .pk-dots { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
       .pk-dot { box-sizing: border-box; width: 14px; height: 14px; border-radius: 999px; background: var(--a); }
       .pk-dot.used { background: transparent; border: 2px solid rgba(31, 71, 245, 0.45); }
@@ -156,6 +157,33 @@
             + (other.length ? `<h2>Earlier</h2><ul class="pk-list">${other.map(item).join("")}</ul>` : "");
         }
 
+        // "Request a refund" for a bundle that can't be cancelled online (expired, used up), and its status.
+        function refundAskHtml() {
+          if (pkg.refundRequest === "open") return `<p class="pk-note">Your refund request has been sent. Avery will get back to you by email.</p>`;
+          if (!pkg.canRequestRefund) return "";
+          return `<div id="pk-refund"><p class="pk-note">${pkg.refundRequest === "declined" ? "Your last refund request wasn't approved. " : ""}Need to talk about a refund? <button type="button" class="linkish" id="pk-refund-ask">Request a refund</button></p></div>`;
+        }
+        function wireRefundAsk() {
+          document.getElementById("pk-refund-ask")?.addEventListener("click", () => {
+            document.getElementById("pk-refund").innerHTML = `<div class="pk-confirm" role="dialog" aria-labelledby="pk-r-title">
+                <h2 id="pk-r-title">Request a refund</h2>
+                <p>Tell Avery what happened (optional). You'll hear back by email.</p>
+                <textarea id="pk-r-msg" maxlength="1000" rows="4" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit"></textarea>
+                <div class="pk-actions" style="margin-top:12px"><button type="button" class="btn primary" id="pk-r-send">Send request</button><button type="button" class="btn" id="pk-r-no">Never mind</button></div>
+              </div>`;
+            document.getElementById("pk-r-msg").focus();
+            document.getElementById("pk-r-no").addEventListener("click", render);
+            document.getElementById("pk-r-send").addEventListener("click", async (e) => {
+              e.target.disabled = true;
+              try {
+                await api("POST", "/api/refund-requests", { kind: "package", p, t, message: document.getElementById("pk-r-msg").value });
+                flash = { kind: "ok", html: "Your request has been sent. Avery will get back to you by email." };
+              } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+              await load();
+            });
+          });
+        }
+
         function render() {
           if (pkg.status === "processing") {
             return show("Your sessions", "Almost there", `<div class="prose"><p>Your payment is still being confirmed. Give it a minute and refresh this page.</p></div>`);
@@ -163,7 +191,8 @@
           if (pkg.status === "cancelled") {
             const refund = pkg.refundDueCents
               ? `<p>${pkg.refunded ? `Your refund of ${money(pkg.refundDueCents)} has been issued.` : `Your refund of ${money(pkg.refundDueCents)} is being processed and may take a few business days to appear.`}</p>` : "";
-            return show("Your sessions", "This bundle is cancelled", `<div class="prose">${refund}<p>Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>. You're always welcome to <a href="/book/" style="color:var(--a)">book again</a>.</p></div>` + sessionsHtml());
+            show("Your sessions", "This bundle is cancelled", `<div class="prose">${refund}<p>Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>. You're always welcome to <a href="/book/" style="color:var(--a)">book again</a>.</p></div>` + sessionsHtml() + refundAskHtml());
+            return wireRefundAsk();
           }
           const used = pkg.credits - pkg.remaining;
           // Filled: sessions left. Hollow: sessions used.
@@ -185,7 +214,8 @@
           const cancelLink = pkg.cancelQuote && pkg.cancelQuote.canCancel
             ? `<div class="pk-cancel-link" id="pk-cancel-area"><button type="button" id="pk-cancel">Cancel this bundle</button></div>` : "";
           show("Your sessions", hi, meter + actions + sessionsHtml()
-            + `<p class="pk-note">Each session can be rescheduled or cancelled up to 24 hours before it starts, and it goes back into your bundle.</p>` + cancelLink);
+            + `<p class="pk-note">Each session can be rescheduled or cancelled up to 24 hours before it starts, and it goes back into your bundle.</p>` + cancelLink + refundAskHtml());
+          wireRefundAsk();
           document.getElementById("pk-book")?.addEventListener("click", openPicker);
           document.getElementById("pk-cancel")?.addEventListener("click", askCancelBundle);
         }

@@ -30,6 +30,9 @@ export type Env = {
   MANAGE_LINK_SECRET?: string; // signs clients' reschedule/cancel links
   TURNSTILE_SECRET_KEY?: string; // Cloudflare Turnstile (bot check on the booking form)
 
+  // Private storage bucket for nightly backups (optional; see wrangler.toml).
+  BACKUPS?: R2Bucket;
+
   // Local testing only. Never set these in wrangler.toml or as secrets.
   // LOCAL_FAKES=1 swaps iCloud, email, and Zoom for stand-ins and lets
   // STRIPE_API_BASE point at a fake Stripe running on this Mac.

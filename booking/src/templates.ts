@@ -138,9 +138,13 @@ function sessionRows(b: BookingView, tz: string, withPaid: boolean): [string, st
   return rows;
 }
 
-function manageBlock(manageUrl: string, refundNote: boolean): string {
-  return small(`Need to reschedule or cancel? You can do it yourself up to 24 hours before your session.${refundNote ? " Refunds for cancellations may take a few business days to appear." : ""}`)
-    + ghostButton(manageUrl, "Reschedule or cancel");
+// Rescheduling and cancelling: a quiet line at the bottom, not a button, so
+// it's there if they need it without suggesting they use it.
+function manageLine(manageUrl: string, opts: { group?: boolean; refundNote?: boolean } = {}): string {
+  const link = (label: string) => `<a href="${esc(manageUrl)}" style="color:#6b727b;">${label}</a>`;
+  return `<p style="margin:18px 0 0;padding-top:14px;border-top:1px solid #eceef2;font:12px/1.6 ${FONT};color:#6b727b;">${opts.group
+    ? `Can't make it? You can ${link("cancel your spot")} up to 24 hours before the session.`
+    : `Need to change plans? You can ${link("reschedule or cancel")} up to 24 hours before your session.${opts.refundNote ? " Refunds for cancellations may take a few business days to appear." : ""}`}</p>`;
 }
 
 // ── Client: booking confirmed ──
@@ -156,8 +160,8 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
     details(sessionRows(b, tz, true)),
     zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
-    manageBlock(manageUrl, b.amountCents > 0),
     para("See you soon,<br>Avery"),
+    manageLine(manageUrl, { refundNote: b.amountCents > 0 }),
   ].join("\n");
 
   return {
@@ -195,10 +199,8 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
     due ? para(esc(dueLine(b, tz))) + button(payUrl!, `Pay ${money(b.dueCents!)}`) : "",
     zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
-    b.group
-      ? small("Can't make it? You can cancel your spot up to 24 hours before the session.") + ghostButton(manageUrl, "View or cancel")
-      : manageBlock(manageUrl, false),
     para("See you soon,<br>Avery"),
+    manageLine(manageUrl, { group: b.group }),
   ].join("\n");
   return {
     to: b.email,
@@ -224,8 +226,8 @@ export function paymentReceived(b: BookingView, manageUrl: string, ics?: string)
     para(`Thanks, your payment of ${esc(money(b.amountCents))} went through. You're all set.${b.zoomUrl ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
     details(sessionRows(b, tz, true)),
     zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
-    ghostButton(manageUrl, b.group ? "View or cancel" : "Reschedule or cancel"),
     para("See you soon,<br>Avery"),
+    manageLine(manageUrl, { group: b.group, refundNote: true }),
   ].join("\n");
   return {
     to: b.email,
@@ -249,14 +251,14 @@ export function adminPaymentReceived(b: BookingView): Email {
   };
 }
 
-export function paymentReminder(b: BookingView, payUrl: string): Email {
+export function paymentReminder(b: BookingView, payUrl: string, manageUrl?: string): Email {
   const tz = b.clientTimeZone;
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
     para(`A quick reminder that your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(day(b.start, tz))}</strong> hasn't been paid yet.`),
     para(esc(dueLine(b, tz))),
     button(payUrl, `Pay ${money(b.dueCents!)}`),
-    small("Already paid? Thank you, you can ignore this email. If anything's changed, just reply."),
+    small(`Already paid? Thank you, you can ignore this email.${manageUrl ? ` Can't make it anymore? You can <a href="${esc(manageUrl)}" style="color:#6b727b;">${b.group ? "cancel your spot" : "cancel the session"}</a>.` : " If anything's changed, just reply."}`),
     para("Thanks,<br>Avery"),
   ].join("\n");
   return {
@@ -264,7 +266,7 @@ export function paymentReminder(b: BookingView, payUrl: string): Email {
     subject: `Payment due: ${b.serviceName} on ${shortDay(b.start, tz)}`,
     html: layout({ preheader: dueLine(b, tz), tag: b.group ? "Group coaching" : tagFor(b), title: "Payment due", body }),
     text: [`Hi ${firstName(b.name)},`, "", `A quick reminder that your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)} hasn't been paid yet.`, "",
-      dueLine(b, tz), `Pay here: ${payUrl}`, "", "Thanks,", "Avery"].join("\n"),
+      dueLine(b, tz), `Pay here: ${payUrl}`, "", ...(manageUrl ? [`Can't make it anymore? ${manageUrl}`, ""] : []), "Thanks,", "Avery"].join("\n"),
   };
 }
 
@@ -423,6 +425,75 @@ export function bundleUpdated(p: BundleView, change: "added" | "removed" | "exte
   };
 }
 
+// ── iCloud can't be reached (or is back) ──
+
+export function icloudStatus(ok: boolean, error: string): Email {
+  const body = ok
+    ? [para("Your booking page can read your iCloud calendars again. Clients can book as normal.")].join("\n")
+    : [
+      warn("Your booking page can't read your iCloud calendars, so clients can't see open times or book right now."),
+      para("The most common cause is the app-specific password being revoked, which can happen when your Apple ID password changes or you sign out of devices. To fix it, make a new app-specific password at account.apple.com and send it to the booking service."),
+      small(`What iCloud said: ${esc(error)}`),
+      small("You'll get one more email when it's working again."),
+    ].join("\n");
+  return {
+    to: "",
+    subject: ok ? "Booking system: iCloud is working again" : "Booking system: can't reach your iCloud calendar",
+    html: layout({ preheader: ok ? "iCloud is working again." : "Clients can't book until this is fixed.", tag: "Booking system", title: "Needs attention", body }),
+    text: ok ? "Your booking page can read your iCloud calendars again."
+      : `Your booking page can't read your iCloud calendars, so clients can't book right now.\n\nMost likely the app-specific password was revoked. Make a new one at account.apple.com.\n\niCloud said: ${error}`,
+  };
+}
+
+// ── Refunds Avery gives by hand, and refund requests ──
+
+type RefundNote = { name: string; email: string; what: string; message?: string };
+const noteBlock = (m?: string) => m
+  ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(m)}</p>` : "";
+
+export function refundIssued(p: RefundNote & { amountCents: number }): Email {
+  const line = `I've refunded ${money(p.amountCents)} for ${p.what}. Refunds may take a few business days to appear.`;
+  return {
+    to: p.email,
+    subject: `Refund: ${money(p.amountCents)}`,
+    html: layout({ preheader: line, tag: "Refund", title: "Refund issued", body: [
+      para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), noteBlock(p.message), para("Take care,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", p.message] : []), "", "Take care,", "Avery"].join("\n"),
+  };
+}
+
+export function refundDeclined(p: RefundNote): Email {
+  const line = `Thanks for reaching out about ${p.what}. I'm not able to offer a refund for it.`;
+  return {
+    to: p.email,
+    subject: "About your refund request",
+    html: layout({ preheader: "About your refund request", tag: "Refund", title: "About your request", body: [
+      para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), noteBlock(p.message),
+      small("If you have any questions, just reply to this email."), para("Take care,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", p.message] : []), "", "If you have any questions, just reply to this email.", "", "Avery"].join("\n"),
+  };
+}
+
+export function adminRefundRequest(p: { name: string; email: string; what: string; paidCents: number; leftCents: number; message: string }): Email {
+  return {
+    to: "",
+    subject: `Refund request: ${p.name}, ${p.what}`,
+    html: layout({ preheader: `${p.name} asked for a refund`, tag: "Refund", title: "Refund request", subtitle: p.name, body: [
+      details([
+        ["Client", esc(p.name)], ["Email", `<a href="mailto:${esc(p.email)}" style="color:#1f47f5;">${esc(p.email)}</a>`],
+        ["For", esc(p.what)], ["Paid", esc(money(p.paidCents))], ...(p.leftCents !== p.paidCents ? [["Not yet refunded", esc(money(p.leftCents))] as [string, string]] : []),
+      ]),
+      p.message ? noteBlock(p.message) : small("They didn't add a message."),
+      button("https://book.averywhitted.com/admin#attention", "Review in admin"),
+      small("You can refund any amount, or decline with a note. Either way they're emailed."),
+    ].join("\n") }),
+    text: [`${p.name} (${p.email}) asked for a refund for ${p.what}. Paid ${money(p.paidCents)}.`, "", p.message || "(no message)", "",
+      "Review: https://book.averywhitted.com/admin#attention"].join("\n"),
+  };
+}
+
 export type BundleCancelView = BundleView & {
   byAvery?: boolean;          // cancelled from the admin page (at the client's request)
   used: number;               // sessions that happened or were too close to cancel
@@ -495,8 +566,8 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
     details([...sessionRows(b, tz, false), ["Was", `<span style="color:#6b727b;text-decoration:line-through;">${esc(was)}</span>`]]),
     zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
     para("The attached invite updates the event already in your calendar."),
-    manageBlock(manageUrl, false),
     para("See you then,<br>Avery"),
+    manageLine(manageUrl, { group: b.group }),
   ].join("\n");
   return {
     to: b.email,

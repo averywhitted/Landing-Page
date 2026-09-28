@@ -155,8 +155,11 @@ export function makeWorld() {
       if (p === "/v1/refunds" && method === "POST") {
         if (state.refundFailNext > 0) { state.refundFailNext--; return json({ error: { message: "Stripe is having trouble" } }, 500); }
         const f = parseForm(body);
-        if (state.refundedIntents.has(f.payment_intent)) return json({ error: { message: "Charge has already been refunded.", code: "charge_already_refunded" } }, 400);
-        state.refundedIntents.add(f.payment_intent);
+        // Like Stripe: partial refunds add up, but never past what was paid.
+        const paidFor = [...state.stripeSessions.values()].find((x) => `pi_${x.id}` === f.payment_intent)?.amount_total ?? Infinity;
+        const already = state.refunds.filter((r) => r.payment_intent === f.payment_intent).reduce((n, r) => n + Number(r.amount ?? paidFor), 0);
+        const amount = f.amount !== undefined ? Number(f.amount) : paidFor - already;
+        if (already >= paidFor || already + amount > paidFor) return json({ error: { message: "Charge has already been refunded.", code: "charge_already_refunded" } }, 400);
         state.refunds.push(f);
         return json({ id: `re_${++state.counter}`, status: "succeeded" });
       }

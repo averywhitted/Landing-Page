@@ -247,6 +247,8 @@ export type BookingRow = {
   reschedule_count: number; previous_start_utc: string | null; session_reminder_sent_at: string | null;
   package_id: string | null; promo_code: string | null;
   refund_requested_at: string | null; refund_attempts: number; refund_error: string | null; cancelled_at: string | null;
+  refunded_cents: number; attendance: string | null; payment_reminders_sent: number; last_payment_reminder_at: string | null;
+  created_at: string; student_notes: string | null;
   group_id: string | null; created_by: string | null; price_cents: number | null; pay_by: string | null;
   paid_at: string | null; payment_reminder_sent_at: string | null; invite_message: string | null;
 };
@@ -257,7 +259,7 @@ export const dueCents = (row: Pick<BookingRow, "created_by" | "package_id" | "pa
 
 // The name and pronouns given with this booking (older rows fall back to the customer's).
 export const CLIENT_COLUMNS = (t: string) =>
-  `COALESCE(${t}.client_name, c.name) AS name, c.email, CASE WHEN ${t}.client_name IS NULL THEN c.pronouns ELSE ${t}.client_pronouns END AS pronouns`;
+  `COALESCE(${t}.client_name, c.name) AS name, c.email, CASE WHEN ${t}.client_name IS NULL THEN c.pronouns ELSE ${t}.client_pronouns END AS pronouns, c.notes AS student_notes`;
 
 export async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
   return env.DB.prepare(
@@ -274,9 +276,16 @@ export async function issueRefund(env: Env, bookingId: string, now = Date.now())
   const row = await loadBooking(env, "id", bookingId);
   if (!row || row.status !== "cancelled" || !row.refund_requested_at || row.refunded_at) return !!row?.refunded_at;
   if (row.package_id || row.amount_cents <= 0 || !row.stripe_payment_intent_id) return false;
+  // Only what hasn't been refunded already (Avery may have refunded part of it).
+  const remaining = row.amount_cents - (row.refunded_cents ?? 0);
+  if (remaining <= 0) {
+    await env.DB.prepare("UPDATE bookings SET refunded_at = COALESCE(refunded_at, ?1) WHERE id = ?2").bind(iso(now), row.id).run();
+    return true;
+  }
   try {
-    await stripe.refundPayment(env, row.stripe_payment_intent_id, row.id);
-    await env.DB.prepare("UPDATE bookings SET refunded_at = ?1, refund_error = NULL WHERE id = ?2").bind(iso(now), row.id).run();
+    await stripe.refundPayment(env, row.stripe_payment_intent_id, row.id, remaining === row.amount_cents ? undefined : remaining,
+      remaining === row.amount_cents ? undefined : `refund-${row.stripe_payment_intent_id}-rest-${row.refunded_cents}`);
+    await env.DB.prepare("UPDATE bookings SET refunded_at = ?1, refunded_cents = amount_cents, refund_error = NULL WHERE id = ?2").bind(iso(now), row.id).run();
     return true;
   } catch (err) {
     const msg = (err as Error).message.slice(0, 300);
@@ -400,6 +409,7 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
     ...(v.material ? [`Material: ${v.material}`] : []),
     ...(v.link ? [`Link: ${v.link}`] : []),
     ...(v.notes ? [`Notes: ${v.notes}`] : []),
+    ...(row.student_notes ? ["", `Your notes: ${row.student_notes}`] : []),
     "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD`
       : v.dueCents ? `Not paid yet: ${(v.dueCents / 100).toFixed(2)} USD due` : v.bundleNote ? "Bundle credit" : "Free",
   ];
@@ -641,6 +651,12 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
     // A session Avery booked that still needs paying.
     payment: dueCents(row) ? { dueCents: dueCents(row), payBy: row.pay_by, open: !row.pay_by || Date.parse(row.pay_by) > now } : null,
     paid: !!row.paid_at && row.created_by === "admin",
+    refundedCents: row.refunded_cents ?? 0,
+    // A refund can be asked for when it can't be done online (e.g. the session already happened).
+    canRequestRefund: !row.package_id && !!row.stripe_payment_intent_id && row.amount_cents - (row.refunded_cents ?? 0) > 0
+      && !(row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN)
+      && !(row.status === "cancelled" && row.refund_requested_at),
+    refundRequest: await (await import("./refunds")).refundRequestStatus(env, "booking", row.id),
     cutoffHours: CHANGE_CUTOFF_HOURS,
     serviceId: row.service_id,
     service: serviceLabel(service),
@@ -680,7 +696,7 @@ export async function cancelBooking(env: Env, bookingId: unknown, token: unknown
   // A paid single session cancelled in time is refunded in full automatically.
   // The refund is only sent after this cancellation is saved, and only by the
   // one request that actually made the change.
-  const owesRefund = !row.package_id && row.amount_cents > 0 && !!row.stripe_payment_intent_id;
+  const owesRefund = !row.package_id && row.amount_cents - (row.refunded_cents ?? 0) > 0 && !!row.stripe_payment_intent_id;
   let res;
   try {
     res = await env.DB.batch([

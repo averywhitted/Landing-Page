@@ -199,8 +199,40 @@
     .student-head:hover { background: none; }
     .sh { padding: 0; border: 0; background: none; font: 700 .5625rem var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); cursor: pointer; text-align: left; }
     .sh.on, .sh:hover { color: var(--a); }
+    .cal-cell[data-day] { cursor: pointer; }
+    .cal-cell[data-day]:hover { border-color: var(--a); }
+    .cal-cell.off { background: repeating-linear-gradient(135deg, #f1f2f5 0 6px, #fafbfc 6px 12px); }
+    .cal-off { font-size: .5625rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+    .tg-off, .tg-closed { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(135deg, rgba(14,17,22,.05) 0 5px, transparent 5px 10px); }
+    .tg-off { background-color: rgba(14,17,22,.04); display: flex; justify-content: center; padding-top: 10px; }
+    .tg-off span { font-size: .625rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+    .lg.off { background: repeating-linear-gradient(135deg, rgba(14,17,22,.12) 0 3px, transparent 3px 6px); border: 1px solid var(--line); }
+    .alert-panel { border-color: #f1b9b3; background: #fff6f5; }
+    .quote { display: block; margin-top: 4px; font-size: .8125rem; font-style: italic; color: var(--muted); }
+    textarea.notes { width: 100%; min-height: 70px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font: .875rem/1.5 var(--body); resize: vertical; }
+    .notes-status { margin: 2px 0 0; min-height: 1em; }
+    .seat .who-line { min-width: 0; }
+    .student .fgrid label { position: relative; }
+    .suggest { position: absolute; top: 100%; left: 0; min-width: 100%; width: max-content; max-width: 340px; z-index: 10; margin-top: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 14px 34px rgba(20,28,40,.16); }
+    .suggest[hidden] { display: none; }
+    .sug { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font: .8125rem var(--body); color: var(--text); letter-spacing: 0; cursor: pointer; }
+    .sug small { display: block; font-family: var(--mono); font-size: .6875rem; color: var(--faint); }
+    .sug:hover, .sug.on { background: var(--a-soft); }
     .warn-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
     @media (max-width: 700px) {
+      .wrap { padding: 18px 14px 56px; }
+      nav.tabs { flex-wrap: nowrap; overflow-x: auto; margin: 14px -14px 14px; padding: 0 14px 4px; scrollbar-width: none; }
+      nav.tabs::-webkit-scrollbar { display: none; }
+      .tab { flex: 0 0 auto; }
+      .card .time { display: flex; align-items: baseline; gap: 8px; }
+      .card .time small { margin: 0; }
+      .cal-busy { display: none; }
+      .cal-item { padding: 1px 3px; }
+      .cal-head { flex-wrap: wrap; }
+      .cal-head strong { min-width: 0; flex: 1; font-size: .875rem; }
+      .toolbar { gap: 8px; }
+      dialog { padding: 18px 16px; }
+      .actions .btn { flex: 1 1 auto; }
       .student-head { display: none; }
       .card { grid-template-columns: 1fr; gap: 10px; }
       .actions .btn.danger { margin-left: 0; }

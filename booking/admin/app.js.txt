@@ -14,11 +14,13 @@
   let tab = (location.hash || "#sessions").slice(1);
   if (tab === "upcoming" || tab === "recent") tab = "sessions";
   let view = store.get("admin-view") === "calendar" ? "calendar" : "list";
-  let scale = ["day", "week", "month"].includes(store.get("admin-scale")) ? store.get("admin-scale") : "week";
+  // Day view by default on a phone (a week of columns is cramped there).
+  let scale = ["day", "week", "month"].includes(store.get("admin-scale")) ? store.get("admin-scale") : (innerWidth < 700 ? "day" : "week");
   let calDate = null;           // "YYYY-MM-DD" the calendar is showing (Eastern)
   const calData = new Map();    // range -> { bookings, busy }
-  let filters = { past: false, cancelled: false };
-  try { filters = { ...filters, ...JSON.parse(store.get("admin-filters") || "{}") }; } catch { /* default */ }
+  // Which sessions to show: when ("upcoming", "past", "all") and whether cancelled ones are included.
+  let filters = { when: "upcoming", cancelled: false };
+  try { const f = JSON.parse(store.get("admin-filters") || "{}"); if (["upcoming", "past", "all"].includes(f.when)) filters = { when: f.when, cancelled: !!f.cancelled }; } catch { /* default */ }
   let studentOpen = null;       // the student whose details are open (dialogs return there)
   let studentFilter = "";
   const known = new Map();      // booking id -> booking, from the overview and student details
@@ -114,7 +116,8 @@
   function problemsCount() {
     const p = data.problems;
     const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past).length;
-    return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow;
+    return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow
+      + (p.refundRequests || []).length + (p.icloud ? 1 : 0);
   }
 
   function renderTabs() {
@@ -145,14 +148,36 @@
     : b.refundOwed === "auto" ? `<span class="chip${b.refundStuck ? " bad" : ""}">${b.refundStuck ? "Refund stuck" : "Refund in progress"}</span>`
     : b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "";
 
-  const remindBtn = (b, small) => b.dueCents && b.status === "confirmed" && !b.past
-    ? btn(small ? "Remind" : "Send payment reminder", `data-remind="${esc(b.id)}"`, `Email ${firstName(b.name)} a reminder to pay ${money(b.dueCents)}, with the payment link`, small ? "sm" : "")
+  // Payment reminders are at least 12 hours apart (automatic or yours).
+  const GAP = 12 * 3600000;
+  const whenShort = (iso) => fmt(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const remindBtn = (b, small) => {
+    if (!(b.dueCents && b.status === "confirmed" && !b.past)) return "";
+    const label = small ? "Remind" : "Send payment reminder";
+    const last = b.lastReminderAt ? Date.parse(b.lastReminderAt) : 0;
+    if (last > Date.now() - GAP) {
+      return btn(label, `data-remind="${esc(b.id)}" disabled`, `A reminder went out ${whenShort(b.lastReminderAt)}. You can send another after ${whenShort(new Date(last + GAP).toISOString())}.`, small ? "sm" : "");
+    }
+    return btn(label, `data-remind="${esc(b.id)}"`, `Email ${firstName(b.name)} a reminder to pay ${money(b.dueCents)}, with the payment link`, small ? "sm" : "");
+  };
+  const reminderChips = (b) => !(b.dueCents && b.status === "confirmed" && !b.past) ? "" : [
+    b.remindersSent ? `<span class="chip" title="Last one ${esc(whenShort(b.lastReminderAt))}">Reminded ${b.remindersSent}&times;</span>` : "",
+    b.nextReminderAt ? `<span class="chip" title="The automatic payment reminder">Auto reminder ${esc(whenShort(b.nextReminderAt))}</span>` : "",
+  ].join("");
+  // Refund any amount of a paid session (past or upcoming), or a bundle.
+  const refundLeft = (b) => (typeof b.paid === "number" ? b.paid - (b.refundedCents || 0) : 0);
+  const refundBtn = (b, small) => refundLeft(b) > 0 && b.stripeUrl !== null && (b.past || b.status === "cancelled" || b.refundedCents || small !== undefined)
+    ? btn(b.refundOwed === "choice" ? `Refund ${money(refundLeft(b))}` : "Refund", `data-refund="${esc(b.id)}"`, "Refund all or part of what they paid", small ? "sm" : "")
+    : "";
+  const noShowBtn = (b, small) => b.status === "confirmed" && b.past
+    ? btn(b.noShow ? "Undo no-show" : "Mark no-show", `data-noshow="${esc(b.id)}" data-value="${b.noShow ? 0 : 1}"`, b.noShow ? "They did attend after all" : "Record that they didn't show up", small ? "sm" : "")
     : "";
 
   function bookingCard(b) {
     const live = b.status === "confirmed" && !b.past;
     const chips = [
-      payChip(b), statusChip(b), refundChip(b),
+      payChip(b), statusChip(b), refundChip(b), reminderChips(b),
+      b.noShow ? '<span class="chip bad">No-show</span>' : "",
       b.byAvery ? '<span class="chip">Booked by you</span>' : "",
       live ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
       live && !b.emailed ? '<span class="chip bad">Not emailed</span>' : "",
@@ -165,7 +190,8 @@
       b.stripeUrl ? link("Payment", b.stripeUrl, "Open this payment in your Stripe dashboard") : "",
       live ? btn("Change time", `data-move="${esc(b.id)}"`, "Move this session to another date or time. The student gets an updated invite.") : "",
       live ? btn("Resend invite", `data-resend="${esc(b.id)}"`, "Email the student their invite again (with the payment link if they still owe)") : "",
-      b.refundOwed === "choice" ? btn(`Refund ${money(b.paid)}`, `data-refund="${esc(b.id)}"`, "Refund this cancelled session in full") : "",
+      refundBtn(b),
+      noShowBtn(b),
       live ? btn("Cancel session", `data-cancel="${esc(b.id)}"`, "Cancel this session. You'll choose whether to refund and whether to email the student.", "danger") : "",
     ].filter(Boolean).join("");
     return `<div class="card${live ? "" : " muted"}">
@@ -186,10 +212,11 @@
     const live = active.length && !first.past;
     const rows = seats.map((s) => `<div class="seat">
         <div class="who-line"><strong>${nameTag(s.name, s.pronouns, s.customerId)}</strong><small><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></small></div>
-        <span class="seat-chips">${payChip(s)}${statusChip(s)}${refundChip(s)}</span>
+        <span class="seat-chips">${payChip(s)}${statusChip(s)}${refundChip(s)}${s.noShow ? '<span class="chip bad">No-show</span>' : ""}</span>
         <span class="seat-actions">
           ${remindBtn(s, true)}
-          ${s.refundOwed === "choice" ? btn(`Refund ${money(s.paid)}`, `data-refund="${esc(s.id)}"`, "Refund this student in full", "sm") : ""}
+          ${refundBtn(s, true)}
+          ${noShowBtn(s, true)}
           ${live && s.status === "confirmed" ? btn("Resend", `data-resend="${esc(s.id)}"`, "Email this student their invite again", "sm")
             + btn("Remove", `data-cancel="${esc(s.id)}"`, "Take this student out of the group. You'll choose whether to refund them.", "sm danger") : ""}
         </span>
@@ -234,20 +261,16 @@
   }
 
   // Filters shared by the list and the calendar.
-  const visible = (b) => (filters.cancelled || b.status === "confirmed") && (filters.past || !b.past);
+  const visible = (b) => (filters.cancelled || b.status === "confirmed")
+    && (filters.when === "all" || (filters.when === "past" ? b.past : !b.past));
 
   function toolbar() {
     const seg = (name, items, cur) => `<div class="seg" role="group" aria-label="${name}">${items.map(([v, label, tip]) =>
       `<button type="button" data-${name}="${v}" aria-pressed="${cur === v}" title="${esc(tip)}">${label}</button>`).join("")}</div>`;
-    const upcomingOnly = !filters.past && !filters.cancelled;
-    const all = filters.past && filters.cancelled;
     return `<div class="toolbar">
       <div class="filters">
-        <button type="button" class="fchip" data-filter="upcoming" aria-pressed="${upcomingOnly}" title="Only sessions that haven't happened yet">Upcoming</button>
-        <button type="button" class="fchip" data-filter="all" aria-pressed="${all}" title="Everything, including past and cancelled sessions">All</button>
-        <span class="fsep"></span>
-        <button type="button" class="fchip" data-filter="past" aria-pressed="${filters.past}" title="Show sessions that have already happened">Past</button>
-        <button type="button" class="fchip" data-filter="cancelled" aria-pressed="${filters.cancelled}" title="Show cancelled sessions">Cancelled</button>
+        ${seg("filter", [["upcoming", "Upcoming", "Sessions that haven't happened yet"], ["past", "Past", "Sessions that have already happened"], ["all", "All", "Past and upcoming"]], filters.when)}
+        <button type="button" class="fchip" data-filter="cancelled" aria-pressed="${filters.cancelled}" title="Include cancelled sessions">${filters.cancelled ? "&#10003; " : ""}Show cancelled</button>
       </div>
       <div class="views">
         ${view === "calendar" ? seg("scale", [["day", "Day", "One day"], ["week", "Week", "One week"], ["month", "Month", "A month at a time"]], scale) : ""}
@@ -259,8 +282,9 @@
   function renderSessions() {
     if (view === "calendar") return toolbar() + renderCalendar();
     const list = data.bookings.filter(visible);
-    const note = filters.past ? '<p class="hint">The list covers the last 30 days and the next 4 months. Use the calendar for further back or ahead.</p>' : "";
-    return toolbar() + note + (list.length ? byDay(list) : `<p class="empty">No ${filters.past || filters.cancelled ? "" : "upcoming "}sessions to show.</p>`);
+    const note = filters.when !== "upcoming" ? '<p class="hint">The list covers the last 30 days and the next 4 months. Use the calendar for further back or ahead.</p>' : "";
+    const empty = { upcoming: "No upcoming sessions.", past: "No past sessions in the last 30 days.", all: "No sessions in the last 30 days or the next 4 months." }[filters.when];
+    return toolbar() + note + (list.length ? byDay(filters.when === "past" ? [...list].reverse() : list) : `<p class="empty">${empty}</p>`);
   }
 
   /* ── Calendar (day, week, month), with blocked time from your calendars ── */
@@ -327,6 +351,8 @@
       byDate.get(d).push(it);
     }
     const busy = loaded ? busyPieces(loaded.busy) : [];
+    const rules = loaded && loaded.rules;
+    const dayOff = (d) => !!rules && !rules.workDays.includes(weekdayOf(d));
     const today = todayNY();
     const label = (it) => {
       const b = it.one || it.seats[0];
@@ -348,14 +374,14 @@
         ${btn("Today", 'data-cal="0"', "Back to today")}
         ${loaded ? "" : '<span class="hint">Loading...</span>'}
       </div>`;
-    const legend = `<p class="cal-legend"><span class="lg session"></span>Session <span class="lg due"></span>Payment due <span class="lg busy"></span>Blocked on your calendars${loaded && loaded.busy === null ? " (couldn't reach iCloud)" : ""}</p>`;
+    const legend = `<p class="cal-legend"><span class="lg session"></span>Session <span class="lg due"></span>Payment due <span class="lg busy"></span>Blocked on your calendars${loaded && loaded.busy === null ? " (couldn't reach iCloud)" : ""} <span class="lg off"></span>Day off or outside your hours</p>`;
 
     if (scale === "month") {
       const cells = dates.map((d) => {
         const its = byDate.get(d) || [];
         const bz = busy.filter((x) => x.date === d);
-        return `<div class="cal-cell${d === today ? " today" : ""}${d < today ? " past" : ""}${d.slice(0, 7) !== month ? " other" : ""}">
-          <button type="button" class="cal-num" data-day="${d}" title="Open this day">${Number(d.slice(8))}</button>
+        return `<div class="cal-cell${d === today ? " today" : ""}${d < today ? " past" : ""}${d.slice(0, 7) !== month ? " other" : ""}${dayOff(d) ? " off" : ""}" data-day="${d}" title="Open ${esc(fmt(`${d}T12:00:00Z`, { weekday: "long", month: "long", day: "numeric" }))}">
+          <span class="cal-num">${Number(d.slice(8))}</span>${dayOff(d) ? '<span class="cal-off">Day off</span>' : ""}
           ${its.map((it) => { const x = label(it); return `<button type="button" class="cal-item${x.due ? " due" : ""}${x.cancelled ? " cancelled" : ""}" data-session="${esc(x.b.id)}" title="${esc(x.tip)}">${esc(hourText(minsOf(x.b.start)))} ${esc(x.who.split(" ")[0])}</button>`; }).join("")}
           ${bz.slice(0, 2).map((x) => `<span class="cal-busy" title="Blocked on your calendars">${x.start === 0 && x.end === 1440 ? "Blocked all day" : `Busy ${hourText(x.start)} to ${hourText(x.end)}`}</span>`).join("")}${bz.length > 2 ? `<span class="cal-busy">+${bz.length - 2} more</span>` : ""}
         </div>`;
@@ -382,7 +408,14 @@
         return `<button type="button" class="tg-item${x.due ? " due" : ""}${x.cancelled ? " cancelled" : ""}" style="top:${(s0 - lo) * PX}px;height:${Math.max(18, (e0 - s0) * PX - 2)}px" data-session="${esc(x.b.id)}" title="${esc(x.tip)}">
           <strong>${esc(clock(x.b.start))}</strong> ${esc(x.who)}</button>`;
       }).join("");
-      return `<div class="tg-col${d === today ? " today" : ""}" style="height:${(hi - lo) * PX}px">${bz}${ss}</div>`;
+      let shade = "";
+      if (dayOff(d)) shade = `<div class="tg-off" style="top:0;height:${(hi - lo) * PX}px" title="Day off (Settings, Working days): clients can't book"><span>Day off</span></div>`;
+      else if (rules) {
+        const open = rules.dayStartHour * 60, close = rules.dayEndHour * 60;
+        if (open > lo) shade += `<div class="tg-closed" style="top:0;height:${(Math.min(open, hi) - lo) * PX}px" title="Before your working hours"></div>`;
+        if (close < hi) shade += `<div class="tg-closed" style="top:${(Math.max(close, lo) - lo) * PX}px;height:${(hi - Math.max(close, lo)) * PX}px" title="After your working hours"></div>`;
+      }
+      return `<div class="tg-col${d === today ? " today" : ""}" style="height:${(hi - lo) * PX}px">${shade}${bz}${ss}</div>`;
     }).join("");
     return `<div class="panel cal">${head}
       <div class="tg" style="--cols:${dates.length}">
@@ -449,7 +482,7 @@
           <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</strong><small>${esc(s.email)}</small></span>
           <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
           <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
-          <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}</span>
+          <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}${s.noShows ? ` <span class="chip" title="Sessions marked as no-shows">${s.noShows} no-show${s.noShows === 1 ? "" : "s"}</span>` : ""}</span>
           <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${pips(x.total, x.total - x.remaining)}${x.remaining} left`).join("<br>") : "None"}</span>
         </button>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
       </div>`;
@@ -470,7 +503,8 @@
       return `<div class="seat">
         <div class="who-line"><strong>${esc(fmt(x.start, { weekday: "short", month: "short", day: "numeric" }))}, ${esc(clock(x.start))}</strong>
           <small>${esc(x.service)}${x.group ? " (group)" : ""}${x.byAvery ? ", booked by you" : ""}</small></div>
-        <span class="seat-chips">${payChip(x)}${statusChip(k)}${x.refunded ? '<span class="chip ok">Refunded</span>' : ""}</span>
+        <span class="seat-chips">${payChip(x)}${statusChip(k)}${x.refunded ? '<span class="chip ok">Refunded</span>' : x.refundedCents ? `<span class="chip ok">${money(x.refundedCents)} refunded</span>` : ""}${x.noShow ? '<span class="chip bad">No-show</span>' : ""}${reminderChips(k)}</span>
+        ${x.status !== "upcoming" ? `<span class="seat-actions">${refundBtn(k, true)}${noShowBtn(k, true)}</span>` : ""}
         ${x.status === "upcoming" ? `<span class="seat-actions">
           ${remindBtn(k, true)}
           ${btn("Change time", `data-move="${esc(x.id)}"`, x.group ? "Move the whole group session" : "Move this session. They get an updated invite.", "sm")}
@@ -481,12 +515,15 @@
     };
     const bundleRow = (p) => {
       const live = p.status === "active" && !p.expired;
+      const left = p.paidCents - (p.refundedCents || 0);
+      bundlesKnown.set(p.id, { id: p.id, name: s.name, pronouns: s.pronouns, bundle: p.bundle, left });
       const state = p.status === "cancelled"
         ? `Cancelled${p.cancelReason === "avery_cancelled" ? " by you" : ""}${p.refundDueCents ? `, ${p.refunded ? "refunded" : "refund due"} ${money(p.refundDueCents)}` : ""}`
         : p.expired ? `Expired ${shortDate(p.expiresAt)}` : `${p.remaining} of ${p.creditsTotal} left, use by ${shortDate(p.expiresAt)}`;
       return `<div class="seat">
         <div class="who-line"><strong>${esc(p.bundle)}</strong><small>Bought ${esc(shortDate(p.createdAt))} for ${money(p.paidCents)}</small></div>
         <span class="seat-chips">${p.status === "active" ? pips(p.creditsTotal, p.creditsUsed) : ""}<span class="chip${p.status === "cancelled" || p.expired ? "" : " ok"}">${esc(state)}</span></span>
+        ${!live && left > 0 ? `<span class="seat-actions">${btn("Refund", `data-refund-bundle="${esc(p.id)}"`, "Refund all or part of what they paid", "sm")}</span>` : ""}
         ${live ? `<span class="seat-actions">
           ${btn("+1", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle", "sm")}
           ${btn("&minus;1", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle", "sm")}
@@ -502,6 +539,9 @@
         ${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}
       </div>
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
+      <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
+      <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
+      <p class="notes-status hint" aria-live="polite"></p>
       <h3>Upcoming sessions</h3>
       ${upcoming.length ? upcoming.map(sessionRow).join("") : '<p class="hint">None booked.</p>'}
       <h3>Bundles</h3>
@@ -511,6 +551,16 @@
     </div>
     <div class="row">${btn("Close", "data-close-student", "Close")}</div>`, "wide");
     $dlg.querySelector("[data-close-student]").addEventListener("click", () => $dlg.close());
+    // Notes save on their own when you click away.
+    const notes = $dlg.querySelector("#student-notes");
+    const status = $dlg.querySelector(".notes-status");
+    let saved = notes.value;
+    notes.addEventListener("blur", async () => {
+      if (notes.value === saved) return;
+      status.textContent = "Saving...";
+      try { await api("POST", `/api/admin/students/${encodeURIComponent(s.id)}/notes`, { notes: notes.value }); saved = notes.value; status.textContent = "Saved."; }
+      catch (err) { status.textContent = `Couldn't save: ${err.message}`; }
+    });
   }
 
   /* ── Bundles ── */
@@ -518,23 +568,27 @@
   function renderBundles() {
     if (!data.packages.length) return '<p class="empty">No active bundles.</p>';
     return data.packages.map((p) => {
+      const left = p.stripeUrl ? p.amountCents - (p.refundedCents || 0) : 0;
+      bundlesKnown.set(p.id, { ...p, left });
+      const refund = left > 0 ? btn("Refund", `data-refund-bundle="${esc(p.id)}"`, "Refund all or part of what they paid for this bundle") : "";
       // Filled: sessions left. Hollow: sessions used.
       const dots = Array.from({ length: p.creditsTotal }, (_, i) => `<span class="dot${i >= p.creditsTotal - p.creditsUsed ? " used" : ""}"></span>`).join("");
       if (p.cancelled) {
         return `<div class="card muted">
-        <div class="time">0<small>cancelled</small></div>
+        <div class="time">Cancelled<small>${p.cancelledAt ? esc(shortDate(p.cancelledAt)) : ""}</small></div>
         <div class="who"><strong>${nameTag(p.name, p.pronouns, p.customerId)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}</div>
           <div class="chips"><span class="chip">Cancelled${p.cancelledByAvery ? " by you" : " by student"}</span>${p.refunded ? `<span class="chip ok">Refunded ${money(p.refundDueCents || 0)}</span>` : p.refundDueCents ? `<span class="chip bad">Refund due ${money(p.refundDueCents)}</span>` : '<span class="chip">No refund</span>'}</div>
           ${p.refundError ? `<p class="hint">Stripe said: ${esc(p.refundError)}</p>` : ""}
         </div>
         <div class="actions">
-          ${p.stripeUrl && p.refundDueCents && !p.refunded ? link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it", "primary") : ""}
+          ${p.stripeUrl ? link("Payment", p.stripeUrl, "Open the payment in your Stripe dashboard") : ""}
+          ${refund}
         </div>
       </div>`;
       }
       return `<div class="card${p.expired ? " muted" : ""}">
-        <div class="time">${p.remaining}<small>of ${p.creditsTotal} left</small></div>
+        <div class="time">${p.remaining} left<small>of ${p.creditsTotal} sessions</small></div>
         <div class="who">
           <strong>${nameTag(p.name, p.pronouns, p.customerId)}</strong>
           <div class="sub"><a href="mailto:${esc(p.email)}">${esc(p.email)}</a> &middot; ${esc(p.bundle)} &middot; ${money(p.amountCents)}${p.promoCode ? ` (${esc(p.promoCode)})` : ""}</div>
@@ -545,7 +599,8 @@
           ${btn("+1 session", `data-credit="${esc(p.id)}" data-delta="1"`, "Add a session to this bundle (e.g. a makeup)")}
           ${btn("&minus;1 session", `data-credit="${esc(p.id)}" data-delta="-1"${p.remaining ? "" : " disabled"}`, "Remove an unused session from this bundle")}
           ${btn("Extend", `data-extend="${esc(p.id)}"`, "Push back the use-by date")}
-          ${p.expired ? "" : btn("Cancel bundle", `data-cancel-bundle="${esc(p.id)}"`, "Cancel the bundle and its upcoming sessions. You choose the refund.", "danger")}
+          ${p.stripeUrl ? link("Payment", p.stripeUrl, "Open the payment in your Stripe dashboard") : ""}
+          ${p.expired ? refund : btn("Cancel bundle", `data-cancel-bundle="${esc(p.id)}"`, "Cancel the bundle and its upcoming sessions. You choose the refund.", "danger")}
         </div>
       </div>`;
     }).join("");
@@ -557,11 +612,28 @@
     const { failedEmails, stuck, activeHolds, leftOnCalendar, zoomLeft } = data.problems;
     const parts = [];
     const panel = (title, body) => `<div class="panel"><p class="day" style="margin-top:0">${title}</p>${body}</div>`;
+    const { icloud, refundRequests } = data.problems;
+    if (icloud) {
+      parts.push(`<div class="panel alert-panel"><p class="day" style="margin-top:0">Can't reach your iCloud calendar</p>
+        <p>Since ${esc(whenShort(icloud.failingSince))}, the booking page can't read your calendars, so clients can't see open times or book. The usual cause is the app-specific password being revoked (for example after an Apple ID password change). Make a new one at account.apple.com and send it to the booking service.</p>
+        <p class="mono-hint">${esc(icloud.error || "")}</p></div>`);
+    }
+    if (refundRequests.length) {
+      parts.push(panel("Refund requests", refundRequests.map((r) => `<div class="seat">
+        <div class="who-line"><strong>${nameTag(r.name, r.pronouns, r.customerId)}</strong>
+          <small>${esc(r.what)} &middot; paid ${money(r.paidCents)}${r.leftCents !== r.paidCents ? `, ${money(r.leftCents)} not yet refunded` : ""} &middot; asked ${esc(whenShort(r.at))}</small>
+          ${r.message ? `<span class="quote">&ldquo;${esc(r.message)}&rdquo;</span>` : ""}</div>
+        <span class="seat-actions">${btn("Refund&hellip;", `data-grant="${esc(r.id)}"`, "Refund all or part of it; they're emailed", "sm")}${btn("Decline", `data-decline="${esc(r.id)}"`, "Say no, with an optional note; they're emailed", "sm danger")}</span>
+      </div>`).join("")));
+    }
     const due2 = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past);
     if (due2.length) {
-      parts.push(panel("Payments due", due2.map((b) =>
-        `<p>${nameTag(b.name, b.pronouns, b.customerId)}, ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}: <strong>${money(b.dueCents)}</strong>${b.payBy ? ` due by ${esc(fmt(b.payBy, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}` : ""}
-          <br>${remindBtn(b)}</p>`).join("")));
+      parts.push(panel("Payments due", due2.map((b) => `<div class="seat">
+        <div class="who-line"><strong>${nameTag(b.name, b.pronouns, b.customerId)}</strong>
+          <small>${esc(dayLabel(b.start))} at ${esc(clock(b.start))} &middot; ${money(b.dueCents)}${b.payBy ? ` due by ${esc(whenShort(b.payBy))}` : ""}</small></div>
+        <span class="seat-chips">${reminderChips(b)}</span>
+        <span class="seat-actions">${remindBtn(b, true)}</span>
+      </div>`).join("")));
     }
     const owed = stuckRefunds();
     if (owed.length) {
@@ -649,6 +721,17 @@
         </div>
         <label class="check"><input type="checkbox" name="remindersEnabled"${v.remindersEnabled ? " checked" : ""}> Send a "finish your booking" email when someone doesn't complete checkout</label>
         <p class="hint">Changing bundle validity applies to bundles bought from now on.</p>
+      </fieldset>
+      <fieldset><legend>Reports and backups</legend>
+        <div class="row2">
+          <label>From <input type="date" id="export-from" value="${esc(nyParts(new Date(Date.now() - 30 * 86400000).toISOString()).date)}"></label>
+          <label>To <input type="date" id="export-to" value="${esc(nyParts(new Date().toISOString()).date)}"></label>
+        </div>
+        <div class="row" style="justify-content:flex-start;margin:4px 0 8px">
+          ${btn("Download CSV", "data-export", "Every session and bundle in these dates, with amounts paid and refunded (opens in any spreadsheet app)")}
+          ${btn("Download a backup", "data-backup", "A complete copy of the booking database, as one file")}
+        </div>
+        <p class="hint">${data.backups.on ? `Automatic backups run nightly and are kept 30 days.${data.backups.last ? ` Last one: ${esc(whenShort(data.backups.last))}.` : " The first one runs tonight."}` : "Automatic nightly backups aren't switched on yet."}</p>
       </fieldset>
       <div class="save-row">
         <p class="hint">${settings.updatedAt ? `Last changed ${esc(fmt(settings.updatedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} by ${esc(settings.updatedBy || "you")}.` : "Using the defaults."} Clients see changes within a minute.</p>
@@ -802,6 +885,33 @@
     });
   }
 
+  // Downloads go through fetch (the admin API needs its header), then save as a file.
+  async function download(path, filename, b) {
+    b.disabled = true;
+    try {
+      const r = await fetch(path, { headers: { "X-Admin": "1" }, credentials: "same-origin", cache: "no-store" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Download failed (${r.status})`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) { toast(err.message, true); }
+    b.disabled = false;
+  }
+
+  async function setNoShow(id, noShow, b) {
+    b.disabled = true;
+    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/attendance`, { noShow }); await afterAction(noShow ? "Marked as a no-show." : "No-show removed."); }
+    catch (err) { b.disabled = false; toast(err.message, true); }
+  }
+
+  // Bundles by id with what can still be refunded (from the Bundles list and student profiles).
+  const bundlesKnown = new Map();
+
   async function remind(path, b) {
     b.disabled = true;
     try {
@@ -818,15 +928,40 @@
     b.disabled = false;
   }
 
-  async function refundNow(id, b) {
-    const x = known.get(id);
-    if (!confirm(`Refund ${money(x.paid)} to ${x.name} in full?`)) return;
-    b.disabled = true;
-    try {
-      const r = await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/refund`);
+  // Refund all or part of a session or bundle. `left` is what hasn't been refunded yet.
+  function openRefund(kind, id, info) {
+    const { name, what, left, requestId } = info;
+    const form = formDialog(`
+      <h2 id="dlg-title">Refund ${esc(firstName(name))}</h2>
+      <p>${nameTag(name, info.pronouns)} &middot; ${esc(what)}. ${money(left)} can still be refunded.</p>
+      <div class="fgrid"><label>Amount ($)<input type="number" name="amount" min="0.01" max="${(left / 100).toFixed(2)}" step="0.01" value="${(left / 100).toFixed(2)}" required></label></div>
+      <p class="hint">The refund goes back to their card through Stripe straight away. Nothing else about the session or bundle changes.</p>
+      ${notifyFields(firstName(name))}
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Refund</button></div>`,
+    async (f) => {
+      const amountCents = Math.round(Number(f.amount.value) * 100);
+      if (!(amountCents > 0 && amountCents <= left)) throw new Error(`Enter an amount up to ${money(left)}.`);
+      if (!confirm(`Refund ${money(amountCents)} to ${name}?`)) return;
+      const r = await api("POST", `/api/admin/${kind === "package" ? "packages" : "bookings"}/${encodeURIComponent(id)}/refund`,
+        { amountCents, notifyClient: f.notify.checked, message: f.message.value, requestId });
       await afterAction(r.message || "Refunded.");
-    } catch (err) { b.disabled = false; toast(err.message, true); }
+    });
+    form.querySelector(".notify-msg textarea").placeholder = "e.g. Sorry about the audio problems in our session.";
+    wireNotify(form);
   }
+
+  function openDecline(req) {
+    formDialog(`
+      <h2 id="dlg-title">Decline this request?</h2>
+      <p>${nameTag(req.name, req.pronouns)} asked for a refund for ${esc(req.what)}. They'll get an email saying you can't offer one.</p>
+      <label class="field">Message to include (optional)<textarea name="message" maxlength="1000" placeholder="e.g. The session ran its full time, so I'm not able to refund it."></textarea></label>
+      <div class="row">${cancelButton()}<button type="submit" class="btn danger">Decline and email them</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/refund-requests/${encodeURIComponent(req.id)}/decline`, { message: f.message.value });
+      await afterAction("Declined. They've been emailed.");
+    });
+  }
+
 
   /* ── Dialogs: bundles ── */
 
@@ -980,30 +1115,60 @@
       div.querySelector("[name=pronouns]").value = who && who.pronouns ? who.pronouns : "";
       refreshPayment(div);
     };
+    // Suggestions of existing students as you type a name or email.
+    const attachSuggest = (input, div) => {
+      const box = document.createElement("div");
+      box.className = "suggest";
+      box.hidden = true;
+      box.setAttribute("role", "listbox");
+      input.parentElement.appendChild(box);
+      input.setAttribute("autocomplete", "off");
+      let items = [];
+      let active = -1;
+      const pick = (x) => { fill(div, x); box.hidden = true; div.querySelector("[name=pronouns]").focus(); };
+      const show = () => {
+        const q = input.value.trim().toLowerCase();
+        items = q ? byName.filter((x) => x.name.toLowerCase().includes(q) || x.email.toLowerCase().includes(q)).slice(0, 6) : [];
+        if (items.length === 1 && (items[0].email.toLowerCase() === q || items[0].name.toLowerCase() === q)) items = [];
+        active = -1;
+        box.innerHTML = items.map((x, i) => `<button type="button" class="sug" data-i="${i}" role="option" tabindex="-1">
+          <strong>${esc(x.name)}${x.pronouns ? ` <span class="pn">(${esc(x.pronouns)})</span>` : ""}</strong>
+          <small>${esc(x.email)}${x.bundles.length ? ` &middot; bundle, ${x.bundles[0].remaining} left` : ""}</small></button>`).join("");
+        box.hidden = !items.length;
+      };
+      input.addEventListener("input", show);
+      input.addEventListener("keydown", (e) => {
+        if (box.hidden) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          [...box.children].forEach((c, i) => c.classList.toggle("on", i === active));
+        } else if (e.key === "Enter" && active >= 0) { e.preventDefault(); pick(items[active]); }
+        else if (e.key === "Escape") { e.preventDefault(); box.hidden = true; }
+      });
+      input.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 150));
+      box.addEventListener("mousedown", (e) => { const b = e.target.closest(".sug"); if (b) { e.preventDefault(); pick(items[Number(b.dataset.i)]); } });
+    };
     const addRow = (preset) => {
       const div = document.createElement("div");
       div.className = "student";
       div.innerHTML = `<button type="button" class="remove" aria-label="Remove this student" title="Remove this student">&times;</button>
-        <label class="field pick">Existing student (optional)<select name="existing">
-          <option value="">New student, or type their details below</option>
-          ${byName.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.pronouns ? ` (${esc(x.pronouns)})` : ""}, ${esc(x.email)}</option>`).join("")}
-        </select></label>
         <div class="fgrid">
-          <label>Name<input type="text" name="name" required maxlength="120"></label>
-          <label>Email<input type="email" name="email" required maxlength="200" autocomplete="off"></label>
+          <label>Name<input type="text" name="name" required maxlength="120" placeholder="Start typing to find a student"></label>
+          <label>Email<input type="email" name="email" required maxlength="200"></label>
           <label>Pronouns<input type="text" name="pronouns" maxlength="40" placeholder="optional"></label>
           <label>Price ($)<input type="number" name="price" min="0" step="0.01" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
         </div>
         <div class="bundle-slot"></div>`;
       list.appendChild(div);
-      const pick = div.querySelector("[name=existing]");
-      pick.addEventListener("change", () => fill(div, students.find((x) => x.id === pick.value)));
+      attachSuggest(div.querySelector("[name=name]"), div);
+      attachSuggest(div.querySelector("[name=email]"), div);
       div.querySelector("[name=email]").addEventListener("change", () => refreshPayment(div));
       div.querySelector(".remove").addEventListener("click", () => { if (list.children.length > 1) div.remove(); });
-      if (preset) { pick.value = preset.id; fill(div, preset); }
+      if (preset) fill(div, preset);
       return div;
     };
-    form.querySelector("#add-student").addEventListener("click", () => addRow().querySelector("[name=existing]").focus());
+    form.querySelector("#add-student").addEventListener("click", () => addRow().querySelector("[name=name]").focus());
     addRow(prefillCustomerId ? students.find((x) => x.id === prefillCustomerId) : null);
     const recheck = () => checkTime(form, {});
     form.serviceId.addEventListener("change", () => {
@@ -1018,16 +1183,15 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
+    const t = e.target.closest("[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
     else if (d.view) { view = d.view; store.set("admin-view", view); render(); }
     else if (d.scale) { scale = d.scale; store.set("admin-scale", scale); render(); }
     else if (d.filter) {
-      if (d.filter === "upcoming") filters = { past: false, cancelled: false };
-      else if (d.filter === "all") filters = { past: true, cancelled: true };
-      else filters = { ...filters, [d.filter]: !filters[d.filter] };
+      if (d.filter === "cancelled") filters = { ...filters, cancelled: !filters.cancelled };
+      else filters = { ...filters, when: d.filter };
       store.set("admin-filters", JSON.stringify(filters));
       render();
     }
@@ -1048,7 +1212,22 @@
     else if (d.cancel) openCancel(d.cancel);
     else if (d.credit) openCredit(d.credit, Number(d.delta));
     else if (d.extend) openExtend(d.extend);
-    else if (d.refund) refundNow(d.refund, t);
+    else if (d.refund) {
+      const b = known.get(d.refund);
+      openRefund("booking", b.id, { name: b.name, pronouns: b.pronouns, what: `${b.service}, ${fmt(b.start, { month: "short", day: "numeric" })}`, left: refundLeft(b) });
+    }
+    else if (d.refundBundle) {
+      const p = bundlesKnown.get(d.refundBundle);
+      openRefund("package", p.id, { name: p.name, pronouns: p.pronouns, what: p.bundle, left: p.left });
+    }
+    else if (d.grant) {
+      const r = data.problems.refundRequests.find((x) => x.id === d.grant);
+      openRefund(r.kind, r.targetId, { name: r.name, pronouns: r.pronouns, what: r.what, left: r.leftCents, requestId: r.id });
+    }
+    else if (d.decline) openDecline(data.problems.refundRequests.find((x) => x.id === d.decline));
+    else if (d.noshow) setNoShow(d.noshow, d.value === "1", t);
+    else if (d.export !== undefined) download(`/api/admin/export?from=${encodeURIComponent(document.getElementById("export-from").value)}&to=${encodeURIComponent(document.getElementById("export-to").value)}`, `sessions ${document.getElementById("export-from").value} to ${document.getElementById("export-to").value}.csv`, t);
+    else if (d.backup !== undefined) download("/api/admin/backup", `booking backup ${nyParts(new Date().toISOString()).date}.json`, t);
     else if (d.move) openMove(d.move);
     else if (d.cancelGroup) openCancelGroup(d.cancelGroup);
     else if (d.cancelBundle) openCancelBundle(d.cancelBundle);

@@ -28,7 +28,7 @@ import {
   releaseUnpaid, sendPaymentReminders, startPayment,
 } from "./sessions";
 import {
-  adminAdjustCredits, adminCalendar, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminRefundBooking,
+  adminAdjustCredits, adminCalendar, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview,
   adminResetSettings, adminSaveSettings, requireAdmin,
 } from "./admin";
 import adminHtml from "../admin/index.html";
@@ -212,6 +212,15 @@ app.post("/api/manage/reschedule", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// A student asking for a refund they can't get online (Avery decides).
+app.post("/api/refund-requests", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    const { studentRefundRequest } = await import("./refunds");
+    return c.json(await studentRefundRequest(c.env, body, Date.now()), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // Paying for a session Avery booked (the "Pay" link in the invite).
 app.post("/api/pay", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -291,9 +300,23 @@ app.post("/api/admin/bookings/:id/cancel", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
-app.post("/api/admin/bookings/:id/refund", async (c) => {
+// Refund any amount of a session or bundle (e.g. a goodwill refund after it happened).
+for (const kind of ["bookings", "packages"] as const) {
+  app.post(`/api/admin/${kind}/:id/refund`, async (c) => {
+    const body = await jsonBody(c);
+    try {
+      const { adminRefundAmount } = await import("./refunds");
+      return c.json(await adminRefundAmount(c.env, kind === "bookings" ? "booking" : "package", c.req.param("id"), body.amountCents,
+        { notifyClient: body.notifyClient !== false, message: typeof body.message === "string" ? body.message : "" }, Date.now()));
+    } catch (err) { return bookingErrorResponse(c, err); }
+  });
+}
+
+app.post("/api/admin/refund-requests/:id/decline", async (c) => {
+  const body = await jsonBody(c);
   try {
-    return c.json(await adminRefundBooking(c.env, c.req.param("id"), { now: Date.now() }));
+    const { adminDeclineRefundRequest } = await import("./refunds");
+    return c.json(await adminDeclineRefundRequest(c.env, c.req.param("id"), typeof body.message === "string" ? body.message : "", Date.now()));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
@@ -347,6 +370,30 @@ app.post("/api/admin/bookings/:id/remind", async (c) => {
 
 app.post("/api/admin/students/:id/remind", async (c) => {
   try { return c.json(await adminRemindStudent(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/notes", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminSaveNotes } = await import("./extras"); return c.json(await adminSaveNotes(c.env, c.req.param("id"), body.notes, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/bookings/:id/attendance", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminSetAttendance } = await import("./extras"); return c.json(await adminSetAttendance(c.env, c.req.param("id"), body.noShow === true, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/export", async (c) => {
+  try {
+    const { adminExport } = await import("./extras");
+    return c.body(await adminExport(c.env, c.req.query("from"), c.req.query("to")), 200, { "Content-Type": "text/csv; charset=utf-8" });
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/backup", async (c) => {
+  const { backupJson } = await import("./extras");
+  return c.body(await backupJson(c.env, Date.now()), 200, { "Content-Type": "application/json; charset=utf-8" });
 });
 
 app.get("/api/admin/calendar", async (c) => {
@@ -422,12 +469,19 @@ app.post("/api/stripe/webhook", async (c) => {
       await releaseForSession(c.env, String(event.data.object.id), now);
       await releasePackageForSession(c.env, String(event.data.object.id), now);
     } else if (event.type === "charge.refunded") {
+      // Record how much has been refunded; "refunded" (in full) only once it all has.
       const pi = event.data.object.payment_intent;
+      const refunded = Number(event.data.object.amount_refunded ?? 0);
+      const whole = event.data.object.refunded === true;
       if (typeof pi === "string") {
-        await c.env.DB.prepare("UPDATE bookings SET refunded_at = COALESCE(refunded_at, ?1) WHERE stripe_payment_intent_id = ?2")
-          .bind(new Date(now).toISOString(), pi).run();
-        await c.env.DB.prepare("UPDATE packages SET refunded_at = COALESCE(refunded_at, ?1) WHERE stripe_payment_intent_id = ?2")
-          .bind(new Date(now).toISOString(), pi).run();
+        // A cancelled bundle counts as refunded once the refund due has gone out.
+        for (const [table, target] of [["bookings", "amount_cents"], ["packages", "COALESCE(refund_due_cents, amount_cents)"]]) {
+          await c.env.DB.prepare(
+            `UPDATE ${table} SET refunded_cents = MAX(refunded_cents, ?1),
+               refunded_at = CASE WHEN ?3 = 1 OR MAX(refunded_cents, ?1) >= ${target} THEN COALESCE(refunded_at, ?2) ELSE refunded_at END
+             WHERE stripe_payment_intent_id = ?4`,
+          ).bind(refunded, new Date(now).toISOString(), whole ? 1 : 0, pi).run();
+        }
       }
     }
   } catch (err) {
@@ -457,6 +511,9 @@ async function scheduled(env: Env): Promise<void> {
   const unpaid = await run("unpaid deadlines", () => releaseUnpaid(env, now));
   await run("payment reminders", () => sendPaymentReminders(env, now));
   await run("group sessions", () => maintainGroups(env, now));
+  const extras = await import("./extras");
+  await run("icloud health", () => extras.checkCalendarHealth(env, now));
+  await run("backup", () => extras.nightlyBackup(env, now));
   await run("cancelled cleanup", () => cleanUpCancelled(env, now));
   await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));

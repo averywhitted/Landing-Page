@@ -40,6 +40,7 @@
       .mg-actions[hidden] { display: none; }
       .mg-note { margin: 18px 0 0; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.8125rem; line-height: 1.6; color: var(--faint); }
       .mg-note a, .mg-msg a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      .linkish { padding: 0; border: 0; background: none; font: inherit; color: var(--a); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
       .mg-pay { margin: 0 0 22px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
       .mg-pay p { margin: 0 0 12px; font-size: 0.9375rem; line-height: 1.55; }
       .mg-pay .mg-actions { margin: 0; }
@@ -207,14 +208,16 @@
               return show("Cancelled", "This session is cancelled", detailsHtml()
                 + `<p class="mg-note" style="margin:0 0 16px">It was cancelled along with your bundle.</p><div class="mg-actions"><a class="btn primary" href="/book/">Book a session</a></div>`);
             }
-            return show("Cancelled", "This session is cancelled", detailsHtml()
+            show("Cancelled", "This session is cancelled", detailsHtml()
               + (booking.bundleUrl
                 ? `<p class="mg-note" style="margin:0 0 16px">The session went back into your bundle.</p><div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl)}">Book another time from your bundle</a></div>`
-                : `<div class="mg-actions"><a class="btn primary" href="/book/">Book another time</a><a class="btn" href="/">Home</a></div>`));
+                : `<div class="mg-actions"><a class="btn primary" href="/book/">Book another time</a><a class="btn" href="/">Home</a></div>`) + refundAskHtml());
+            return wireRefundAsk();
           }
           if (booking.status === "past") {
-            return show("Your booking", "This session has passed", detailsHtml()
-              + `<div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl || "/book/")}">${booking.bundleUrl ? "Back to your bundle" : "Book another session"}</a></div>`);
+            show("Your booking", "This session has passed", detailsHtml()
+              + `<div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl || "/book/")}">${booking.bundleUrl ? "Back to your bundle" : "Book another session"}</a></div>` + refundAskHtml());
+            return wireRefundAsk();
           }
           if (booking.status !== "confirmed") {
             return show("Your booking", "Almost there", `<div class="prose"><p>This booking isn't confirmed yet. If you just paid, give it a minute and refresh. Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>.</p></div>`);
@@ -223,7 +226,7 @@
           const cutoffText = `${f(cutoff, { weekday: "short", month: "short", day: "numeric" })} at ${f(cutoff, { hour: "numeric", minute: "2-digit" })} ${zone(cutoff)}`;
           let actions;
           if (!booking.canChange) {
-            actions = `<p class="mg-note">It's less than ${booking.cutoffHours} hours before your session, so it can't be changed online. If something's come up, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
+            actions = `<p class="mg-note">It's less than ${booking.cutoffHours} hours before your session, so it can't be changed online. If something's come up, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>` + refundAskHtml();
           } else if (booking.group) {
             actions = `<div class="mg-actions" id="mg-actions">
                 <button type="button" class="btn" id="mg-cancel">Cancel my spot</button>
@@ -239,9 +242,37 @@
               <div id="mg-extra"></div>`;
           }
           show("Your booking", `You're booked${name}`, detailsHtml() + paymentHtml() + actions);
+          wireRefundAsk();
           document.getElementById("mg-pay")?.addEventListener("click", startPay);
           document.getElementById("mg-move")?.addEventListener("click", openPicker);
           document.getElementById("mg-cancel")?.addEventListener("click", askCancel);
+        }
+
+        // "Request a refund" (only where a refund can't be had online), and its status.
+        function refundAskHtml() {
+          if (booking.refundRequest === "open") return `<p class="mg-note" style="margin:16px 0 0">Your refund request has been sent. Avery will get back to you by email.</p>`;
+          if (!booking.canRequestRefund) return "";
+          return `<div id="mg-refund"><p class="mg-note" style="margin:16px 0 0">${booking.refundRequest === "declined" ? "Your last refund request wasn't approved. " : ""}Something went wrong with this session? <button type="button" class="linkish" id="mg-refund-ask">Request a refund</button></p></div>`;
+        }
+        function wireRefundAsk() {
+          document.getElementById("mg-refund-ask")?.addEventListener("click", () => {
+            document.getElementById("mg-refund").innerHTML = `<div class="mg-confirm" role="dialog" aria-labelledby="mg-r-title">
+                <h2 id="mg-r-title">Request a refund</h2>
+                <p>Tell Avery what happened (optional). You'll hear back by email.</p>
+                <textarea id="mg-r-msg" maxlength="1000" rows="4" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit"></textarea>
+                <div class="mg-actions" style="margin-top:12px"><button type="button" class="btn primary" id="mg-r-send">Send request</button><button type="button" class="btn" id="mg-r-no">Never mind</button></div>
+              </div>`;
+            document.getElementById("mg-r-msg").focus();
+            document.getElementById("mg-r-no").addEventListener("click", renderBooking);
+            document.getElementById("mg-r-send").addEventListener("click", async (e) => {
+              e.target.disabled = true;
+              try {
+                await api("POST", "/api/refund-requests", { kind: "booking", b, t, message: document.getElementById("mg-r-msg").value });
+                flash = { kind: "ok", html: "Your request has been sent. Avery will get back to you by email." };
+              } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+              await load();
+            });
+          });
         }
 
         function askCancel() {

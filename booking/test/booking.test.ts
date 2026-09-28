@@ -912,7 +912,7 @@ test("cancel bundle: free sessions Avery added aren't refunded; expired bundles 
   const q = (await api.call("GET", `/api/packages?p=${a.p}&t=${a.t}`)).data.cancelQuote;
   assert.equal(q.refundCents, 23000, "the two paid sessions, not the free one");
   await api.call("POST", "/api/packages/cancel", { body: { p: a.p, t: a.t } });
-  await api.webhook("charge.refunded", { payment_intent: a.pkg().stripe_payment_intent_id });
+  await api.webhook("charge.refunded", { payment_intent: a.pkg().stripe_payment_intent_id, amount_refunded: 23000, refunded: true });
   assert.ok(a.pkg().refunded_at);
   const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
   const listed = overview.data.packages.find((x: any) => x.id === a.id);
@@ -1668,4 +1668,134 @@ test("bundle changes can email the student, with Avery's note", async () => {
   assert.ok(!world.state.emails.some((e) => /a session removed/.test(e.subject)), "no email unless asked");
   await api.call("POST", `/api/admin/packages/${id}/extend`, { headers: asAdmin(), body: { days: 14, notifyClient: true, message: "" } });
   assert.ok(world.state.emails.some((e) => e.subject === "Your bundle has been extended"));
+});
+
+/* ── Admin tools round 4 ── */
+
+test("Avery can refund any amount of a session, even after it happened; never more than was paid", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking(); // $130
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(Date.now() - 2 * DAY).toISOString(), new Date(Date.now() - 2 * DAY + 3600000).toISOString(), id);
+  const part = await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin(), body: { amountCents: 5000, message: "Sorry about the audio." } });
+  assert.equal(part.status, 200, JSON.stringify(part.data));
+  assert.equal(row(id).refunded_cents, 5000);
+  assert.equal(row(id).refunded_at, null, "not refunded in full yet");
+  assert.equal(row(id).status, "confirmed", "the session stays as it was");
+  assert.equal(world.state.refunds.at(-1).amount, "5000");
+  assert.match(world.state.emails.find((e) => e.subject === "Refund: $50")!.text, /Sorry about the audio\./);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin(), body: { amountCents: 9000 } })).status, 400, "only $80 left");
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin(), body: {} })).status, 200, "the rest");
+  assert.equal(row(id).refunded_cents, 13000);
+  assert.ok(row(id).refunded_at);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin(), body: {} })).status, 409);
+});
+
+test("refund requests: students can ask when they can't refund online; Avery grants or declines", async () => {
+  adminEnv();
+  const upcoming = await confirmedBooking();
+  const early = await api.call("POST", "/api/refund-requests", { body: { kind: "booking", b: upcoming.b, t: upcoming.t } });
+  assert.equal(early.status, 409, "they can still cancel it themselves");
+  assert.match(early.data.error, /cancel this session yourself/);
+
+  const past = await confirmedBooking("coaching-30", 8);
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(Date.now() - DAY).toISOString(), new Date(Date.now() - DAY + 1800000).toISOString(), past.id);
+  const view = await api.call("GET", `/api/manage?b=${past.b}&t=${past.t}`);
+  assert.equal(view.data.canRequestRefund, true);
+  const r = await api.call("POST", "/api/refund-requests", { body: { kind: "booking", b: past.b, t: past.t, message: "Zoom kept dropping." } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal((await api.call("POST", "/api/refund-requests", { body: { kind: "booking", b: past.b, t: past.t } })).status, 409, "one at a time");
+  const toAvery = world.state.emails.find((e) => /^Refund request: /.test(e.subject))!;
+  assert.match(toAvery.text, /Zoom kept dropping\./);
+  assert.equal((await api.call("GET", `/api/manage?b=${past.b}&t=${past.t}`)).data.refundRequest, "open");
+
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  const req = overview.data.problems.refundRequests[0];
+  assert.equal(req.message, "Zoom kept dropping.");
+  const decline = await api.call("POST", `/api/admin/refund-requests/${req.id}/decline`, { headers: asAdmin(), body: { message: "The session ran its full time." } });
+  assert.equal(decline.status, 200);
+  assert.match(world.state.emails.find((e) => e.subject === "About your refund request")!.text, /ran its full time/);
+  assert.equal((await api.call("GET", `/api/manage?b=${past.b}&t=${past.t}`)).data.refundRequest, "declined");
+
+  // A new request, granted by refunding.
+  assert.equal((await api.call("POST", "/api/refund-requests", { body: { kind: "booking", b: past.b, t: past.t } })).status, 201);
+  await api.call("POST", `/api/admin/bookings/${past.id}/refund`, { headers: asAdmin(), body: { amountCents: 3000 } });
+  assert.equal((await api.call("GET", `/api/manage?b=${past.b}&t=${past.t}`)).data.refundRequest, "granted");
+});
+
+test("Avery can refund part of a bundle after its use-by date", async () => {
+  adminEnv();
+  const { id, pkg, p, t } = await paidBundle();
+  db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - DAY).toISOString(), id);
+  assert.equal((await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.canRequestRefund, true, "the student can ask");
+  const r = await api.call("POST", `/api/admin/packages/${id}/refund`, { headers: asAdmin(), body: { amountCents: 13000, notifyClient: false } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(pkg().refunded_cents, 13000);
+});
+
+test("reminders: after any reminder, the next (automatic or manual) waits 12 hours", async () => {
+  adminEnv();
+  await adminBook({ payBy: "after48", students: [student("Lock Out", "lock@example.com")] });
+  const id = bookingByEmail("lock@example.com").id;
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/remind`, { headers: asAdmin() })).status, 200);
+  // Now the automatic one would be due, but Avery just sent one.
+  db.prepare("UPDATE bookings SET created_at = ?, pay_by = ? WHERE id = ?").run(new Date(Date.now() - 10 * 3600000).toISOString(), new Date(Date.now() + 20 * 3600000).toISOString(), id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => /^Payment due: /.test(e.subject)).length, 1, "the automatic one held off");
+  const again = await api.call("POST", `/api/admin/bookings/${id}/remind`, { headers: asAdmin() });
+  assert.equal(again.status, 429);
+  assert.match(again.data.error, /You can send another after/);
+  const b = (await api.call("GET", "/api/admin/overview", { headers: asAdmin() })).data.bookings.find((x: any) => x.id === id);
+  assert.equal(b.remindersSent, 1);
+  assert.ok(b.lastReminderAt);
+  // 12 hours later the automatic one goes out.
+  db.prepare("UPDATE bookings SET last_payment_reminder_at = ? WHERE id = ?").run(new Date(Date.now() - 13 * 3600000).toISOString(), id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => /^Payment due: /.test(e.subject)).length, 2);
+  const reminder = world.state.emails.filter((e) => /^Payment due: /.test(e.subject)).at(-1);
+  assert.match(reminder.html, /cancel the session/, "a quiet cancel link");
+});
+
+test("notes, attendance, days off, export, and backups", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const customer = row(id).customer_id;
+  assert.equal((await api.call("POST", `/api/admin/students/${customer}/notes`, { headers: asAdmin(), body: { notes: "Working on Chekhov." } })).status, 200);
+  assert.match(world.state.calendarEvents.get(row(id).calendar_event_url)!.replace(/\r\n[ \t]/g, ""), /Your notes: Working on Chekhov\./, "in the calendar event");
+  assert.equal((await api.call("GET", `/api/admin/students/${customer}`, { headers: asAdmin() })).data.notes, "Working on Chekhov.");
+
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/attendance`, { headers: asAdmin(), body: { noShow: true } })).status, 409, "not before it starts");
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(Date.now() - DAY).toISOString(), new Date(Date.now() - DAY + 3600000).toISOString(), id);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/attendance`, { headers: asAdmin(), body: { noShow: true } })).status, 200);
+  assert.equal(row(id).attendance, "no_show");
+
+  // Days off block admin bookings too.
+  const day = new Date(Date.now() + 5 * DAY);
+  const weekday = new Date(Date.UTC(+etDate(day.getTime()).slice(0, 4), +etDate(day.getTime()).slice(5, 7) - 1, +etDate(day.getTime()).slice(8))).getUTCDay();
+  await api.call("POST", "/api/admin/settings", { headers: asAdmin(), body: { dayStartHour: 9, dayEndHour: 21, workDays: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== weekday), bufferMinutes: 15, minNoticeHours: 24, slotStepMinutes: 30, packageValidDays: 90, busyCalendars: ["Professional", "Personal", "Coaching"], bookingCalendar: "Coaching", remindersEnabled: true } });
+  const off = await adminBook({ date: etDate(day.getTime()), time: "12:00", students: [student("Off Day", "off@example.com")] });
+  assert.equal(off.status, 400);
+  assert.match(off.data.error, /days off/);
+  const check = await api.call("POST", "/api/admin/check-time", { headers: asAdmin(), body: { serviceId: "coaching-60", date: etDate(day.getTime()), time: "12:00" } });
+  assert.equal(check.data.dayOff, true);
+
+  const csv = await api.call("GET", `/api/admin/export?from=${etDate(Date.now() - 3 * DAY)}&to=${etDate(Date.now() + 30 * DAY)}`, { headers: asAdmin() });
+  assert.equal(csv.status, 200);
+  assert.match(csv.data, /"Session","\d{4}-\d{2}-\d{2}",.*"Jamie Rivera"/);
+  assert.match(csv.data, /"No-show"/);
+  const backup = await api.call("GET", "/api/admin/backup", { headers: asAdmin() });
+  assert.ok(backup.data.tables.bookings.length >= 1);
+  assert.equal((await api.call("GET", "/api/admin/backup")).status, 403, "admin only");
+});
+
+test("iCloud down for 15 minutes: Avery is emailed once, and again when it's back", async () => {
+  env.ICLOUD_APP_PASSWORD = "wrong";
+  await api.cron();
+  assert.ok(!world.state.emails.some((e) => /can't reach your iCloud/.test(e.subject)), "not straight away");
+  db.prepare("UPDATE health SET failing_since = ? WHERE key = 'icloud'").run(new Date(Date.now() - 20 * 60000).toISOString());
+  await api.cron();
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => /can't reach your iCloud/.test(e.subject)).length, 1);
+  env.ICLOUD_APP_PASSWORD = "app-pass";
+  await api.cron();
+  assert.ok(world.state.emails.some((e) => /iCloud is working again/.test(e.subject)));
 });
