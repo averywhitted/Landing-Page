@@ -716,6 +716,21 @@
       },
       focus() { $title.focus({ preventScroll: true }); },
       close: onClose,
+      // The pop-up was closed. Closed on "Your details": keep everything so
+      // reopening picks up right there. Closed earlier: start over next time
+      // (any answers already typed are kept for when they get back to details).
+      closed() {
+        if (state.step === 2) { saveForm(); return; }
+        state.service = null;
+        state.slot = null;
+        state.day = null;
+        state.week = null;
+        state.weekStart = today;
+        state.message = null;
+        loadToken++;
+        state.step = 0;
+        render();
+      },
     };
   }
 
@@ -790,7 +805,7 @@
     let downOnBackdrop = false;
     dialog.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === dialog; });
     dialog.addEventListener("click", (e) => { if (e.target === dialog && downOnBackdrop) dialog.close(); downOnBackdrop = false; });
-    dialog.addEventListener("close", unlockPage);
+    dialog.addEventListener("close", () => { unlockPage(); widget.closed(); });
     modal = { dialog, widget };
     return modal;
   }
