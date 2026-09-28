@@ -126,7 +126,7 @@
     const tabs = [
       ["sessions", "Sessions", upcoming],
       ["students", "Students", null],
-      ["bundles", "Bundles", data.packages.filter((p) => !p.cancelled).length],
+      ["bundles", "Bundles", data.packages.filter((p) => !p.cancelled && !p.expired).length],
       ["attention", "Needs attention", problemsCount()],
       ["settings", "Settings", null],
     ];
@@ -573,9 +573,36 @@
 
   /* ── Bundles ── */
 
+  let bundleShow = "active";
+  let bundleSort = "useby";
+  let bundleFilter = "";
+
   function renderBundles() {
-    if (!data.packages.length) return '<p class="empty">No active bundles.</p>';
-    return data.packages.map((p) => {
+    if (!data.packages.length) return '<p class="empty">No bundles yet.</p>';
+    const shows = {
+      active: ["Active", (p) => !p.cancelled && !p.expired],
+      expired: ["Expired", (p) => !p.cancelled && p.expired],
+      cancelled: ["Cancelled", (p) => p.cancelled],
+      all: ["All", () => true],
+    };
+    const sorts = {
+      useby: ["Use-by date", (p) => p.expiresAt || "9999"],
+      left: ["Sessions left", (p) => -p.remaining],
+      name: ["Name", (p) => p.name.toLowerCase()],
+      paid: ["Amount paid", (p) => -p.amountCents],
+    };
+    const q = bundleFilter.trim().toLowerCase();
+    const list = data.packages.filter(shows[bundleShow][1])
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q))
+      .sort((a, b) => { const x = sorts[bundleSort][1](a), y = sorts[bundleSort][1](b); return x < y ? -1 : x > y ? 1 : 0; });
+    const bar = `<div class="toolbar">
+      <input type="search" id="bundle-search" placeholder="Search by name or email" value="${esc(bundleFilter)}" aria-label="Search bundles">
+      <div class="filters">${Object.entries(shows).map(([k, [label]]) => `<button type="button" class="fchip" data-bfilter="${k}" aria-pressed="${bundleShow === k}">${label}</button>`).join("")}
+        <label class="sort-by">Sort <select id="bundle-sort">${Object.entries(sorts).map(([k, [label]]) => `<option value="${k}"${bundleSort === k ? " selected" : ""}>${label}</option>`).join("")}</select></label>
+      </div>
+    </div>`;
+    if (!list.length) return `${bar}<p class="empty">No ${bundleShow === "all" ? "" : `${shows[bundleShow][0].toLowerCase()} `}bundles${q ? " match that search" : ""}.</p>`;
+    return bar + list.map((p) => {
       const left = p.stripeUrl ? p.amountCents - (p.refundedCents || 0) : 0;
       bundlesKnown.set(p.id, { ...p, left });
       const refund = left > 0 ? btn("Refund", `data-refund-bundle="${esc(p.id)}"`, "Refund all or part of what they paid for this bundle") : "";
@@ -785,6 +812,18 @@
       attention: renderAttention, settings: renderSettings,
     }[tab]?.() ?? renderSessions();
     window.scrollTo(0, scroll);
+    const bsearch = document.getElementById("bundle-search");
+    if (bsearch) {
+      bsearch.addEventListener("input", () => {
+        bundleFilter = bsearch.value;
+        const pos = bsearch.selectionStart;
+        render();
+        const again = document.getElementById("bundle-search");
+        again.focus();
+        again.setSelectionRange(pos, pos);
+      });
+      document.getElementById("bundle-sort").addEventListener("change", (e) => { bundleSort = e.target.value; render(); });
+    }
     const search = document.getElementById("student-search");
     if (search) {
       search.addEventListener("input", () => {
@@ -1225,7 +1264,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
+    const t = e.target.closest("[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1269,6 +1308,7 @@
     else if (d.decline) openDecline(data.problems.refundRequests.find((x) => x.id === d.decline));
     else if (d.noshow) setNoShow(d.noshow, d.value === "1", t);
     else if (d.stopSeries) openStopSeries(d.stopSeries);
+    else if (d.bfilter) { bundleShow = d.bfilter; render(); }
     else if (d.export !== undefined) download(`/api/admin/export?from=${encodeURIComponent(document.getElementById("export-from").value)}&to=${encodeURIComponent(document.getElementById("export-to").value)}`, `sessions ${document.getElementById("export-from").value} to ${document.getElementById("export-to").value}.csv`, t);
     else if (d.backup !== undefined) download("/api/admin/backup", `booking backup ${nyParts(new Date().toISOString()).date}.json`, t);
     else if (d.move) openMove(d.move);
