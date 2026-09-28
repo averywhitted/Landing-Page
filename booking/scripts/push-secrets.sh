@@ -3,7 +3,8 @@
 # encrypted secret storage. Values are piped straight across: they are never
 # printed, written to a file, or stored in this repo.
 #
-#   ./scripts/push-secrets.sh
+#   ./scripts/push-secrets.sh          test mode (Stripe test key and webhook)
+#   ./scripts/push-secrets.sh live     live mode (real payments)
 #
 # Each line is: <Cloudflare secret name> <Keychain item name>
 set -u
@@ -22,9 +23,28 @@ push() {
   fi
 }
 
-echo "Copying keys from Keychain to Cloudflare..."
-push STRIPE_SECRET_KEY      stripe-test-key
-push STRIPE_WEBHOOK_SECRET  stripe-webhook-secret
+mode="${1:-test}"
+if [ "$mode" = "live" ]; then
+  stripe_key=stripe-live-key; stripe_hook=stripe-live-webhook-secret
+  # Never go live half set up: both live Stripe items must exist first.
+  for item in "$stripe_key" "$stripe_hook"; do
+    if ! security find-generic-password -s "$item" >/dev/null 2>&1; then
+      echo "Missing Keychain item \"$item\". Nothing was changed."; exit 1
+    fi
+  done
+  case "$(security find-generic-password -s "$stripe_key" -w)" in
+    rk_live_*|sk_live_*) ;;
+    *) echo "\"$stripe_key\" isn't a live Stripe key (it should start with rk_live_). Nothing was changed."; exit 1 ;;
+  esac
+elif [ "$mode" = "test" ]; then
+  stripe_key=stripe-test-key; stripe_hook=stripe-webhook-secret
+else
+  echo "Use: ./scripts/push-secrets.sh [test|live]"; exit 1
+fi
+
+echo "Copying $mode keys from Keychain to Cloudflare..."
+push STRIPE_SECRET_KEY      "$stripe_key"
+push STRIPE_WEBHOOK_SECRET  "$stripe_hook"
 push RESEND_API_KEY         resend-booking-key
 push ZOOM_ACCOUNT_ID        zoom-account-id
 push ZOOM_CLIENT_ID         zoom-client-id

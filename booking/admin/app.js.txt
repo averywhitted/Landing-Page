@@ -766,6 +766,8 @@
           ${btn("Download CSV", "data-export", "Every session and bundle in these dates, with amounts paid and refunded (opens in any spreadsheet app)")}
           ${btn("Download a backup", "data-backup", "A complete copy of the booking database, as one file")}
         </div>
+        ${data.mode === "test" ? `<div class="danger-zone"><p><strong>Before going live:</strong> clear all test bookings, bundles, students, and emails (your settings stay). Test sessions' calendar events and Zoom meetings are removed too. This only works in test mode.</p>
+          ${btn("Clear all test data", "data-clear-test", "Empty the booking system before going live", "danger")}</div>` : ""}
         <p class="hint">${data.backups.on ? `Automatic backups run nightly and are kept 30 days.${data.backups.last ? ` Last one: ${esc(whenShort(data.backups.last))}.` : " The first one runs tonight."}` : "Automatic nightly backups aren't switched on yet."}</p>
       </fieldset>
       <div class="save-row">
@@ -948,6 +950,19 @@
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err) { toast(err.message, true); }
     b.disabled = false;
+  }
+
+  function openClearTest() {
+    formDialog(`
+      <h2 id="dlg-title">Clear all test data?</h2>
+      <p>This permanently removes every booking, bundle, student, and email record, and deletes test sessions from your Coaching calendar and Zoom. Your settings stay. Nobody is emailed.</p>
+      <label class="field">Type CLEAR to confirm<input type="text" name="confirm" autocomplete="off" required></label>
+      <div class="row">${cancelButton()}<button type="submit" class="btn danger">Clear test data</button></div>`,
+    async (f) => {
+      const r = await api("POST", "/api/admin/clear-test-data", { confirm: f.confirm.value.trim() });
+      students = null;
+      await afterAction(r.message);
+    });
   }
 
   function openStopSeries(id) {
@@ -1264,7 +1279,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
+    const t = e.target.closest("[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1309,6 +1324,7 @@
     else if (d.noshow) setNoShow(d.noshow, d.value === "1", t);
     else if (d.stopSeries) openStopSeries(d.stopSeries);
     else if (d.bfilter) { bundleShow = d.bfilter; render(); }
+    else if (d.clearTest !== undefined) openClearTest();
     else if (d.export !== undefined) download(`/api/admin/export?from=${encodeURIComponent(document.getElementById("export-from").value)}&to=${encodeURIComponent(document.getElementById("export-to").value)}`, `sessions ${document.getElementById("export-from").value} to ${document.getElementById("export-to").value}.csv`, t);
     else if (d.backup !== undefined) download("/api/admin/backup", `booking backup ${nyParts(new Date().toISOString()).date}.json`, t);
     else if (d.move) openMove(d.move);

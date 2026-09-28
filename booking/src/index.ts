@@ -404,6 +404,12 @@ app.get("/api/admin/export", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/clear-test-data", async (c) => {
+  const body = await jsonBody(c);
+  try { const { clearTestData } = await import("./extras"); return c.json(await clearTestData(c.env, body.confirm)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.get("/api/admin/backup", async (c) => {
   const { backupJson } = await import("./extras");
   return c.body(await backupJson(c.env, Date.now()), 200, { "Content-Type": "application/json; charset=utf-8" });

@@ -1921,3 +1921,19 @@ test("repeating: a first session that's never paid drops the series", async () =
   await api.cron();
   assert.equal((db.prepare("SELECT status FROM series WHERE id = ?").get(sid) as any).status, "stopped");
 });
+
+test("clear test data: only in test mode, removes calendar events, keeps settings", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const eventUrl = row(id).calendar_event_url;
+  await api.call("POST", "/api/admin/settings", { headers: asAdmin(), body: { dayStartHour: 10, dayEndHour: 20, workDays: [1, 2, 3, 4, 5], bufferMinutes: 15, minNoticeHours: 24, slotStepMinutes: 30, packageValidDays: 90, busyCalendars: ["Professional", "Personal", "Coaching"], bookingCalendar: "Coaching", remindersEnabled: true } });
+  assert.equal((await api.call("POST", "/api/admin/clear-test-data", { headers: asAdmin(), body: { confirm: "nope" } })).status, 400);
+  const r = await api.call("POST", "/api/admin/clear-test-data", { headers: asAdmin(), body: { confirm: "CLEAR" } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM bookings").get() as any).n, 0);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM customers").get() as any).n, 0);
+  assert.ok(!world.state.calendarEvents.has(eventUrl), "test event removed from the calendar");
+  assert.equal((await api.call("GET", "/api/admin/settings", { headers: asAdmin() })).data.values.dayStartHour, 10, "settings kept");
+  env.STRIPE_SECRET_KEY = "rk_live_example";
+  assert.equal((await api.call("POST", "/api/admin/clear-test-data", { headers: asAdmin(), body: { confirm: "CLEAR" } })).status, 403, "never in live mode");
+});

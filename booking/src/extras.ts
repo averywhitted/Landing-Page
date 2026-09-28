@@ -161,3 +161,31 @@ export async function nightlyBackup(env: Env, now: number): Promise<string | nul
 export async function lastBackup(env: Env) {
   return (await env.DB.prepare("SELECT last_ok FROM health WHERE key = 'backup'").first<{ last_ok: string | null }>())?.last_ok ?? null;
 }
+
+/* ── Clearing test data (before going live) ── */
+
+// Only while the Stripe key is a test key. Removes every test session's
+// calendar event and Zoom meeting, then empties everything except Settings.
+export async function clearTestData(env: Env, confirm: unknown) {
+  if (!/^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "")) throw new BookingError(403, "This only works in test mode.");
+  if (confirm !== "CLEAR") throw new BookingError(400, 'Type CLEAR to confirm.');
+  const { deleteMeeting } = await import("./zoom");
+  const cal = calendarFor(env);
+  const leftovers = [
+    ...(await env.DB.prepare("SELECT calendar_event_url AS cal, zoom_meeting_id AS zoom FROM bookings WHERE calendar_event_url IS NOT NULL OR zoom_meeting_id IS NOT NULL").all<{ cal: string | null; zoom: string | null }>()).results,
+    ...(await env.DB.prepare("SELECT calendar_event_url AS cal, zoom_meeting_id AS zoom FROM groups WHERE calendar_event_url IS NOT NULL OR zoom_meeting_id IS NOT NULL").all<{ cal: string | null; zoom: string | null }>()).results,
+  ];
+  let problems = 0;
+  for (const l of leftovers) {
+    if (l.cal) await cal.deleteEvent(l.cal).catch(() => { problems++; });
+    if (l.zoom) await deleteMeeting(env, l.zoom).catch(() => { problems++; });
+  }
+  const tables = ["slot_claims", "credit_ledger", "refund_requests", "bookings", "groups", "series", "packages", "customers", "email_log", "processed_webhooks", "alerts_sent"];
+  await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+  return {
+    ok: true,
+    message: problems
+      ? `Test data cleared. ${problems} calendar event or Zoom meeting${problems === 1 ? "" : "s"} couldn't be removed; delete ${problems === 1 ? "it" : "them"} by hand.`
+      : "Test data cleared, including test calendar events and Zoom meetings.",
+  };
+}
