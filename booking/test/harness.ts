@@ -126,7 +126,7 @@ export function makeWorld() {
         const id = `cs_test_${++state.counter}`;
         const s = {
           id, status: "open", payment_status: "unpaid", url: `https://checkout.stripe.com/c/pay/${id}`,
-          amount_total: Number(f.line_items["0"].price_data.unit_amount), payment_intent: null,
+          amount_total: Number(f.line_items["0"].price_data.unit_amount), payment_intent: null, expires_at: Number(f.expires_at),
           metadata: f.metadata ?? {}, _form: f, _promo: f.discounts?.["0"]?.promotion_code ?? null,
         };
         state.stripeSessions.set(id, s);

@@ -51,12 +51,16 @@ export type CheckoutSession = {
   payment_status: string;
   payment_intent: string | null;
   amount_total: number | null;
+  expires_at?: number;     // seconds
   metadata: Record<string, string>;
 };
 
 export function createCheckoutSession(env: Env, p: {
   bookingId: string;            // the booking's id, or the bundle's id when kind is "package"
-  kind?: "booking" | "package";
+  // booking: a client booking a time; package: buying a bundle;
+  // payment: paying for a session Avery booked for them
+  kind?: "booking" | "package" | "payment";
+  idempotencyKey?: string;
   email: string;
   productName: string;
   description: string;
@@ -77,12 +81,21 @@ export function createCheckoutSession(env: Env, p: {
     success_url: p.successUrl,
     cancel_url: p.cancelUrl,
     line_items: { 0: { quantity: 1, price_data: { currency: "usd", unit_amount: p.amountCents, product_data: { name: p.productName, description: p.description } } } },
-    metadata: p.kind === "package" ? { package_id: p.bookingId } : { booking_id: p.bookingId },
+    metadata: metadataFor(p),
     payment_intent_data: {
-      metadata: p.kind === "package" ? { package_id: p.bookingId } : { booking_id: p.bookingId },
+      metadata: metadataFor(p),
       description: `${p.productName}, ${p.description}`,
     },
-  }, `checkout-${p.bookingId}`);
+  }, p.idempotencyKey ?? `checkout-${p.bookingId}`);
+}
+
+const metadataFor = (p: { kind?: string; bookingId: string }) =>
+  p.kind === "package" ? { package_id: p.bookingId }
+  : p.kind === "payment" ? { booking_id: p.bookingId, purpose: "payment" }
+  : { booking_id: p.bookingId };
+
+export function getCheckoutSession(env: Env, sessionId: string): Promise<CheckoutSession> {
+  return stripe<CheckoutSession>(env, "GET", `checkout/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 // Turns a code a client arrived with (e.g. ?promo=SPRING20) into Stripe's id
@@ -125,11 +138,13 @@ export async function expireCheckoutSession(env: Env, sessionId: string): Promis
   }
 }
 
+// Refunds one payment in full. Keyed by the payment, so the same payment is
+// never refunded twice (and Stripe refuses a second refund of it anyway).
 export function refundPayment(env: Env, paymentIntentId: string, bookingId: string) {
   return stripe<{ id: string; status: string }>(env, "POST", "refunds", {
     payment_intent: paymentIntentId,
     metadata: { booking_id: bookingId },
-  }, `refund-${bookingId}`);
+  }, `refund-${paymentIntentId}`);
 }
 
 // ── Webhook signatures ──

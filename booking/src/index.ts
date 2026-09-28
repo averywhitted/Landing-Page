@@ -14,7 +14,7 @@ import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
   releaseForSession, rescheduleBooking, retryConfirmations, sendReminders,
-  sendSessionReminders, runRetention, checkAlerts, retryRefunds, cleanUpCancelled,
+  sendSessionReminders, runRetention, checkAlerts, retryRefunds, cleanUpCancelled, claimedBlocks,
 } from "./bookings";
 import { validManageToken } from "./manage";
 import {
@@ -22,6 +22,10 @@ import {
   packageView, releasePackageForSession, retryPackageEmails, sendBundleReminders, sendExpiryNotices,
 } from "./packages";
 import { isPaid, promoCodeUsed } from "./stripe";
+import {
+  adminCancelGroup, adminCheckTime, adminCreateSession, adminMove, adminResendInvite, adminStudents, maintainGroups, recordPayment,
+  releaseUnpaid, sendPaymentReminders, startPayment,
+} from "./sessions";
 import {
   adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminRefundBooking,
   adminResetSettings, adminSaveSettings, requireAdmin,
@@ -126,14 +130,8 @@ app.get("/api/availability", async (c) => {
     : null;
   if (moving) busy = busy.filter((b) => b.uid !== moving.ics_uid);
 
-  // Blocks already taken by confirmed bookings or unexpired holds.
-  const rows = await c.env.DB.prepare(
-    `SELECT sc.slot_start FROM slot_claims sc JOIN bookings b ON b.id = sc.booking_id
-     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND b.id <> ?4
-       AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3))`,
-  ).bind(new Date(from - 86400000).toISOString(), new Date(to + 86400000).toISOString(), new Date(now).toISOString(), moving?.id ?? "")
-    .all<{ slot_start: string }>();
-  const claimed = new Set(rows.results.map((r) => r.slot_start));
+  // Blocks already taken by confirmed bookings, unexpired holds, and group sessions.
+  const claimed = await claimedBlocks(c.env, from - 86400000, to + 86400000, now, moving?.id);
 
   const slots = openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed, rules: cfg });
   const farAhead = to > now + RULES.farAheadNoticeDays * 86400000;
@@ -210,6 +208,14 @@ app.post("/api/manage/reschedule", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     return c.json(await rescheduleBooking(c.env, body.b, body.t, body.start, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+// Paying for a session Avery booked (the "Pay" link in the invite).
+app.post("/api/pay", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await startPayment(c.env, body.b, body.t, Date.now()));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
@@ -290,6 +296,39 @@ app.post("/api/admin/bookings/:id/refund", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// Booking students from the admin page.
+const ctxOf = (c: any) => ({ now: Date.now(), waitUntil: (p: Promise<unknown>) => c.executionCtx.waitUntil(p) });
+const jsonBody = async (c: any) => (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+app.get("/api/admin/students", async (c) => c.json(await adminStudents(c.env, Date.now())));
+
+app.post("/api/admin/check-time", async (c) => {
+  try { return c.json(await adminCheckTime(c.env, await jsonBody(c), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/sessions", async (c) => {
+  try { return c.json(await adminCreateSession(c.env, await jsonBody(c), ctxOf(c)), 201); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/bookings/:id/move", async (c) => {
+  try { return c.json(await adminMove(c.env, { bookingId: c.req.param("id") }, await jsonBody(c), ctxOf(c))); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/groups/:id/move", async (c) => {
+  try { return c.json(await adminMove(c.env, { groupId: c.req.param("id") }, await jsonBody(c), ctxOf(c))); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/groups/:id/cancel", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    return c.json(await adminCancelGroup(c.env, c.req.param("id"), { notifyClient: body.notifyClient === true, refund: body.refund === true }, ctxOf(c)));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/bookings/:id/resend", async (c) => {
+  try { return c.json(await adminResendInvite(c.env, c.req.param("id"))); } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/packages/:id/credits", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
@@ -339,7 +378,9 @@ app.post("/api/stripe/webhook", async (c) => {
       const s = event.data.object as unknown as CheckoutSession;
       if (isPaid(s)) {
         const promo = await promoCodeUsed(c.env, s.id);
-        if (s.metadata?.package_id) {
+        if (s.metadata?.purpose === "payment") {
+          await recordPayment(c.env, s, now, promo);
+        } else if (s.metadata?.package_id) {
           const id = await confirmPackage(c.env, s, now, promo);
           if (id) c.executionCtx.waitUntil(afterPackage(c.env, id));
         } else {
@@ -383,11 +424,14 @@ async function scheduled(env: Env): Promise<void> {
   const session = await run("session reminders", () => sendSessionReminders(env, now));
   const retried = await run("retries", () => retryConfirmations(env, now));
   const refunds = await run("refund retries", () => retryRefunds(env, now));
+  const unpaid = await run("unpaid deadlines", () => releaseUnpaid(env, now));
+  await run("payment reminders", () => sendPaymentReminders(env, now));
+  await run("group sessions", () => maintainGroups(env, now));
   await run("cancelled cleanup", () => cleanUpCancelled(env, now));
   await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
-  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, cleaned, alerts: alerts?.length };
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, cleaned, alerts: alerts?.length };
   if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 

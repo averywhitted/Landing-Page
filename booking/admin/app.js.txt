@@ -55,7 +55,8 @@
   }
 
   function renderTabs() {
-    const upcoming = data.bookings.filter((b) => b.status === "confirmed" && !b.past).length;
+    // A group session counts once, however many students it has.
+    const upcoming = new Set(data.bookings.filter((b) => b.status === "confirmed" && !b.past).map((b) => b.groupId || b.id)).size;
     const tabs = [
       ["upcoming", "Upcoming", upcoming],
       ["recent", "Recent", null],
@@ -66,11 +67,18 @@
     $tabs.innerHTML = tabs.map(([id, label, n]) => `<button class="tab" role="tab" aria-selected="${id === tab}" data-tab="${id}">${label}${n !== null ? `<span class="count${id === "attention" && n ? " alert" : ""}">${n}</span>` : ""}</button>`).join("");
   }
 
+  // How a booking is paid for, as shown on its card.
+  const payLabel = (b) => b.paid === "bundle" ? "Bundle credit"
+    : b.paid ? money(b.paid) + (b.promoCode ? ` (${b.promoCode})` : "")
+    : b.dueCents ? `${money(b.dueCents)} due${b.payBy ? ` by ${fmt(b.payBy, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
+    : "Free";
+
   function bookingCard(b) {
-    const paid = b.paid === "bundle" ? "Bundle credit" : b.paid ? money(b.paid) + (b.promoCode ? ` (${b.promoCode})` : "") : "Free";
+    const paid = payLabel(b);
     const chips = [
-      `<span class="chip">${esc(paid)}</span>`,
-      b.status === "cancelled" ? `<span class="chip bad">Cancelled${b.cancelReason === "avery_cancelled" ? " by you" : b.cancelReason === "client_cancelled" ? " by client" : ""}</span>` : "",
+      `<span class="chip${b.dueCents ? " bad" : ""}">${esc(paid)}</span>`,
+      b.byAvery ? '<span class="chip">Booked by you</span>' : "",
+      b.status === "cancelled" ? `<span class="chip bad">${b.unpaidReleased ? "Released (unpaid)" : `Cancelled${b.cancelReason === "avery_cancelled" ? " by you" : b.cancelReason === "client_cancelled" ? " by client" : ""}`}</span>` : "",
       b.refunded ? '<span class="chip ok">Refunded</span>' : "",
       b.refundOwed === "auto" ? '<span class="chip bad">Refund retrying</span>' : "",
       b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "",
@@ -91,6 +99,8 @@
       <div class="actions">
         ${b.zoomUrl && canCancel ? `<a class="btn primary" href="${esc(b.zoomUrl)}" target="_blank" rel="noopener">Zoom</a>` : ""}
         ${b.stripeUrl ? `<a class="btn" href="${esc(b.stripeUrl)}" target="_blank" rel="noopener">Stripe</a>` : ""}
+        ${canCancel ? `<button class="btn" data-move="${esc(b.id)}">Move</button>` : ""}
+        ${canCancel ? `<button class="btn" data-resend="${esc(b.id)}">Resend invite</button>` : ""}
         ${canCancel ? `<button class="btn danger" data-cancel="${esc(b.id)}">Cancel</button>` : ""}
         ${b.refundOwed === "choice" ? `<button class="btn" data-refund="${esc(b.id)}">Refund ${money(b.paid)}</button>` : ""}
       </div>
@@ -98,14 +108,51 @@
   }
 
   function byDay(list) {
+    // Students in the same group session become one card.
+    const items = [];
+    const groups = new Map();
+    for (const b of list) {
+      if (!b.groupId) { items.push({ start: b.start, one: b }); continue; }
+      if (!groups.has(b.groupId)) { const g = { start: b.start, seats: [] }; groups.set(b.groupId, g); items.push(g); }
+      groups.get(b.groupId).seats.push(b);
+    }
     let out = "";
     let last = "";
-    for (const b of list) {
-      const d = dayLabel(b.start);
+    for (const it of items) {
+      const d = dayLabel(it.start);
       if (d !== last) { out += `<p class="day">${esc(d)}</p>`; last = d; }
-      out += bookingCard(b);
+      out += it.one ? bookingCard(it.one) : groupCard(it.seats);
     }
     return out;
+  }
+
+  function groupCard(seats) {
+    const first = seats[0];
+    const active = seats.filter((s) => s.status === "confirmed");
+    const live = active.length && !first.past;
+    const rows = seats.map((s) => `<div class="seat">
+        <div class="who-line"><strong>${esc(s.name)}</strong>${s.pronouns ? ` (${esc(s.pronouns)})` : ""}<small><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></small></div>
+        <span class="chip${s.dueCents ? " bad" : s.paid && s.paid !== "bundle" ? " ok" : ""}">${esc(payLabel(s))}</span>
+        ${s.status === "cancelled" ? `<span class="chip bad">${s.unpaidReleased ? "Released (unpaid)" : "Cancelled"}</span>` : ""}
+        ${s.refunded ? '<span class="chip ok">Refunded</span>' : ""}
+        <span class="seat-actions">
+          ${s.refundOwed === "choice" ? `<button class="btn sm" data-refund="${esc(s.id)}">Refund ${money(s.paid)}</button>` : ""}
+          ${live && s.status === "confirmed" ? `<button class="btn sm" data-resend="${esc(s.id)}">Resend</button><button class="btn sm danger" data-cancel="${esc(s.id)}">Remove</button>` : ""}
+        </span>
+      </div>`).join("");
+    return `<div class="card${live ? "" : " muted"}">
+      <div class="time">${esc(clock(first.start))}<small>${minutes(first)} min</small></div>
+      <div class="who">
+        <strong>Group session</strong> <span class="sub" style="display:inline">&middot; ${active.length} of ${seats.length} student${seats.length === 1 ? "" : "s"}</span>
+        <div class="chips"><span class="chip ${first.inCalendar ? "ok" : "bad"}">${first.inCalendar ? "In calendar" : "Not in calendar"}</span></div>
+        <div style="margin-top:8px">${rows}</div>
+      </div>
+      <div class="actions">
+        ${first.zoomUrl && live ? `<a class="btn primary" href="${esc(first.zoomUrl)}" target="_blank" rel="noopener">Zoom</a>` : ""}
+        ${live ? `<button class="btn" data-move-group="${esc(first.groupId)}" data-start="${esc(first.start)}">Move</button>` : ""}
+        ${live ? `<button class="btn danger" data-cancel-group="${esc(first.groupId)}">Cancel session</button>` : ""}
+      </div>
+    </div>`;
   }
 
   function renderUpcoming() {
@@ -278,10 +325,13 @@
   /* Dialogs */
   function openCancel(id) {
     const b = data.bookings.find((x) => x.id === id);
+    $dlg.className = "";
     const bundle = b.paid === "bundle";
     $dlg.innerHTML = `<form method="dialog" id="cancel-form">
       <h2 id="dlg-title">Cancel this session?</h2>
-      <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. The calendar event and Zoom meeting will be removed and the time opens up again.</p>
+      <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. ${b.groupId
+        ? "They'll be removed from the group session; it goes ahead for everyone else (if they're the last one, the session is cancelled)."
+        : "The calendar event and Zoom meeting will be removed and the time opens up again."}</p>
       <label><input type="checkbox" name="notify" checked> Email ${esc(b.name.split(" ")[0])} a cancellation (with a calendar update)</label>
       ${bundle ? '<label><input type="checkbox" name="credit" checked> Return the session to their bundle</label>' : ""}
       ${!bundle && b.paid ? `<label><input type="checkbox" name="refund" checked> Refund ${money(b.paid)} in full now</label>
@@ -306,6 +356,206 @@
     });
   }
 
+  /* Booking students */
+
+  const HOURS = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")}`);
+  const hhmmLabel = (hm) => { const [h, m] = hm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+  const nyParts = (iso) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(Date.parse(iso)).map((x) => [x.type, x.value]));
+    return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+  };
+  const whenFields = (date, time) => `
+      <label>Date<input type="date" name="date" value="${esc(date)}" required></label>
+      <label>Start (Eastern)<select name="time">${HOURS.map((h) => `<option value="${h}"${h === time ? " selected" : ""}>${hhmmLabel(h)}</option>`).join("")}</select></label>`;
+
+  // Warnings for a time: calendar clashes, outside hours, short notice; overlaps block.
+  async function checkTime(form, extra) {
+    const out = form.querySelector(".warnings");
+    try {
+      const r = await api("POST", "/api/admin/check-time", { serviceId: form.serviceId?.value || extra.serviceId, date: form.date.value, time: form.time.value, ...extra });
+      const w = [];
+      if (r.overlapsBooking) w.push('<p class="bad">This overlaps another booking, so it can\'t be booked.</p>');
+      if (r.calendarClash && r.calendarClash.length) w.push(`<p>Something on your calendar is at ${r.calendarClash.map((c) => `${esc(clock(c.start))} to ${esc(clock(c.end))}`).join(", ")} (within your buffer). You can still book it.</p>`);
+      if (r.outsideHours) w.push("<p>This is outside your usual working hours.</p>");
+      if (r.withinNotice) w.push("<p>This is sooner than your usual notice period.</p>");
+      out.innerHTML = w.join("");
+      return !r.overlapsBooking;
+    } catch (err) { out.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return false; }
+  }
+
+  let services = null;
+  let students = null;
+  async function openNewSession() {
+    try {
+      [services, students] = await Promise.all([
+        services ?? fetch("/api/services", { cache: "no-store" }).then((r) => r.json()),
+        api("GET", "/api/admin/students"),
+      ]);
+    } catch (err) { toast(err.message, true); return; }
+    const lengths = services.filter((x) => x.kind !== "bundle");
+    const priceOf = (id) => lengths.find((x) => x.id === id)?.priceCents ?? 0;
+    const tomorrow = nyParts(new Date(Date.now() + 86400000).toISOString()).date;
+    $dlg.className = "wide";
+    $dlg.innerHTML = `<form method="dialog" id="new-form">
+      <h2 id="dlg-title">Book a student</h2>
+      <p>One student is a private session; two or more is a group session. Each student gets their own invite, with a link to pay if they owe anything.</p>
+      <div class="fgrid">
+        <label>Length<select name="serviceId">${lengths.map((x) => `<option value="${esc(x.id)}"${x.id === "coaching-60" ? " selected" : ""}>${x.durationMinutes} min${x.kind === "intro" ? " (intro)" : ""}</option>`).join("")}</select></label>
+        ${whenFields(tomorrow, "10:00")}
+      </div>
+      <div class="warnings"></div>
+      <div id="students"></div>
+      <p><button type="button" class="btn" id="add-student">+ Add another student</button></p>
+      <div class="fgrid">
+        <label>Payment deadline<select name="payBy">
+          <option value="none">No deadline (reminder only)</option>
+          <option value="after24">24 hours after booking</option>
+          <option value="after48">48 hours after booking</option>
+          <option value="before24">24 hours before the session</option>
+        </select></label>
+      </div>
+      <p class="hint" style="font-size:.75rem;margin:-4px 0 10px">With a deadline, anyone who hasn't paid by then is released automatically and emailed.</p>
+      <label class="field">Note in the invite (optional)<textarea name="message" maxlength="1000" placeholder="What to prepare, sides to read..."></textarea></label>
+      <div class="row"><button class="btn" value="keep">Never mind</button><button class="btn primary" value="go">Book and send invites</button></div>
+    </form>
+    <datalist id="known-emails">${students.map((x) => `<option value="${esc(x.email)}">${esc(x.name)}</option>`).join("")}</datalist>`;
+    const form = $dlg.querySelector("form");
+    const list = form.querySelector("#students");
+    const addRow = () => {
+      const div = document.createElement("div");
+      div.className = "student";
+      div.innerHTML = `<button type="button" class="remove" aria-label="Remove this student">&times;</button>
+        <div class="fgrid">
+          <label>Email<input type="email" name="email" list="known-emails" required autocomplete="off"></label>
+          <label>Name<input type="text" name="name" required maxlength="120"></label>
+          <label>Pronouns<input type="text" name="pronouns" maxlength="40" placeholder="optional"></label>
+          <label>Payment<select name="pay"><option value="price">Pays a price</option></select></label>
+          <label class="price">Price ($)<input type="number" name="price" min="0" step="0.01" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
+        </div>`;
+      list.appendChild(div);
+      const email = div.querySelector("[name=email]");
+      email.addEventListener("change", () => fillStudent(div));
+      div.querySelector("[name=pay]").addEventListener("change", () => { div.querySelector(".price").hidden = div.querySelector("[name=pay]").value !== "price"; });
+      div.querySelector(".remove").addEventListener("click", () => { if (list.children.length > 1) div.remove(); });
+      email.focus();
+    };
+    // A known student: fill in their details and offer their bundle.
+    const fillStudent = (div) => {
+      const known = students.find((x) => x.email.toLowerCase() === div.querySelector("[name=email]").value.trim().toLowerCase());
+      const pay = div.querySelector("[name=pay]");
+      if (known) {
+        if (!div.querySelector("[name=name]").value) div.querySelector("[name=name]").value = known.name;
+        if (!div.querySelector("[name=pronouns]").value && known.pronouns) div.querySelector("[name=pronouns]").value = known.pronouns;
+      }
+      const bundles = known && form.serviceId.value === "coaching-60" ? known.bundles : [];
+      pay.innerHTML = '<option value="price">Pays a price</option>'
+        + bundles.map((x) => `<option value="${esc(x.id)}">Use bundle (${x.remaining} left)</option>`).join("");
+      div.querySelector(".price").hidden = false;
+    };
+    form.querySelector("#add-student").addEventListener("click", addRow);
+    addRow();
+    const recheck = () => checkTime(form, {});
+    form.serviceId.addEventListener("change", () => {
+      for (const d of list.children) { d.querySelector("[name=price]").placeholder = (priceOf(form.serviceId.value) / 100).toFixed(2); fillStudent(d); }
+      recheck();
+    });
+    form.date.addEventListener("change", recheck);
+    form.time.addEventListener("change", recheck);
+    recheck();
+    $dlg.showModal();
+    form.addEventListener("submit", async (e) => {
+      if (e.submitter?.value !== "go") return;
+      e.preventDefault();
+      if (!form.reportValidity()) return;
+      const body = {
+        serviceId: form.serviceId.value, date: form.date.value, time: form.time.value,
+        payBy: form.payBy.value, message: form.message.value,
+        students: [...list.children].map((d) => {
+          const pay = d.querySelector("[name=pay]").value;
+          const price = d.querySelector("[name=price]").value;
+          return {
+            name: d.querySelector("[name=name]").value, email: d.querySelector("[name=email]").value.trim(),
+            pronouns: d.querySelector("[name=pronouns]").value,
+            ...(pay === "price" ? (price === "" ? {} : { priceCents: Math.round(Number(price) * 100) }) : { packageId: pay }),
+          };
+        }),
+      };
+      e.submitter.disabled = true;
+      try {
+        await api("POST", "/api/admin/sessions", body);
+        $dlg.close();
+        toast(body.students.length > 1 ? "Group session booked. Invites sent." : "Booked. Invite sent.");
+        load();
+      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
+    });
+  }
+
+  function openMove(target, startIso, mins) {
+    const now = nyParts(startIso);
+    $dlg.className = "";
+    $dlg.innerHTML = `<form method="dialog">
+      <h2 id="dlg-title">Move this session</h2>
+      <p>Currently ${esc(dayLabel(startIso))} at ${esc(clock(startIso))} (${mins} min). ${target.groupId ? "Every student" : "The student"} gets an updated invite.</p>
+      <div class="fgrid">${whenFields(now.date, now.time)}</div>
+      <div class="warnings"></div>
+      <div class="row"><button class="btn" value="keep">Never mind</button><button class="btn primary" value="go">Move it</button></div>
+    </form>`;
+    const form = $dlg.querySelector("form");
+    const b = data.bookings.find((x) => (target.groupId ? x.groupId === target.groupId : x.id === target.bookingId));
+    const extra = { serviceId: b.serviceId, ...(target.groupId ? { movingGroupId: target.groupId } : { movingBookingId: target.bookingId }) };
+    const recheck = () => checkTime(form, extra);
+    form.date.addEventListener("change", recheck);
+    form.time.addEventListener("change", recheck);
+    $dlg.showModal();
+    form.addEventListener("submit", async (e) => {
+      if (e.submitter?.value !== "go") return;
+      e.preventDefault();
+      e.submitter.disabled = true;
+      try {
+        const path = target.groupId ? `/api/admin/groups/${encodeURIComponent(target.groupId)}/move` : `/api/admin/bookings/${encodeURIComponent(target.bookingId)}/move`;
+        await api("POST", path, { date: form.date.value, time: form.time.value });
+        $dlg.close();
+        toast("Moved. Updated invites sent.");
+        load();
+      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
+    });
+  }
+
+  function openCancelGroup(groupId) {
+    const seats = data.bookings.filter((x) => x.groupId === groupId && x.status === "confirmed");
+    const paidCount = seats.filter((x) => x.paid && x.paid !== "bundle").length;
+    $dlg.className = "";
+    $dlg.innerHTML = `<form method="dialog">
+      <h2 id="dlg-title">Cancel this group session?</h2>
+      <p>${esc(dayLabel(seats[0].start))} at ${esc(clock(seats[0].start))} &middot; ${seats.length} student${seats.length === 1 ? "" : "s"}. The calendar event and Zoom meeting will be removed and the time opens up again. Bundle credits go back.</p>
+      <label><input type="checkbox" name="notify" checked> Email everyone a cancellation</label>
+      ${paidCount ? `<label><input type="checkbox" name="refund" checked> Refund the ${paidCount} student${paidCount === 1 ? "" : "s"} who paid, in full</label>` : ""}
+      <div class="row"><button class="btn" value="keep">Keep it</button><button class="btn danger" value="go">Cancel session</button></div>
+    </form>`;
+    $dlg.showModal();
+    $dlg.querySelector("form").addEventListener("submit", async (e) => {
+      if (e.submitter?.value !== "go") return;
+      e.preventDefault();
+      e.submitter.disabled = true;
+      try {
+        await api("POST", `/api/admin/groups/${encodeURIComponent(groupId)}/cancel`, { notifyClient: e.target.notify.checked, refund: !!e.target.refund?.checked });
+        $dlg.close();
+        toast("Group session cancelled.");
+        load();
+      } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
+    });
+  }
+
+  async function resend(id, btn) {
+    btn.disabled = true;
+    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`); toast("Invite sent again."); }
+    catch (err) { toast(err.message, true); }
+    btn.disabled = false;
+  }
+
+  document.getElementById("new-session").addEventListener("click", openNewSession);
+
   async function refundNow(id, btn) {
     const b = data.bookings.find((x) => x.id === id);
     if (!confirm(`Refund ${money(b.paid)} to ${b.name} in full?`)) return;
@@ -319,6 +569,7 @@
 
   function openCredit(id, delta) {
     const p = data.packages.find((x) => x.id === id);
+    $dlg.className = "";
     $dlg.innerHTML = `<form method="dialog">
       <h2 id="dlg-title">${delta > 0 ? "Add a session" : "Remove a session"}</h2>
       <p>${esc(p.name)} &middot; ${esc(p.bundle)} &middot; ${p.remaining} left now.</p>
@@ -341,6 +592,7 @@
 
   function openExtend(id) {
     const p = data.packages.find((x) => x.id === id);
+    $dlg.className = "";
     $dlg.innerHTML = `<form method="dialog">
       <h2 id="dlg-title">Extend use-by date</h2>
       <p>${esc(p.name)} &middot; currently ${esc(p.expiresAt ? fmt(p.expiresAt, { month: "long", day: "numeric" }) : "")}.</p>
@@ -364,13 +616,17 @@
   }
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-tab],[data-cancel],[data-credit],[data-extend],[data-refund]");
+    const t = e.target.closest("[data-tab],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-move-group],[data-cancel-group],[data-resend]");
     if (!t) return;
     if (t.dataset.tab) { tab = t.dataset.tab; history.replaceState(null, "", `#${tab}`); render(); }
     else if (t.dataset.cancel) openCancel(t.dataset.cancel);
     else if (t.dataset.credit) openCredit(t.dataset.credit, Number(t.dataset.delta));
     else if (t.dataset.extend) openExtend(t.dataset.extend);
     else if (t.dataset.refund) refundNow(t.dataset.refund, t);
+    else if (t.dataset.move) { const b = data.bookings.find((x) => x.id === t.dataset.move); openMove({ bookingId: b.id }, b.start, minutes(b)); }
+    else if (t.dataset.moveGroup) { const b = data.bookings.find((x) => x.groupId === t.dataset.moveGroup); openMove({ groupId: b.groupId }, b.start, minutes(b)); }
+    else if (t.dataset.cancelGroup) openCancelGroup(t.dataset.cancelGroup);
+    else if (t.dataset.resend) resend(t.dataset.resend, t);
   });
 
   document.addEventListener("submit", (e) => {

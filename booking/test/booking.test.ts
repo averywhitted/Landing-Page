@@ -1269,3 +1269,261 @@ test("calendar invites: a name with a colon or quotes stays one name", async () 
     attendee: { name: 'Dr: "Kim", Jr.', email: "kim@example.com" } });
   assert.match(ics, /ATTENDEE;CN="Dr: Kim, Jr\.";ROLE=/);
 });
+
+/* ── Sessions Avery books for students ── */
+
+const nyDate = (daysAhead: number) => etDate(Date.now() + daysAhead * DAY);
+function adminBook(body: Record<string, unknown>) {
+  return api.call("POST", "/api/admin/sessions", {
+    headers: asAdmin(),
+    body: { serviceId: "coaching-60", date: nyDate(4), time: "14:00", payBy: "none", ...body },
+  });
+}
+const student = (name: string, email: string, extra: Record<string, unknown> = {}) => ({ name, email, ...extra });
+const inviteFor = (email: string) => world.state.emails.find((e) => e.to[0] === email && /^(Session booked|You're booked)/.test(e.subject))!;
+const linkIn = (text: string) => {
+  const m = text.match(/book\/manage\/\?b=([0-9a-f-]{36})&t=([\w-]{32})/);
+  assert.ok(m, "email has a manage link");
+  return { b: m![1], t: m![2] };
+};
+const bookingByEmail = (email: string) => db.prepare(
+  "SELECT b.* FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE c.email = ? ORDER BY b.created_at DESC LIMIT 1").get(email) as any;
+
+test("book a student: time reserved, invite has a pay link, paying marks it paid", async () => {
+  adminEnv();
+  assert.equal((await api.call("POST", "/api/admin/sessions", { body: {} })).status, 403, "admin only");
+  const r = await adminBook({ students: [student("Riley Park", "riley@example.com", { priceCents: 9000 })], message: "Bring the Chekhov sides." });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const row0 = row(r.data.bookingId);
+  assert.equal(row0.status, "confirmed");
+  assert.equal(row0.created_by, "admin");
+  assert.equal(row0.price_cents, 9000);
+  assert.equal(row0.amount_cents, 0);
+  assert.equal(claims(row0.id), 4, "just the hour, no buffer");
+  assert.ok(row0.calendar_event_url, "on the Coaching calendar");
+  assert.match(world.state.calendarEvents.get(row0.calendar_event_url)!, /Not paid yet: 90\.00 USD due/);
+
+  const invite = inviteFor("riley@example.com");
+  assert.match(invite.subject, /^Session booked, payment due: 1 hour session/);
+  assert.match(invite.text, /Bring the Chekhov sides\./);
+  assert.match(invite.text, /Please pay \$90 before your session/);
+  assert.match(invite.text, /&pay=1/);
+  assert.ok(!world.state.emails.some((e) => /^New booking/.test(e.subject)), "Avery isn't emailed about her own booking");
+  const { b, t } = linkIn(invite.text);
+
+  const view = await api.call("GET", `/api/manage?b=${b}&t=${t}`);
+  assert.equal(view.data.payment.dueCents, 9000);
+  const pay = await api.call("POST", "/api/pay", { body: { b, t } });
+  assert.equal(pay.status, 200, JSON.stringify(pay.data));
+  const s = world.state.stripeSessions.get(row(row0.id).stripe_checkout_session_id)!;
+  assert.equal(s.amount_total, 9000);
+  assert.equal(s.metadata.purpose, "payment");
+  assert.equal((await api.call("POST", "/api/pay", { body: { b, t } })).data.checkoutUrl, pay.data.checkoutUrl, "same checkout reused");
+
+  await api.webhook("checkout.session.completed", paid(s));
+  const after = row(row0.id);
+  assert.ok(after.paid_at);
+  assert.equal(after.amount_cents, 9000);
+  assert.equal(after.status, "confirmed");
+  assert.ok(world.state.emails.some((e) => e.subject.startsWith("Payment received: 1 hour session") && e.to[0] === "riley@example.com"));
+  assert.ok(world.state.emails.some((e) => e.subject.startsWith("Paid: Riley Park, $90")));
+  assert.match(world.state.calendarEvents.get(after.calendar_event_url)!, /Paid 90\.00 USD/);
+  assert.equal((await api.call("POST", "/api/pay", { body: { b, t } })).status, 409, "nothing left to pay");
+  assert.equal((await api.call("GET", `/api/manage?b=${b}&t=${t}`)).data.payment, null);
+});
+
+test("book a student: a free session has no pay link; overlapping another booking is refused", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Free Student", "free@example.com", { priceCents: 0 })] });
+  assert.equal(r.status, 201);
+  const invite = inviteFor("free@example.com");
+  assert.match(invite.subject, /^You're booked/);
+  assert.doesNotMatch(invite.text, /pay=1|Please pay/);
+  const clash = await adminBook({ time: "14:30", students: [student("Other", "other@example.com")] });
+  assert.equal(clash.status, 409);
+  assert.match(clash.data.error, /overlaps another booking/);
+  const backToBack = await adminBook({ time: "15:00", students: [student("Next", "next@example.com")] });
+  assert.equal(backToBack.status, 201, "Avery can book back to back");
+});
+
+test("book a student: pay-by deadline releases unpaid sessions automatically; a deadline that's too soon is refused", async () => {
+  adminEnv();
+  const soon = await adminBook({ date: etDate(Date.now() + 3 * 3600000), time: "23:45", payBy: "before24", students: [student("A", "a@example.com")] });
+  assert.equal(soon.status, 400, "24 hours before a session that's sooner than that");
+  const r = await adminBook({ payBy: "after24", students: [student("Late Payer", "late@example.com")] });
+  assert.equal(r.status, 201);
+  const id = r.data.bookingId;
+  const eventUrl = row(id).calendar_event_url;
+  assert.ok(row(id).pay_by);
+  assert.match(inviteFor("late@example.com").text, /If it isn't paid by then, the session is released/);
+  await api.call("POST", "/api/pay", { body: linkIn(inviteFor("late@example.com").text) });
+  db.prepare("UPDATE bookings SET pay_by = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), id);
+  await api.cron();
+  const after = row(id);
+  assert.equal(after.status, "cancelled");
+  assert.equal(after.cancel_reason, "unpaid");
+  assert.equal(claims(id), 0, "time freed");
+  assert.ok(!world.state.calendarEvents.has(eventUrl), "off the calendar");
+  assert.equal(world.state.stripeSessions.get(after.stripe_checkout_session_id)!.status, "expired", "payment page closed");
+  assert.ok(world.state.emails.some((e) => e.to[0] === "late@example.com" && /^Released: /.test(e.subject)));
+  assert.ok(world.state.emails.some((e) => /^Released \(unpaid\): Late Payer/.test(e.subject)));
+});
+
+test("payment reminder: one, a day before the deadline", async () => {
+  adminEnv();
+  const r = await adminBook({ payBy: "after48", students: [student("Rem Inder", "rem@example.com")] });
+  const id = r.data.bookingId;
+  db.prepare("UPDATE bookings SET created_at = ?, pay_by = ? WHERE id = ?")
+    .run(new Date(Date.now() - 10 * 3600000).toISOString(), new Date(Date.now() + 20 * 3600000).toISOString(), id);
+  await api.cron();
+  await api.cron();
+  const reminders = world.state.emails.filter((e) => /^Payment due: /.test(e.subject));
+  assert.equal(reminders.length, 1);
+  assert.match(reminders[0].text, /pay=1/);
+});
+
+test("group session: one time, own prices and links; leaving keeps it going; last one out frees the time", async () => {
+  adminEnv();
+  const r = await adminBook({
+    students: [
+      student("Ana Lee", "ana@example.com", { priceCents: 5000 }),
+      student("Ben Ortiz", "ben@example.com", { priceCents: 0 }),
+      student("Cam Diaz", "cam@example.com", { priceCents: 7500 }),
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const g = db.prepare("SELECT * FROM groups WHERE id = ?").get(r.data.groupId) as any;
+  assert.equal(g.status, "active");
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM slot_claims WHERE group_id = ?").get(g.id) as any).n, 4);
+  assert.equal(world.state.calendarEvents.size, 1, "one calendar event for the group");
+  const event = world.state.calendarEvents.get(g.calendar_event_url)!.replace(/\r\n[ \t]/g, "");
+  assert.match(event, /SUMMARY:Group coaching: Ana\\, Ben\\, Cam \(1 hour\)/);
+  assert.match(event, /Ana Lee\\, ana@example.com: \$50\.00 due/);
+  assert.match(event, /Ben Ortiz\\, ben@example.com: free/);
+
+  const ana = inviteFor("ana@example.com");
+  assert.match(ana.text, /group coaching session/);
+  assert.match(ana.text, /Please pay \$50/);
+  assert.doesNotMatch(inviteFor("ben@example.com").text, /Please pay/);
+  assert.doesNotMatch(ana.text + ana.html, /Ben|Cam/, "students don't see each other's details");
+  const start = row(bookingByEmail("ana@example.com").id).start_utc;
+  assert.ok(!(await openSlots("coaching-60", 4)).includes(start), "time isn't offered to others");
+
+  const a = linkIn(ana.text);
+  const view = await api.call("GET", `/api/manage?b=${a.b}&t=${a.t}`);
+  assert.equal(view.data.group, true);
+  assert.equal(view.data.canReschedule, false);
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { ...a, start: new Date(Date.parse(start) + 3 * DAY).toISOString() } })).status, 403);
+
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: a })).status, 200);
+  assert.equal((db.prepare("SELECT status FROM groups WHERE id = ?").get(g.id) as any).status, "active", "goes ahead for the others");
+  assert.doesNotMatch(world.state.calendarEvents.get(g.calendar_event_url)!, /Ana Lee/, "calendar event updated");
+
+  for (const email of ["ben@example.com", "cam@example.com"]) {
+    assert.equal((await api.call("POST", "/api/manage/cancel", { body: linkIn(inviteFor(email).text) })).status, 200);
+  }
+  assert.equal((db.prepare("SELECT status FROM groups WHERE id = ?").get(g.id) as any).status, "cancelled");
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM slot_claims WHERE group_id = ?").get(g.id) as any).n, 0);
+  assert.equal(world.state.calendarEvents.size, 0, "removed from the calendar");
+  assert.ok((await openSlots("coaching-60", 4)).includes(start), "time is bookable again");
+});
+
+test("group session: an unpaid student is released at the deadline; the session goes ahead for the rest", async () => {
+  adminEnv();
+  const r = await adminBook({ payBy: "after24", students: [student("Pay Er", "payer@example.com"), student("No Pay", "nopay@example.com")] });
+  const payer = linkIn(inviteFor("payer@example.com").text);
+  await api.call("POST", "/api/pay", { body: payer });
+  await api.webhook("checkout.session.completed", paid(world.state.stripeSessions.get(row(payer.b).stripe_checkout_session_id)!));
+  db.prepare("UPDATE bookings SET pay_by = ? WHERE group_id = ?").run(new Date(Date.now() - 60000).toISOString(), r.data.groupId);
+  await api.cron();
+  assert.equal(row(payer.b).status, "confirmed", "paid: kept");
+  assert.equal(bookingByEmail("nopay@example.com").status, "cancelled");
+  assert.equal((db.prepare("SELECT status FROM groups WHERE id = ?").get(r.data.groupId) as any).status, "active");
+  assert.match(world.state.emails.find((e) => /^Released \(unpaid\): No Pay/.test(e.subject))!.text, /goes ahead for everyone else/);
+});
+
+test("group session: Avery moves it (everyone gets the new time) and cancels it (paid students refunded once)", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Dee One", "dee@example.com"), student("Eli Two", "eli@example.com", { priceCents: 0 })] });
+  const dee = linkIn(inviteFor("dee@example.com").text);
+  await api.call("POST", "/api/pay", { body: dee });
+  await api.webhook("checkout.session.completed", paid(world.state.stripeSessions.get(row(dee.b).stripe_checkout_session_id)!));
+  world.state.emails.length = 0;
+
+  const move = await api.call("POST", `/api/admin/groups/${r.data.groupId}/move`, { headers: asAdmin(), body: { date: nyDate(6), time: "10:15" } });
+  assert.equal(move.status, 200, JSON.stringify(move.data));
+  const moved = db.prepare("SELECT * FROM groups WHERE id = ?").get(r.data.groupId) as any;
+  assert.equal(moved.start_utc, move.data.start);
+  assert.equal(row(dee.b).start_utc, move.data.start, "students' bookings moved too");
+  assert.equal(world.state.emails.filter((e) => /^Rescheduled: /.test(e.subject)).length, 2);
+  assert.equal(world.state.calendarEvents.size, 1);
+
+  const cancel = await api.call("POST", `/api/admin/groups/${r.data.groupId}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: true } });
+  assert.equal(cancel.status, 200, JSON.stringify(cancel.data));
+  assert.equal((db.prepare("SELECT status FROM groups WHERE id = ?").get(r.data.groupId) as any).status, "cancelled");
+  assert.equal(world.state.refunds.length, 1, "only the student who paid");
+  assert.equal(world.state.calendarEvents.size, 0);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM slot_claims WHERE group_id = ?").get(r.data.groupId) as any).n, 0);
+});
+
+test("book a student with their bundle: uses a credit, no payment; cancelling in time gives it back", async () => {
+  adminEnv();
+  const { pkg } = await paidBundle();
+  const students = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
+  const jamie = students.find((s: any) => s.email === "jamie@example.com");
+  assert.equal(jamie.bundles[0].remaining, 4);
+  assert.equal((await adminBook({ serviceId: "coaching-30", students: [student("Jamie Rivera", "jamie@example.com", { packageId: jamie.bundles[0].id })] })).status, 400, "1 hour only");
+  assert.equal((await adminBook({ students: [student("Someone", "someone@example.com", { packageId: jamie.bundles[0].id })] })).status, 400, "only its owner");
+  const r = await adminBook({ students: [student("Jamie Rivera", "jamie@example.com", { packageId: jamie.bundles[0].id })] });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(pkg().credits_used, 1);
+  const invite = inviteFor("jamie@example.com");
+  assert.doesNotMatch(invite.text, /Please pay/);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: linkIn(invite.text) })).status, 200);
+  assert.equal(pkg().credits_used, 0);
+});
+
+test("payments: paying after the session was cancelled, or paying twice, is refunded automatically", async () => {
+  adminEnv();
+  await adminBook({ students: [student("Pat Late", "pat@example.com")] });
+  const pat = linkIn(inviteFor("pat@example.com").text);
+  await api.call("POST", "/api/pay", { body: pat });
+  const s1 = world.state.stripeSessions.get(row(pat.b).stripe_checkout_session_id)!;
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: pat })).status, 200);
+  assert.equal(s1.status, "expired", "open payment page closed on cancel");
+  await api.webhook("checkout.session.completed", paid(s1));
+  assert.equal(row(pat.b).status, "cancelled", "stays cancelled");
+  assert.equal(world.state.refunds.filter((x) => x.payment_intent === `pi_${s1.id}`).length, 1);
+  assert.ok(world.state.emails.some((e) => e.subject === "About your payment: you've been refunded"));
+
+  await adminBook({ time: "16:00", students: [student("Twice Payer", "twice@example.com")] });
+  const tw = linkIn(inviteFor("twice@example.com").text);
+  await api.call("POST", "/api/pay", { body: tw });
+  const first = world.state.stripeSessions.get(row(tw.b).stripe_checkout_session_id)!;
+  first.expires_at = Math.floor(Date.now() / 1000) + 60; // about to expire, so a new one is made
+  await api.call("POST", "/api/pay", { body: tw });
+  const second = world.state.stripeSessions.get(row(tw.b).stripe_checkout_session_id)!;
+  assert.notEqual(first.id, second.id);
+  await api.webhook("checkout.session.completed", paid(first));
+  await api.webhook("checkout.session.completed", paid(second));
+  assert.equal(row(tw.b).status, "confirmed");
+  assert.equal(row(tw.b).stripe_payment_intent_id, `pi_${first.id}`);
+  assert.equal(world.state.refunds.filter((x) => x.payment_intent === `pi_${second.id}`).length, 1, "the second payment refunded");
+});
+
+test("check a time: warns about calendar clashes, hours and notice; flags overlaps", async () => {
+  adminEnv();
+  const day = nyDate(4).replace(/-/g, "");
+  world.state.busy = [{ calendar: "Personal", ics: `BEGIN:VEVENT\r\nUID:x\r\nDTSTART;TZID=America/New_York:${day}T150000\r\nDTEND;TZID=America/New_York:${day}T160000\r\nEND:VEVENT` }];
+  const check = (time: string, extra: Record<string, unknown> = {}) =>
+    api.call("POST", "/api/admin/check-time", { headers: asAdmin(), body: { serviceId: "coaching-60", date: nyDate(4), time, ...extra } }).then((r) => r.data);
+  const clash = await check("14:30");
+  assert.equal(clash.calendarClash.length, 1);
+  assert.equal(clash.overlapsBooking, false);
+  const late = await check("22:00");
+  assert.equal(late.outsideHours, true);
+  await adminBook({ time: "10:00", students: [student("Taken", "taken@example.com")] });
+  assert.equal((await check("10:30")).overlapsBooking, true);
+  const id = bookingByEmail("taken@example.com").id;
+  assert.equal((await check("10:30", { movingBookingId: id })).overlapsBooking, false, "its own time doesn't count when moving it");
+});

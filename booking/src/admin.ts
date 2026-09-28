@@ -12,7 +12,7 @@ import type { Env } from "./env";
 import { findService } from "./services";
 import { RULES } from "./settings";
 import { iso } from "./time";
-import { BookingError, CLIENT_COLUMNS, ONCE_ONLY, afterCancelShared, issueRefund, loadBooking, serviceLabel } from "./bookings";
+import { BookingError, CLIENT_COLUMNS, ONCE_ONLY, afterCancelShared, dueCents, issueRefund, loadBooking, serviceLabel } from "./bookings";
 import { SettingsError, defaults, loadScheduling, resetScheduling, saveScheduling, validate } from "./config";
 import { calendarFor } from "./calendar";
 
@@ -72,10 +72,12 @@ export async function requireAdmin(env: Env, req: Request): Promise<string> {
 export async function adminOverview(env: Env, now: number) {
   const bookings = await env.DB.prepare(
     `SELECT b.id, b.service_id, b.start_utc, b.end_utc, b.status, b.cancel_reason, b.amount_cents, b.promo_code,
-            b.package_id, b.zoom_join_url, b.calendar_event_url IS NOT NULL AS in_calendar,
+            b.package_id, COALESCE(g.zoom_join_url, b.zoom_join_url) AS zoom_join_url,
+            COALESCE(g.calendar_event_url, b.calendar_event_url) IS NOT NULL AS in_calendar, b.calendar_event_url IS NOT NULL AS own_calendar,
+            b.group_id, b.created_by, b.price_cents, b.paid_at, b.pay_by, b.invite_message,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
             b.refund_requested_at, b.refund_error, ${CLIENT_COLUMNS("b")}
-     FROM bookings b JOIN customers c ON c.id = b.customer_id
+     FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
      ORDER BY b.start_utc`,
   ).bind(iso(now - 30 * DAY), iso(now + 120 * DAY)).all<Record<string, any>>();
@@ -107,12 +109,19 @@ export async function adminOverview(env: Env, now: number) {
     bookings: bookings.results.map((b) => ({
       id: b.id,
       service: serviceLabel(findService(b.service_id)!),
+      serviceId: b.service_id,
       start: b.start_utc,
       end: b.end_utc,
       status: b.status,
       cancelReason: b.cancel_reason,
       past: Date.parse(b.end_utc) <= now,
       paid: b.package_id ? "bundle" : b.amount_cents,
+      groupId: b.group_id,
+      byAvery: b.created_by === "admin",
+      priceCents: b.price_cents,
+      dueCents: dueCents(b as any),
+      payBy: b.pay_by,
+      unpaidReleased: b.cancel_reason === "unpaid",
       promoCode: b.promo_code,
       zoomUrl: b.zoom_join_url,
       inCalendar: !!b.in_calendar,
@@ -152,7 +161,7 @@ export async function adminOverview(env: Env, now: number) {
       stuck: bookings.results.filter((b) => b.status === "confirmed" && Date.parse(b.end_utc) > now && (!b.in_calendar || !b.emailed))
         .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
       // Cancelled but still on the Coaching calendar (removal keeps retrying).
-      leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.in_calendar && Date.parse(b.end_utc) > now)
+      leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.own_calendar && Date.parse(b.end_utc) > now)
         .map((b) => ({ id: b.id, name: b.name, start: b.start_utc })),
       activeHolds: holds?.n ?? 0,
     },

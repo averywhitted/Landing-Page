@@ -24,6 +24,11 @@ export type BookingView = {
   zoomUrl?: string | null;
   bundleNote?: string;        // e.g. "Bundle session (2 of 4 left)" when booked with a credit
   promoCode?: string | null;  // promo code used at checkout, if any
+  // Sessions Avery booked from the admin page:
+  group?: boolean;            // part of a group session
+  dueCents?: number;          // still to pay (0 when paid, free, or a bundle credit)
+  payBy?: number | null;      // unpaid by then: released automatically
+  message?: string | null;    // Avery's note in the invite
 };
 
 const AVERY_TZ = "America/New_York";
@@ -161,6 +166,146 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
       "See you soon,", "Avery",
     ].join("\n"),
     attachments: icsAttachment(ics, "REQUEST"),
+  };
+}
+
+// ── Sessions Avery booked for a student ──
+
+const dueLine = (b: BookingView, tz: string) => b.payBy
+  ? `Please pay ${money(b.dueCents!)} by ${day(b.payBy, tz)} at ${clock(b.payBy, tz)} ${zoneName(b.payBy, tz)}. If it isn't paid by then, the session is released.`
+  : `Please pay ${money(b.dueCents!)} before your session.`;
+
+export function adminInvite(b: BookingView, ics: string, manageUrl: string, payUrl: string | null): Email {
+  const tz = b.clientTimeZone;
+  const due = (b.dueCents ?? 0) > 0 && payUrl;
+  const rows = sessionRows(b, tz, true);
+  if (due) rows.push(["Price", esc(money(b.dueCents!))]);
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(b.group ? "I've booked you into a group coaching session. Here are the details." : "I've booked a session for you. Here are the details."),
+    b.message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(b.message)}</p>` : "",
+    details(rows),
+    due ? para(esc(dueLine(b, tz))) + button(payUrl!, `Pay ${money(b.dueCents!)}`) : "",
+    b.zoomUrl ? (due ? ghostButton(b.zoomUrl, "Join on Zoom") : zoomButton(b.zoomUrl)) : para("I'll send your Zoom link before the session."),
+    para("A calendar invite is attached, so you can add it to your calendar in one tap."),
+    b.group
+      ? small("Can't make it? You can cancel your spot up to 24 hours before the session.") + ghostButton(manageUrl, "View or cancel")
+      : manageBlock(manageUrl, false),
+    para("See you soon,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `${due ? "Session booked, payment due" : "You're booked"}: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: `${day(b.start, tz)}, ${timeRange(b, tz)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "You're booked", body }),
+    text: [
+      `Hi ${firstName(b.name)},`, "",
+      b.group ? "I've booked you into a group coaching session." : "I've booked a session for you.", "",
+      ...(b.message ? [b.message, ""] : []),
+      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      ...(due ? [dueLine(b, tz), `Pay here: ${payUrl}`, ""] : []),
+      `${b.group ? "View or cancel your spot" : "Reschedule or cancel"} (up to 24 hours before): ${manageUrl}`, "",
+      "See you soon,", "Avery",
+    ].join("\n"),
+    attachments: icsAttachment(ics, "REQUEST"),
+  };
+}
+
+export function paymentReceived(b: BookingView, manageUrl: string): Email {
+  const tz = b.clientTimeZone;
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(`Thanks, your payment of ${esc(money(b.amountCents))} went through. You're all set.`),
+    details(sessionRows(b, tz, true)),
+    b.zoomUrl ? zoomButton(b.zoomUrl) : "",
+    ghostButton(manageUrl, b.group ? "View or cancel" : "Reschedule or cancel"),
+    para("See you soon,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `Payment received: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: `Paid ${money(b.amountCents)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "Payment received", body }),
+    text: [`Hi ${firstName(b.name)},`, "", `Thanks, your payment of ${money(b.amountCents)} went through. You're all set.`, "",
+      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      `Manage your session: ${manageUrl}`, "", "See you soon,", "Avery"].join("\n"),
+  };
+}
+
+export function adminPaymentReceived(b: BookingView): Email {
+  const tz = AVERY_TZ;
+  return {
+    to: "",
+    subject: `Paid: ${b.name}, ${money(b.amountCents)} for ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
+    html: layout({ preheader: `${b.name} paid ${money(b.amountCents)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "Payment received", subtitle: b.name,
+      body: details(adminRows(b)) }),
+    text: textRows([["Client", b.name], ["Paid", money(b.amountCents)], ["When", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
+  };
+}
+
+export function paymentReminder(b: BookingView, payUrl: string): Email {
+  const tz = b.clientTimeZone;
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(`A quick reminder that your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(day(b.start, tz))}</strong> hasn't been paid yet.`),
+    para(esc(dueLine(b, tz))),
+    button(payUrl, `Pay ${money(b.dueCents!)}`),
+    small("Already paid? Thank you, you can ignore this email. If anything's changed, just reply."),
+    para("Thanks,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `Payment due: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: dueLine(b, tz), tag: b.group ? "Group coaching" : tagFor(b), title: "Payment due", body }),
+    text: [`Hi ${firstName(b.name)},`, "", `A quick reminder that your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)} hasn't been paid yet.`, "",
+      dueLine(b, tz), `Pay here: ${payUrl}`, "", "Thanks,", "Avery"].join("\n"),
+  };
+}
+
+export function unpaidReleased(b: BookingView, ics: string): Email {
+  const tz = b.clientTimeZone;
+  const when = `${day(b.start, tz)}, ${timeRange(b, tz)}`;
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(`Your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> wasn't paid by the deadline, so it has been released.`),
+    para("If you'd still like a session, just reply to this email and we'll find a time."),
+    para("Take care,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `Released: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: `Your session on ${when} has been released.`, tag: b.group ? "Group coaching" : tagFor(b), title: "Session cancelled", body }),
+    text: [`Hi ${firstName(b.name)},`, "", `Your ${b.serviceName.toLowerCase()} on ${when} wasn't paid by the deadline, so it has been released.`, "",
+      "If you'd still like a session, just reply to this email and we'll find a time.", "", "Take care,", "Avery"].join("\n"),
+    attachments: icsAttachment(ics, "CANCEL"),
+  };
+}
+
+export function adminUnpaidReleased(b: BookingView, groupContinues: boolean): Email {
+  const tz = AVERY_TZ;
+  const note = b.group
+    ? (groupContinues ? "They were removed from the group session, which goes ahead for everyone else." : "They were the last student, so the group session was cancelled and the time opened up.")
+    : "The session was cancelled and the time opened up.";
+  return {
+    to: "",
+    subject: `Released (unpaid): ${b.name}, ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
+    html: layout({ preheader: `${b.name} didn't pay by the deadline`, tag: b.group ? "Group coaching" : tagFor(b), title: "Booking cancelled", subtitle: b.name,
+      body: warn(`Not paid by the deadline. ${note} They were emailed.`) + details(adminRows(b, { zoom: false })) }),
+    text: [`Not paid by the deadline. ${note} They were emailed.`, "", textRows([["Client", b.name], ["Was", `${day(b.start, tz)}, ${timeRange(b, tz)}`]])].join("\n"),
+  };
+}
+
+// Paid through an old link after the session had been cancelled: refunded.
+export function paidAfterCancel(b: BookingView): Email {
+  const tz = b.clientTimeZone;
+  return {
+    to: b.email,
+    subject: "About your payment: you've been refunded",
+    html: layout({ preheader: "Your payment has been refunded.", tag: b.group ? "Group coaching" : tagFor(b), title: "Auto-refunded", body: [
+      para(`Hi ${esc(firstName(b.name))},`),
+      para(`Your payment of ${esc(money(b.amountCents))} came through after your session on ${esc(day(b.start, tz))} had already been cancelled, so it has been refunded in full. Refunds may take a few business days to appear.`),
+      para("If you'd like to book a time, just reply to this email."),
+      para("Take care,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(b.name)},`, "", `Your payment of ${money(b.amountCents)} came through after your session on ${day(b.start, tz)} had already been cancelled, so it has been refunded in full.`, "", "Take care,", "Avery"].join("\n"),
   };
 }
 
@@ -380,7 +525,8 @@ function adminRows(b: BookingView, opts: { zoom?: boolean } = {}): [string, stri
     ["Email", `<a href="mailto:${esc(b.email)}" style="color:#1f47f5;">${esc(b.email)}</a>`],
     ["Session", esc(b.serviceName)],
     ["When", `${esc(day(b.start, tz))}<br>${esc(timeRange(b, tz))}`],
-    ["Paid", b.bundleNote ? esc(b.bundleNote) : b.amountCents > 0 ? esc(money(b.amountCents) + (b.promoCode ? ` (code ${b.promoCode})` : "")) : "Free"],
+    ["Paid", b.bundleNote ? esc(b.bundleNote) : b.amountCents > 0 ? esc(money(b.amountCents) + (b.promoCode ? ` (code ${b.promoCode})` : ""))
+      : (b.dueCents ?? 0) > 0 ? esc(`Not yet (${money(b.dueCents!)} due)`) : "Free"],
   ];
   if (opts.zoom !== false) rows.push(["Zoom", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">${esc(b.zoomUrl)}</a>` : "Not created"]);
   if (b.clientTimeZone !== tz) rows.push(["Their zone", esc(`${clock(b.start, b.clientTimeZone)} ${zoneName(b.start, b.clientTimeZone)}`)]);

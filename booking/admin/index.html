@@ -94,6 +94,23 @@
     dialog label { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: .875rem; }
     dialog textarea { width: 100%; min-height: 60px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: .8125rem; }
     dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+    .head-actions { display: flex; align-items: center; gap: 10px; }
+    dialog.wide { width: min(680px, calc(100vw - 32px)); }
+    .fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; margin: 0 0 12px; }
+    .fgrid label, dialog label.field { display: flex; flex-direction: column; gap: 5px; margin: 0; font-size: .75rem; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+    dialog input[type=text], dialog input[type=email], dialog input[type=date], dialog input[type=number], dialog select {
+      width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font: 500 .875rem var(--body); color: var(--text); }
+    .student { position: relative; padding: 12px; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg1); }
+    .student .fgrid { margin: 0; }
+    .student .remove { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 1.1rem; color: var(--faint); cursor: pointer; }
+    .warnings p { margin: 0 0 8px; padding: 9px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: .8125rem; }
+    .warnings p.bad { background: #fdecea; color: #8a1c12; }
+    .seat { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+    .seat:first-of-type { border-top: 0; }
+    .seat .who-line { flex: 1 1 220px; font-size: .875rem; }
+    .seat .who-line small { display: block; font-family: var(--mono); font-size: .75rem; color: var(--faint); }
+    .btn.sm { padding: 6px 9px; font-size: .625rem; }
+    .seat-actions { display: inline-flex; gap: 6px; white-space: nowrap; }
     @media (max-width: 700px) {
       .card { grid-template-columns: 1fr; gap: 10px; }
       .actions { flex-direction: row; flex-wrap: wrap; align-items: center; }
@@ -108,7 +125,10 @@
         <div class="brand-name">Avery Whitted</div>
         <div class="brand-sub">Booking admin</div>
       </div>
-      <span class="mode" id="mode"></span>
+      <div class="head-actions">
+        <button type="button" class="btn primary" id="new-session">Book a student</button>
+        <span class="mode" id="mode"></span>
+      </div>
     </header>
     <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
     <main id="main" aria-live="polite"><p class="empty">Loading...</p></main>

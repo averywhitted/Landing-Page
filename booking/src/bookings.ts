@@ -43,7 +43,7 @@ export type Intake = {
 
 // Strips invisible control characters (which could break calendar files or
 // email subjects). One-line fields also lose line breaks.
-const clean = (v: unknown, max: number, multiline = false) => {
+export const clean = (v: unknown, max: number, multiline = false) => {
   if (typeof v !== "string") return "";
   let t = v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F\u2028\u2029]/g, multiline ? " " : "");
   if (!multiline) t = t.replace(/\n/g, " ");
@@ -109,13 +109,22 @@ export async function isStillOpen(env: Env, service: Service, start: number, now
   const to = from + 24 * 60 * MIN;
   const cfg = await scheduling(env);
   const busy = (await calendarFor(env, cfg).getBusy(from, to)).filter((b) => !ignore || b.uid !== ignore.uid);
-  const rows = await env.DB.prepare(
-    `SELECT sc.slot_start FROM slot_claims sc JOIN bookings b ON b.id = sc.booking_id
-     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND b.id <> ?4
-       AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3))`,
-  ).bind(iso(from - 60 * MIN), iso(to + 60 * MIN), iso(now), ignore?.bookingId ?? "").all<{ slot_start: string }>();
-  const claimed = new Set(rows.results.map((r) => r.slot_start));
+  const claimed = await claimedBlocks(env, from - 60 * MIN, to + 60 * MIN, now, ignore?.bookingId);
   return openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed, rules: cfg }).includes(iso(start));
+}
+
+// The 15-minute blocks taken between two times: by confirmed bookings,
+// unexpired holds, and active group sessions. `ignoreBookingId` leaves out
+// one booking's own blocks (used when moving it).
+export async function claimedBlocks(env: Env, from: number, to: number, now: number, ignoreBookingId = ""): Promise<Set<string>> {
+  const rows = await env.DB.prepare(
+    `SELECT sc.slot_start FROM slot_claims sc
+       LEFT JOIN bookings b ON b.id = sc.booking_id
+       LEFT JOIN groups g ON g.id = sc.group_id
+     WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND (?4 = '' OR sc.booking_id IS NULL OR sc.booking_id <> ?4)
+       AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3) OR g.status = 'active')`,
+  ).bind(iso(from), iso(to), iso(now), ignoreBookingId).all<{ slot_start: string }>();
+  return new Set(rows.results.map((r) => r.slot_start));
 }
 
 /* ── Create ── */
@@ -238,7 +247,13 @@ export type BookingRow = {
   reschedule_count: number; previous_start_utc: string | null; session_reminder_sent_at: string | null;
   package_id: string | null; promo_code: string | null;
   refund_requested_at: string | null; refund_attempts: number; refund_error: string | null; cancelled_at: string | null;
+  group_id: string | null; created_by: string | null; price_cents: number | null; pay_by: string | null;
+  paid_at: string | null; payment_reminder_sent_at: string | null; invite_message: string | null;
 };
+
+// Still to pay on a session Avery booked (0 if paid, free, or a bundle credit).
+export const dueCents = (row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status">) =>
+  row.created_by === "admin" && !row.package_id && !row.paid_at && row.status === "confirmed" ? Math.max(0, row.price_cents ?? 0) : 0;
 
 // The name and pronouns given with this booking (older rows fall back to the customer's).
 export const CLIENT_COLUMNS = (t: string) =>
@@ -301,6 +316,10 @@ export function view(row: BookingRow): T.BookingView {
     zoomUrl: row.zoom_join_url,
     bundleNote: row.package_id ? "Bundle session" : undefined,
     promoCode: row.promo_code,
+    group: !!row.group_id,
+    dueCents: dueCents(row),
+    payBy: row.pay_by ? Date.parse(row.pay_by) : null,
+    message: row.invite_message,
   };
 }
 
@@ -381,7 +400,8 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
     ...(v.material ? [`Material: ${v.material}`] : []),
     ...(v.link ? [`Link: ${v.link}`] : []),
     ...(v.notes ? [`Notes: ${v.notes}`] : []),
-    "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD` : "Free",
+    "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD`
+      : v.dueCents ? `Not paid yet: ${(v.dueCents / 100).toFixed(2)} USD due` : v.bundleNote ? "Bundle credit" : "Free",
   ];
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end,
@@ -391,7 +411,7 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
 }
 
 // The invite attached to the client's emails (same UID for the booking's whole life).
-function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "REQUEST" | "CANCEL"): string {
+export function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "REQUEST" | "CANCEL"): string {
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end, method, cancelled: method === "CANCEL",
     summary: v.kind === "intro" ? "Intro chat with Avery Whitted" : "Private coaching with Avery Whitted",
@@ -409,8 +429,12 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   const start = Date.parse(row.start_utc);
   const end = Date.parse(row.end_utc);
 
+  // Group sessions have one Zoom meeting and one calendar event for everyone
+  // (see sessions.ts); each student's booking only sends their own emails.
+  const inGroup = !!row.group_id;
+
   // 1. Zoom
-  if (!row.zoom_join_url) {
+  if (!inGroup && !row.zoom_join_url) {
     const meeting = await createMeeting(env, {
       topic: service.kind === "intro" ? `Intro chat: ${row.name} + Avery Whitted` : `Coaching: ${row.name} + Avery Whitted`,
       start, durationMinutes: service.durationMinutes,
@@ -431,7 +455,7 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
 
   // 2. Avery's Coaching calendar (includes the intake answers for prep)
   let calendarFailed = false;
-  if (!row.calendar_event_url) {
+  if (!inGroup && !row.calendar_event_url) {
     try {
       const url = await calendarFor(env, await scheduling(env)).putEvent(row.ics_uid, averyEventIcs(row, v));
       await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
@@ -448,7 +472,11 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   // 3. Client confirmation with calendar invite
   if (!row.client_email_sent_at) {
     const ics = clientIcs(env, row, v, "REQUEST");
-    if (await sendEmail(env, "client_confirmation", row.id, T.clientConfirmation(v, ics, await manageUrl(env, row.id)))) {
+    const manage = await manageUrl(env, row.id);
+    const email = row.created_by === "admin"
+      ? T.adminInvite(v, ics, manage, v.dueCents ? payUrl(manage) : null)
+      : T.clientConfirmation(v, ics, manage);
+    if (await sendEmail(env, row.created_by === "admin" ? "admin_invite" : "client_confirmation", row.id, email)) {
       await env.DB.prepare("UPDATE bookings SET client_email_sent_at = ?1 WHERE id = ?2").bind(iso(Date.now()), row.id).run();
     }
   }
@@ -460,6 +488,15 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
       await env.DB.prepare("UPDATE bookings SET admin_email_sent_at = ?1 WHERE id = ?2").bind(iso(Date.now()), row.id).run();
     }
   }
+}
+
+// Rewrites a booking's event on Avery's calendar (e.g. once it's been paid).
+export async function refreshCalendarEvent(env: Env, bookingId: string): Promise<void> {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row || row.status !== "confirmed" || row.group_id || !row.calendar_event_url) return;
+  try {
+    await calendarFor(env, await scheduling(env)).putEvent(row.ics_uid, averyEventIcs(row, view(row)), row.calendar_event_url);
+  } catch (err) { console.error("calendar refresh failed:", (err as Error).message); }
 }
 
 /* ── Holds that ran out ── */
@@ -544,7 +581,7 @@ export async function retryConfirmations(env: Env, now: number): Promise<number>
   const rows = await env.DB.prepare(
     `SELECT b.id FROM bookings b
      WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
-       AND (b.calendar_event_url IS NULL OR b.client_email_sent_at IS NULL OR b.admin_email_sent_at IS NULL)
+       AND ((b.group_id IS NULL AND b.calendar_event_url IS NULL) OR b.client_email_sent_at IS NULL OR b.admin_email_sent_at IS NULL)
        AND (SELECT COUNT(*) FROM email_log e WHERE e.booking_id = b.id AND e.status = 'failed') < 5
      LIMIT 20`,
   ).bind(iso(now), iso(now - 2 * MIN)).all<{ id: string }>();
@@ -598,7 +635,11 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
   return {
     status: row.status === "confirmed" ? (past ? "past" : "confirmed") : row.status === "cancelled" ? "cancelled" : "pending",
     canChange: canChange(row, now),
-    canReschedule: canChange(row, now) && row.reschedule_count < MAX_RESCHEDULES,
+    canReschedule: canChange(row, now) && row.reschedule_count < MAX_RESCHEDULES && !row.group_id,
+    group: !!row.group_id,
+    // A session Avery booked that still needs paying.
+    payment: dueCents(row) ? { dueCents: dueCents(row), payBy: row.pay_by, open: !row.pay_by || Date.parse(row.pay_by) > now } : null,
+    paid: !!row.paid_at && row.created_by === "admin",
     cutoffHours: CHANGE_CUTOFF_HOURS,
     serviceId: row.service_id,
     service: serviceLabel(service),
@@ -618,6 +659,9 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
       : null,
   };
 }
+
+// The payment link in emails: the manage page, which starts checkout straight away.
+export const payUrl = (manage: string) => `${manage}&pay=1`;
 
 export function stripePaymentUrl(env: Env, pi: string | null): string | null {
   if (!pi) return null;
@@ -683,11 +727,22 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
       ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id), { refund, ...removed }), to: env.ADMIN_EMAIL,
     });
   }
+  const sessions = await import("./sessions");
+  // A student leaving a group: update the group (or cancel it if nobody's left).
+  if (row.group_id) await sessions.refreshGroup(env, row.group_id);
+  // An unpaid session Avery booked: close any payment page still open. If it
+  // was paid at that very moment, the payment is refunded automatically.
+  if (row.created_by === "admin" && !row.paid_at && row.stripe_checkout_session_id) {
+    try {
+      const s = await stripe.expireCheckoutSession(env, row.stripe_checkout_session_id);
+      if (s.status === "complete" && stripe.isPaid(s) && s.metadata?.purpose === "payment") await sessions.recordPayment(env, s, Date.now());
+    } catch (err) { console.error("cancel: couldn't close the payment page:", (err as Error).message); }
+  }
 }
 
 // Deletes a cancelled booking's calendar event and Zoom meeting. Each is
 // forgotten only once it's really gone; cron retries whatever is left.
-async function removeCancelled(env: Env, row: BookingRow): Promise<{ calendarRemoved: boolean; zoomRemoved: boolean }> {
+export async function removeCancelled(env: Env, row: BookingRow): Promise<{ calendarRemoved: boolean; zoomRemoved: boolean }> {
   let calendarRemoved = !row.calendar_event_url;
   let zoomRemoved = !row.zoom_meeting_id;
   if (row.calendar_event_url) {
@@ -724,6 +779,7 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
   ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
   const row = await loadManaged(env, bookingId, token);
   if (row.status !== "confirmed") throw new BookingError(409, "This session can't be rescheduled because it isn't active.");
+  if (row.group_id) throw new BookingError(403, "Group sessions can't be moved online. Please email info@averywhitted.com.");
   if (!canChange(row, ctx.now)) {
     throw new BookingError(403, `Sessions can only be changed online until ${CHANGE_CUTOFF_HOURS} hours before they start. Please email info@averywhitted.com.`);
   }
@@ -754,7 +810,8 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
       env.DB.prepare(
         `UPDATE bookings SET previous_start_utc = start_utc, start_utc = ?1, end_utc = ?2, ics_sequence = ics_sequence + 1,
-           reschedule_count = reschedule_count + 1, session_reminder_sent_at = NULL, updated_at = ?3 WHERE id = ?4 AND status = 'confirmed'`,
+           reschedule_count = reschedule_count + 1, session_reminder_sent_at = NULL,
+           pay_by = CASE WHEN pay_by > ?1 THEN ?1 ELSE pay_by END, updated_at = ?3 WHERE id = ?4 AND status = 'confirmed'`,
       ).bind(iso(newStart), iso(newEnd), iso(ctx.now), row.id),
     ]);
   } catch (err) {
@@ -767,7 +824,7 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
   return { ok: true, start: iso(newStart), end: iso(newEnd) };
 }
 
-async function afterReschedule(env: Env, bookingId: string): Promise<void> {
+export async function afterReschedule(env: Env, bookingId: string, opts: { notifyAvery?: boolean } = {}): Promise<void> {
   const row = await loadBooking(env, "id", bookingId);
   // Never touch the calendar or Zoom for a booking that's no longer active.
   if (!row || row.status !== "confirmed" || !row.previous_start_utc) return;
@@ -787,7 +844,7 @@ async function afterReschedule(env: Env, bookingId: string): Promise<void> {
     console.error("afterReschedule: calendar update failed:", (err as Error).message);
   }
   await sendEmail(env, "client_rescheduled", row.id, T.clientRescheduled(v, previous, clientIcs(env, row, v, "REQUEST"), await manageUrl(env, row.id)));
-  await sendEmail(env, "admin_rescheduled", row.id, { ...T.adminRescheduled(v, previous, { calendarFailed }), to: env.ADMIN_EMAIL });
+  if (opts.notifyAvery !== false) await sendEmail(env, "admin_rescheduled", row.id, { ...T.adminRescheduled(v, previous, { calendarFailed }), to: env.ADMIN_EMAIL });
 }
 
 /* ── Day-before session reminders ── */
@@ -843,10 +900,10 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
   for (const f of failedEmails.results) problems.push(`${f.n} "${f.kind.replace(/_/g, " ")}" email${f.n === 1 ? "" : "s"} failed to send.`);
 
   const stuck = await env.DB.prepare(
-    `SELECT b.start_utc, ${CLIENT_COLUMNS("b")}, b.calendar_event_url IS NULL AS no_cal, b.client_email_sent_at IS NULL AS no_email
+    `SELECT b.start_utc, ${CLIENT_COLUMNS("b")}, (b.group_id IS NULL AND b.calendar_event_url IS NULL) AS no_cal, b.client_email_sent_at IS NULL AS no_email
      FROM bookings b JOIN customers c ON c.id = b.customer_id
      WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
-       AND (b.calendar_event_url IS NULL OR b.client_email_sent_at IS NULL)
+       AND ((b.group_id IS NULL AND b.calendar_event_url IS NULL) OR b.client_email_sent_at IS NULL)
      LIMIT 10`,
   ).bind(iso(now), iso(now - 15 * MIN)).all<{ start_utc: string; name: string; no_cal: number; no_email: number }>();
   for (const s of stuck.results) {

@@ -40,6 +40,9 @@
       .mg-actions[hidden] { display: none; }
       .mg-note { margin: 18px 0 0; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.8125rem; line-height: 1.6; color: var(--faint); }
       .mg-note a, .mg-msg a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      .mg-pay { margin: 0 0 22px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+      .mg-pay p { margin: 0 0 12px; font-size: 0.9375rem; line-height: 1.55; }
+      .mg-pay .mg-actions { margin: 0; }
       .mg-msg { margin: 0 0 20px; padding: 14px 16px; border-radius: 12px; font-size: 0.9062rem; line-height: 1.5; }
       .mg-msg.ok { background: var(--lime); color: var(--lime-ink); font-weight: 600; }
       .mg-msg.err { background: #fdecea; color: #8a1c12; }
@@ -129,10 +132,28 @@
           return data;
         }
 
+        // Back from paying (?paid=1): Stripe's confirmation can take a few seconds.
+        let paidChecks = q.get("paid") === "1" ? 6 : 0;
+        // From the "Pay" button in an invite (?pay=1): go straight to checkout, once.
+        let autoPay = q.get("pay") === "1";
+        if (paidChecks || autoPay) history.replaceState(null, "", `${location.pathname}?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
+
         async function load() {
           try {
             booking = await api("GET", `/api/manage?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
+            if (paidChecks) {
+              if (booking.payment) {
+                paidChecks--;
+                flash = { kind: "ok", html: "Thanks! Your payment is being confirmed. This page will update in a moment." };
+                if (paidChecks) setTimeout(load, 2500);
+                else flash = { kind: "ok", html: "Thanks! Your payment is still being confirmed. You'll get an email as soon as it's through." };
+              } else {
+                paidChecks = 0;
+                flash = { kind: "ok", html: "Thanks, your payment went through. A receipt is on its way." };
+              }
+            }
             renderBooking();
+            if (autoPay && booking.status === "confirmed" && booking.payment && booking.payment.open) { autoPay = false; startPay(); }
           } catch (err) {
             show("Your booking", "Link not recognized",
               `<div class="prose"><p>${esc(err.status === 404 ? err.message : "We couldn't load your booking right now. Please try again in a moment.")}</p>
@@ -147,12 +168,41 @@
             <dt>Date</dt><dd>${esc(w.date)}</dd>
             <dt>Time</dt><dd>${esc(w.time)}</dd>
             <dt>Where</dt><dd>${booking.zoomUrl ? `<a href="${esc(booking.zoomUrl)}" target="_blank" rel="noopener">Join on Zoom</a>` : "Zoom"}</dd>
+            ${booking.payment ? `<dt>Price</dt><dd>${money(booking.payment.dueCents)}, not paid yet</dd>` : booking.paid ? `<dt>Paid</dt><dd>${money(booking.amountCents)}</dd>` : ""}
           </dl>`;
+        }
+
+        // What's owed on a session Avery booked, with the Pay button.
+        function paymentHtml() {
+          const p = booking.payment;
+          if (!p || booking.status !== "confirmed") return "";
+          if (!p.open) return `<p class="mg-note" style="margin:0 0 16px">The payment deadline has passed. Please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
+          const by = p.payBy ? Date.parse(p.payBy) : null;
+          const due = by
+            ? `Please pay by ${esc(f(by, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(f(by, { hour: "numeric", minute: "2-digit" }))} ${esc(zone(by))}. If it isn't paid by then, the session is released.`
+            : "Please pay before your session.";
+          return `<div class="mg-pay"><p>${due}</p><div class="mg-actions"><button type="button" class="btn primary" id="mg-pay">Pay ${money(p.dueCents)}</button></div></div>`;
+        }
+
+        async function startPay() {
+          const btn = document.getElementById("mg-pay");
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Opening payment'; }
+          try {
+            const r = await api("POST", "/api/pay", { b, t });
+            location.href = r.checkoutUrl;
+          } catch (err) {
+            flash = { kind: "err", html: esc(err.message) };
+            await load();
+          }
         }
 
         function renderBooking() {
           const name = booking.firstName ? `, ${booking.firstName}` : "";
           if (booking.status === "cancelled") {
+            if (booking.cancelReason === "unpaid") {
+              return show("Cancelled", "This session was released", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">It wasn't paid by the deadline, so it was released. If you'd still like a session, email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`);
+            }
             if (booking.cancelReason === "bundle_cancelled") {
               return show("Cancelled", "This session is cancelled", detailsHtml()
                 + `<p class="mg-note" style="margin:0 0 16px">It was cancelled along with your bundle.</p><div class="mg-actions"><a class="btn primary" href="/book/">Book a session</a></div>`);
@@ -174,6 +224,12 @@
           let actions;
           if (!booking.canChange) {
             actions = `<p class="mg-note">It's less than ${booking.cutoffHours} hours before your session, so it can't be changed online. If something's come up, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
+          } else if (booking.group) {
+            actions = `<div class="mg-actions" id="mg-actions">
+                <button type="button" class="btn" id="mg-cancel">Cancel my spot</button>
+              </div>
+              <p class="mg-note">This is a group session. You can cancel your spot until ${esc(cutoffText)}. To change the time, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>
+              <div id="mg-extra"></div>`;
           } else {
             actions = `<div class="mg-actions" id="mg-actions">
                 ${booking.canReschedule ? '<button type="button" class="btn primary" id="mg-move">Reschedule</button>' : ""}
@@ -182,7 +238,8 @@
               <p class="mg-note">You can reschedule or cancel until ${esc(cutoffText)}${booking.canReschedule ? "" : `. This session has already been moved a few times, so to change the time again please email <a href="mailto:${CONTACT}">${CONTACT}</a>`}.</p>
               <div id="mg-extra"></div>`;
           }
-          show("Your booking", `You're booked${name}`, detailsHtml() + actions);
+          show("Your booking", `You're booked${name}`, detailsHtml() + paymentHtml() + actions);
+          document.getElementById("mg-pay")?.addEventListener("click", startPay);
           document.getElementById("mg-move")?.addEventListener("click", openPicker);
           document.getElementById("mg-cancel")?.addEventListener("click", askCancel);
         }
@@ -195,7 +252,7 @@
               ? `<p>You'll be refunded in full (${money(booking.amountCents)}). Refunds may take a few business days to appear.</p>` : "";
           document.getElementById("mg-actions").hidden = true;
           document.getElementById("mg-extra").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-c-title">
-              <h2 id="mg-c-title">Cancel this session?</h2>
+              <h2 id="mg-c-title">${booking.group ? "Cancel your spot?" : "Cancel this session?"}</h2>
               <p>${esc(booking.service)} on ${esc(w.date)}, ${esc(w.time)}.</p>${refund}
               <div class="mg-actions">
                 <button type="button" class="btn danger" id="mg-c-yes">Yes, cancel it</button>
