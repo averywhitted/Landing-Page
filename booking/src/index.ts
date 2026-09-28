@@ -221,6 +221,13 @@ app.post("/api/refund-requests", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// A student stops their sessions repeating (from the manage page).
+app.post("/api/series/stop", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try { const { studentStopSeries } = await import("./series"); return c.json(await studentStopSeries(c.env, body.b, body.t, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // Paying for a session Avery booked (the "Pay" link in the invite).
 app.post("/api/pay", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -311,6 +318,12 @@ for (const kind of ["bookings", "packages"] as const) {
     } catch (err) { return bookingErrorResponse(c, err); }
   });
 }
+
+app.post("/api/admin/series/:id/stop", async (c) => {
+  const body = await jsonBody(c);
+  try { const { stopSeries } = await import("./series"); return c.json(await stopSeries(c.env, c.req.param("id"), "admin", Date.now(), body.notifyClient !== false)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
 
 app.post("/api/admin/refund-requests/:id/decline", async (c) => {
   const body = await jsonBody(c);
@@ -511,6 +524,9 @@ async function scheduled(env: Env): Promise<void> {
   const unpaid = await run("unpaid deadlines", () => releaseUnpaid(env, now));
   await run("payment reminders", () => sendPaymentReminders(env, now));
   await run("group sessions", () => maintainGroups(env, now));
+  const series = await import("./series");
+  const repeats = await run("repeating sessions", () => series.bookNextSessions(env, now));
+  await run("abandoned repeats", () => series.dropAbandonedSeries(env, now));
   const extras = await import("./extras");
   await run("icloud health", () => extras.checkCalendarHealth(env, now));
   await run("backup", () => extras.nightlyBackup(env, now));
@@ -518,7 +534,7 @@ async function scheduled(env: Env): Promise<void> {
   await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
-  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, cleaned, alerts: alerts?.length };
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, repeats, cleaned, alerts: alerts?.length };
   if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 

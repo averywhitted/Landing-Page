@@ -437,6 +437,11 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
 .bk-input:focus { outline: none; border-color: var(--bk-a); box-shadow: 0 0 0 3px var(--bk-a-soft); }
 textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 .bk-form.was-validated .bk-input:invalid { border-color: var(--bk-danger); }
+.bk-repeat-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.bk-repeat-row .bk-input { flex: 1 1 180px; }
+.bk-repeat-row [hidden] { display: none; }
+.bk-hint { margin: 8px 0 0; font-size: 0.8125rem; line-height: 1.5; color: var(--bk-muted); }
+.bk-hint[hidden] { display: none; }
 .bk-check {
   grid-column: 1 / -1;
   display: grid;

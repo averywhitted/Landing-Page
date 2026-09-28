@@ -431,6 +431,15 @@
             <input class="bk-input" id="bk-link" name="link" type="url" inputmode="url" maxlength="500" placeholder="https://" value="${v("link")}"></div>`}
           <div class="bk-field is-wide"><label for="bk-notes">Anything else I should know? <span class="bk-opt">(optional)</span></label>
             <textarea class="bk-input" id="bk-notes" name="notes" maxlength="2000">${v("notes")}</textarea></div>
+          ${s.kind === "single" ? `<div class="bk-field is-wide bk-repeat"><label for="bk-repeat">Repeat this session <span class="bk-opt">(optional)</span></label>
+            <div class="bk-repeat-row">
+              <select class="bk-input" id="bk-repeat" name="repeat">${[["", "Just this once"], ["1", "Every week"], ["2", "Every 2 weeks"], ["3", "Every 3 weeks"], ["4", "Every 4 weeks"]]
+                .map(([val, label]) => `<option value="${val}"${(f.repeat || "") === val ? " selected" : ""}>${label}</option>`).join("")}</select>
+              <select class="bk-input" id="bk-repeat-total" name="repeatTotal" aria-label="For how long"${f.repeat ? "" : " hidden"}>${[["", "Until I stop it"], ["4", "For 4 sessions"], ["8", "For 8 sessions"], ["12", "For 12 sessions"]]
+                .map(([val, label]) => `<option value="${val}"${(f.repeatTotal || "") === val ? " selected" : ""}>${label}</option>`).join("")}</select>
+            </div>
+            <p class="bk-hint" id="bk-repeat-hint"${f.repeat ? "" : " hidden"}>You'll pay for this first session now. After each session, the next one is booked automatically at the same day and time, and you'll get an email with a link to pay (due 24 hours before). You can stop repeating anytime.</p>
+          </div>` : ""}
           <label class="bk-check"><input type="checkbox" name="policy" required${f.policy ? " checked" : ""}><span>${policy}</span></label>
           <p class="bk-privacy">Your details are used only to schedule and prepare for your session. <a href="/policies.html#privacy" target="_blank" rel="noopener">How your information is used</a></p>
           <div class="bk-ts" id="bk-ts"></div>
@@ -569,6 +578,7 @@
               name: f.name, email: f.email, pronouns: f.pronouns || "", goal: f.goal,
               material: f.material || "", link: f.link || "", notes: f.notes || "", policyAccepted: !!f.policy,
             },
+            repeat: !bundle && f.repeat ? { everyWeeks: Number(f.repeat), total: f.repeatTotal ? Number(f.repeatTotal) : null } : undefined,
           }),
         });
         const data = await r.json().catch(() => ({}));
@@ -652,6 +662,13 @@
     }
 
     root.addEventListener("change", (e) => {
+      // Repeating: show how long, and what it means, only once they choose to repeat.
+      if (e.target.id === "bk-repeat") {
+        const on = !!e.target.value;
+        root.querySelector("#bk-repeat-total").hidden = !on;
+        root.querySelector("#bk-repeat-hint").hidden = !on;
+        saveForm();
+      }
       if (e.target.matches(".bk-tz-select")) {
         state.tz = e.target.value;
         store.set("bk-tz", state.tz);

@@ -29,7 +29,16 @@ export type BookingView = {
   dueCents?: number;          // still to pay (0 when paid, free, or a bundle credit)
   payBy?: number | null;      // unpaid by then: released automatically
   message?: string | null;    // Avery's note in the invite
+  repeatEvery?: number | null; // repeats every n weeks
+  repeatNext?: boolean;       // booked automatically as the next in a series
 };
+
+const repeatWords = (n: number) => (n === 1 ? "every week" : `every ${n} weeks`);
+// "This session repeats every week..." for sessions in a series.
+function repeatPara(b: BookingView, manageUrl: string): string {
+  if (!b.repeatEvery) return "";
+  return small(`This session repeats ${repeatWords(b.repeatEvery)}. The next one is booked automatically after this one ends${(b.dueCents ?? 0) > 0 || b.repeatNext ? ", and you'll get an email with a link to pay" : ""}. You can <a href="${esc(manageUrl)}" style="color:#6b727b;">stop repeating</a> anytime.`);
+}
 
 const AVERY_TZ = "America/New_York";
 
@@ -160,6 +169,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
     details(sessionRows(b, tz, true)),
     zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
+    repeatPara(b, manageUrl),
     para("See you soon,<br>Avery"),
     manageLine(manageUrl, { refundNote: b.amountCents > 0 }),
   ].join("\n");
@@ -193,18 +203,20 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
   if (due) rows.push(["Price", esc(money(b.dueCents!))]);
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
-    para(b.group ? "I've booked you into a group coaching session. Here are the details." : "I've booked a session for you. Here are the details."),
+    para(b.repeatNext ? `Your next session is booked (it repeats ${repeatWords(b.repeatEvery ?? 1)}). Here are the details.`
+      : b.group ? "I've booked you into a group coaching session. Here are the details." : "I've booked a session for you. Here are the details."),
     b.message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(b.message)}</p>` : "",
     details(rows),
     due ? para(esc(dueLine(b, tz))) + button(payUrl!, `Pay ${money(b.dueCents!)}`) : "",
     zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
+    repeatPara(b, manageUrl),
     para("See you soon,<br>Avery"),
     manageLine(manageUrl, { group: b.group }),
   ].join("\n");
   return {
     to: b.email,
-    subject: `${due ? "Session booked, payment due" : "You're booked"}: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    subject: `${b.repeatNext ? (due ? "Next session booked, payment due" : "Next session booked") : due ? "Session booked, payment due" : "You're booked"}: ${b.serviceName} on ${shortDay(b.start, tz)}`,
     html: layout({ preheader: `${day(b.start, tz)}, ${timeRange(b, tz)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "You're booked", body }),
     text: [
       `Hi ${firstName(b.name)},`, "",
@@ -422,6 +434,67 @@ export function bundleUpdated(p: BundleView, change: "added" | "removed" | "exte
     text: [`Hi ${firstName(p.name)},`, "", what, ...(message ? ["", message] : []), "",
       textRows([["Bundle", p.bundleName], ["Left", `${p.remaining} of ${p.credits}`], ["Use by", day(p.expiresAt, tz)]]), "",
       `Your bundle: ${bundleUrl}`, "", "Thanks,", "Avery"].join("\n"),
+  };
+}
+
+// ── Repeating sessions ──
+
+type SeriesNote = { name: string; email: string; everyWeeks: number; bookUrl: string };
+type SkipNote = SeriesNote & { timeZone: string; serviceName: string; when: number; next: number; reason: "day_off" | "taken"; continues: boolean };
+
+export function seriesSkipped(p: SkipNote): Email {
+  const tz = p.timeZone;
+  const whenText = `${day(p.when, tz)} at ${clock(p.when, tz)} ${zoneName(p.when, tz)}`;
+  const line = `Your usual ${p.serviceName.toLowerCase()} on ${whenText} isn't available, so it wasn't booked this time.`;
+  const after = p.continues ? `Your repeating sessions carry on as normal after that (next: ${day(p.next, tz)}).` : "";
+  return {
+    to: p.email,
+    subject: `No session on ${shortDay(p.when, tz)}: that time isn't available`,
+    html: layout({ preheader: line, tag: "Private coaching", title: "Session skipped", body: [
+      para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), after ? para(esc(after)) : "",
+      para("If you'd like a different time that week, you can book one here:"), button(p.bookUrl, "Pick another time"),
+      para("Thanks,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(p.name)},`, "", line, ...(after ? ["", after] : []), "", `Pick another time: ${p.bookUrl}`, "", "Avery"].join("\n"),
+  };
+}
+
+export function adminSeriesSkipped(p: SkipNote): Email {
+  const tz = AVERY_TZ;
+  const why = p.reason === "day_off" ? "it's one of your days off" : "that time is taken or blocked on your calendar";
+  return {
+    to: "",
+    subject: `Repeat skipped: ${p.name}, ${shortDay(p.when, tz)} at ${clock(p.when, tz)}`,
+    html: layout({ preheader: `${p.name}'s repeating session was skipped`, tag: "Private coaching", title: "Session skipped", subtitle: p.name,
+      body: para(esc(`${p.name}'s repeating session on ${day(p.when, tz)} at ${clock(p.when, tz)} wasn't booked because ${why}. They've been emailed a link to pick another time.${p.continues ? " The series carries on after that." : ""}`)) }),
+    text: `${p.name}'s repeating session on ${day(p.when, tz)} at ${clock(p.when, tz)} wasn't booked because ${why}.`,
+  };
+}
+
+export function seriesStopped(p: SeriesNote & { by: "client" | "admin" | "unpaid" }): Email {
+  const line = p.by === "unpaid"
+    ? "Your repeating sessions have stopped, because the last two weren't paid for."
+    : p.by === "client" ? `Your sessions won't repeat ${repeatWords(p.everyWeeks)} anymore, as you asked.`
+    : `Your sessions won't repeat ${repeatWords(p.everyWeeks)} anymore.`;
+  return {
+    to: p.email,
+    subject: "Your sessions won't repeat anymore",
+    html: layout({ preheader: line, tag: "Private coaching", title: "Repeats stopped", body: [
+      para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), para("Any session already booked is still on. You're always welcome to book again:"),
+      button(p.bookUrl, "Book a session"), para("Thanks,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(p.name)},`, "", line, "", "Any session already booked is still on.", `Book again: ${p.bookUrl}`, "", "Avery"].join("\n"),
+  };
+}
+
+export function adminSeriesStopped(p: SeriesNote & { by: "client" | "admin" | "unpaid" }): Email {
+  const why = p.by === "unpaid" ? "the last two sessions weren't paid for" : "they stopped it";
+  return {
+    to: "",
+    subject: `Repeats stopped: ${p.name}`,
+    html: layout({ preheader: `${p.name}'s sessions stopped repeating`, tag: "Private coaching", title: "Repeats stopped", subtitle: p.name,
+      body: para(esc(`${p.name}'s sessions (${repeatWords(p.everyWeeks)}) stopped repeating because ${why}. Sessions already booked are still on.`)) }),
+    text: `${p.name}'s sessions stopped repeating because ${why}.`,
   };
 }
 
@@ -835,4 +908,6 @@ export const HEADING_TITLES = [
   "New booking", "Booking rescheduled", "Booking cancelled", "Auto-refunded",
   "See you soon", "Needs attention",
   "Bundle confirmed", "Bundle purchased", "Sessions expiring", "Bundle cancelled",
+  "Payment due", "Payment received", "Bundle updated", "Refund issued",
+  "About your request", "Refund request", "Session skipped", "Repeats stopped",
 ];

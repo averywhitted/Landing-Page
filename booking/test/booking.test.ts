@@ -1799,3 +1799,125 @@ test("iCloud down for 15 minutes: Avery is emailed once, and again when it's bac
   await api.cron();
   assert.ok(world.state.emails.some((e) => /iCloud is working again/.test(e.subject)));
 });
+
+/* ── Repeating sessions ── */
+
+// Pretends a session happened `daysAgo` days ago at the same time of day, and the series last booked it.
+function endSession(id: string, daysAgo = 1) {
+  const b = row(id);
+  const start = Date.parse(b.start_utc) - Math.ceil((Date.parse(b.start_utc) - Date.now()) / (7 * DAY)) * 7 * DAY - (daysAgo - 0) * 0;
+  const past = start > Date.now() - 3600000 ? start - 7 * DAY : start;
+  const s = new Date(past).toISOString().replace(/\.000Z$/, "Z");
+  const e = new Date(past + (Date.parse(b.end_utc) - Date.parse(b.start_utc))).toISOString().replace(/\.000Z$/, "Z");
+  db.prepare("DELETE FROM slot_claims WHERE booking_id = ?").run(id);
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(s, e, id);
+  if (b.series_id) db.prepare("UPDATE series SET last_start = ? WHERE id = ?").run(s, b.series_id);
+  return past;
+}
+const seriesOf = (id: string) => db.prepare("SELECT * FROM series WHERE id = (SELECT series_id FROM bookings WHERE id = ?)").get(id) as any;
+const inSeries = (seriesId: string) => db.prepare("SELECT * FROM bookings WHERE series_id = ? ORDER BY start_utc").all(seriesId) as any[];
+
+test("repeating: a student's weekly session books the next one after each ends, with a pay link", async () => {
+  const [slot] = await openSlots();
+  const res = await book("coaching-60", slot, {}, { repeat: { everyWeeks: 1 } });
+  assert.equal(res.status, 201, JSON.stringify(res.data));
+  const first = res.data.bookingId;
+  assert.equal(seriesOf(first).status, "pending", "starts once paid");
+  await api.webhook("checkout.session.completed", paid(sessionFor(first)));
+  assert.equal(seriesOf(first).status, "active");
+  const confirmation = world.state.emails.find((e) => /^You're booked/.test(e.subject))!;
+  assert.match(confirmation.text + confirmation.html, /repeats every week/);
+
+  await api.cron();
+  assert.equal(inSeries(seriesOf(first).id).length, 1, "nothing new until this one ends");
+  const past = endSession(first);
+  world.state.emails.length = 0;
+  await api.cron();
+  const all = inSeries(seriesOf(first).id);
+  assert.equal(all.length, 2);
+  const next = all[1];
+  assert.equal(Date.parse(next.start_utc) - past, 7 * DAY, "same time, a week later");
+  assert.equal(next.status, "confirmed");
+  assert.equal(next.price_cents, 13000);
+  assert.equal(next.amount_cents, 0);
+  assert.equal(Date.parse(next.pay_by), Date.parse(next.start_utc) - DAY, "due 24 hours before");
+  const invite = world.state.emails.find((e) => /^Next session booked, payment due/.test(e.subject))!;
+  assert.match(invite.text, /pay=1/);
+  await api.cron();
+  assert.equal(inSeries(seriesOf(first).id).length, 2, "only one at a time");
+
+  const link = linkIn(invite.text);
+  const view = await api.call("GET", `/api/manage?b=${link.b}&t=${link.t}`);
+  assert.equal(view.data.series.everyWeeks, 1);
+  assert.equal((await api.call("POST", "/api/series/stop", { body: link })).status, 200);
+  assert.equal(seriesOf(first).status, "stopped");
+  assert.ok(world.state.emails.some((e) => e.subject === "Your sessions won't repeat anymore"));
+  assert.equal(row(next.id).status, "confirmed", "already-booked sessions stay booked");
+});
+
+test("repeating: a clash skips that week and carries on; two unpaid in a row stops it", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Rep Eat", "rep@example.com", { priceCents: 5000 })], payBy: "before24", repeat: { everyWeeks: 1 } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const first = r.data.bookingId;
+  const sid = seriesOf(first).id;
+  const past = endSession(first);
+  // Someone else has the usual time next week.
+  const nextTime = new Date(past + 7 * DAY);
+  await adminBook({ date: etDate(nextTime.getTime()), time: new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(nextTime), students: [student("Other", "other@example.com")] });
+  world.state.emails.length = 0;
+  await api.cron();
+  assert.equal(inSeries(sid).length, 1, "skipped");
+  assert.ok(world.state.emails.some((e) => /^No session on /.test(e.subject) && e.to[0] === "rep@example.com"));
+  assert.ok(world.state.emails.some((e) => /^Repeat skipped: Rep Eat/.test(e.subject)));
+  assert.equal(Date.parse(seriesOf(first).last_start), past + 7 * DAY, "moves on to the following week");
+
+  // The following week is booked; it goes unpaid, then the next one too: the series stops.
+  db.prepare("UPDATE series SET last_start = ? WHERE id = ?").run(new Date(past).toISOString().replace(/\.000Z$/, "Z"), sid);
+  db.prepare("DELETE FROM slot_claims WHERE booking_id IN (SELECT b.id FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE c.email = 'other@example.com')").run();
+  db.prepare("UPDATE bookings SET status = 'cancelled' WHERE customer_id = (SELECT id FROM customers WHERE email = 'other@example.com')").run();
+  for (let i = 0; i < 2; i++) {
+    await api.cron();
+    const latest = inSeries(sid).at(-1);
+    assert.equal(latest.series_id, sid);
+    db.prepare("UPDATE bookings SET pay_by = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), latest.id);
+    await api.cron(); // released unpaid
+    assert.equal(row(latest.id).cancel_reason, "unpaid");
+    endSession(latest.id);
+  }
+  assert.equal(seriesOf(first).status, "stopped");
+  assert.equal(seriesOf(first).stopped_reason, "unpaid");
+  assert.ok(world.state.emails.some((e) => /^Repeats stopped: Rep Eat/.test(e.subject)));
+});
+
+test("repeating: a set number of sessions ends by itself; groups and bundle credits can't repeat", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Two Times", "two@example.com", { priceCents: 0 })], repeat: { everyWeeks: 2, total: 2 } });
+  const first = r.data.bookingId;
+  const sid = seriesOf(first).id;
+  const past = endSession(first);
+  await api.cron();
+  const all = inSeries(sid);
+  assert.equal(all.length, 2);
+  assert.equal(Date.parse(all[1].start_utc) - past, 14 * DAY, "every 2 weeks");
+  assert.equal(all[1].price_cents, 0, "free, so no pay link");
+  assert.equal(seriesOf(first).status, "ended");
+  endSession(all[1].id);
+  await api.cron();
+  assert.equal(inSeries(sid).length, 2, "no more after the set number");
+
+  const group = await adminBook({ time: "18:00", students: [student("A", "a1@example.com"), student("B", "b1@example.com")], repeat: { everyWeeks: 1 } });
+  assert.equal(group.status, 400);
+  assert.equal((await book("intro-15", (await openSlots("intro-15"))[0], { material: "" }, { repeat: { everyWeeks: 1 } })).status, 400, "intro chats can't repeat");
+  assert.equal((await api.call("POST", `/api/admin/series/${sid}/stop`, { headers: asAdmin(), body: {} })).status, 409, "already ended");
+});
+
+test("repeating: a first session that's never paid drops the series", async () => {
+  const [slot] = await openSlots();
+  const res = await book("coaching-60", slot, {}, { repeat: { everyWeeks: 1 } });
+  const sid = seriesOf(res.data.bookingId).id;
+  await expireHold(res.data.bookingId);
+  db.prepare("UPDATE series SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 2 * DAY).toISOString(), sid);
+  await api.cron();
+  assert.equal((db.prepare("SELECT status FROM series WHERE id = ?").get(sid) as any).status, "stopped");
+});

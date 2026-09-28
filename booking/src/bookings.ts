@@ -185,6 +185,12 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
   const end = start + service.durationMinutes * MIN;
   const intro = service.kind === "intro";
   const holdUntil = now + RULES.holdMinutes * MIN;
+  const { parseRepeat, createSeries } = await import("./series");
+  const repeat = parseRepeat(b.repeat, service);
+  const seriesId = repeat ? await createSeries(env, {
+    customerId: customer!.id, serviceId: service.id, startedBy: "client", repeat, firstStart: start, priceCents: service.priceCents,
+    payByRule: "before24", name: intake.name, pronouns: intake.pronouns || null, timeZone: clientTz, message: null, active: false,
+  }) : null;
   const intakeJson = JSON.stringify({ goal: intake.goal, material: intake.material, link: intake.link, notes: intake.notes });
 
   // One atomic batch: the booking plus every block it claims. If any block is
@@ -193,11 +199,11 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO bookings (id, customer_id, service_id, start_utc, end_utc, status, hold_expires_at, amount_cents,
-           ics_uid, intake_json, client_time_zone, ip_hash, confirmed_at, client_name, client_pronouns)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+           ics_uid, intake_json, client_time_zone, ip_hash, confirmed_at, client_name, client_pronouns, series_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
       ).bind(id, customer!.id, service.id, iso(start), iso(end), intro ? "confirmed" : "held", intro ? null : iso(holdUntil),
         intro ? 0 : service.priceCents, `${id}@averywhitted.com`, intakeJson, clientTz, ipHash, intro ? iso(now) : null,
-        intake.name, intake.pronouns || null),
+        intake.name, intake.pronouns || null, seriesId),
       ...blocksFor(start, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
     ]);
@@ -248,14 +254,17 @@ export type BookingRow = {
   package_id: string | null; promo_code: string | null;
   refund_requested_at: string | null; refund_attempts: number; refund_error: string | null; cancelled_at: string | null;
   refunded_cents: number; attendance: string | null; payment_reminders_sent: number; last_payment_reminder_at: string | null;
-  created_at: string; student_notes: string | null;
+  created_at: string; student_notes: string | null; series_id: string | null; series_every: number | null;
   group_id: string | null; created_by: string | null; price_cents: number | null; pay_by: string | null;
   paid_at: string | null; payment_reminder_sent_at: string | null; invite_message: string | null;
 };
 
-// Still to pay on a session Avery booked (0 if paid, free, or a bundle credit).
+// Still to pay on a session that's paid by link (booked by Avery, or a repeat
+// of a student's session): 0 if paid, free, or a bundle credit. Sessions a
+// student books and pays for at checkout have no price_cents.
+export const invoiced = (row: { price_cents: number | null }) => row.price_cents !== null && row.price_cents !== undefined;
 export const dueCents = (row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status">) =>
-  row.created_by === "admin" && !row.package_id && !row.paid_at && row.status === "confirmed" ? Math.max(0, row.price_cents ?? 0) : 0;
+  invoiced(row) && !row.package_id && !row.paid_at && row.status === "confirmed" ? Math.max(0, row.price_cents ?? 0) : 0;
 
 // The name and pronouns given with this booking (older rows fall back to the customer's).
 export const CLIENT_COLUMNS = (t: string) =>
@@ -263,7 +272,9 @@ export const CLIENT_COLUMNS = (t: string) =>
 
 export async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
   return env.DB.prepare(
-    `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.${where} = ?1`,
+    `SELECT b.*, ${CLIENT_COLUMNS("b")},
+       (SELECT every_weeks FROM series WHERE id = b.series_id AND status IN ('pending', 'active')) AS series_every
+     FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.${where} = ?1`,
   ).bind(value).first<BookingRow>();
 }
 
@@ -329,6 +340,8 @@ export function view(row: BookingRow): T.BookingView {
     dueCents: dueCents(row),
     payBy: row.pay_by ? Date.parse(row.pay_by) : null,
     message: row.invite_message,
+    repeatEvery: row.series_every ?? null,
+    repeatNext: row.created_by === "series", // booked automatically as the next in a series
   };
 }
 
@@ -436,6 +449,7 @@ export function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "
 export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   let row = await loadBooking(env, "id", bookingId);
   if (!row || row.status !== "confirmed") return;
+  if (row.series_id) await (await import("./series")).activateSeries(env, row.series_id);
   const service = findService(row.service_id)!;
   const start = Date.parse(row.start_utc);
   const end = Date.parse(row.end_utc);
@@ -484,10 +498,10 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   if (!row.client_email_sent_at) {
     const ics = clientIcs(env, row, v, "REQUEST");
     const manage = await manageUrl(env, row.id);
-    const email = row.created_by === "admin"
+    const email = row.created_by === "admin" || row.created_by === "series"
       ? T.adminInvite(v, ics, manage, v.dueCents ? payUrl(manage) : null)
       : T.clientConfirmation(v, ics, manage);
-    if (await sendEmail(env, row.created_by === "admin" ? "admin_invite" : "client_confirmation", row.id, email)) {
+    if (await sendEmail(env, row.created_by === "client" || !row.created_by ? "client_confirmation" : "admin_invite", row.id, email)) {
       await env.DB.prepare("UPDATE bookings SET client_email_sent_at = ?1 WHERE id = ?2").bind(iso(Date.now()), row.id).run();
     }
   }
@@ -650,13 +664,14 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
     group: !!row.group_id,
     // A session Avery booked that still needs paying.
     payment: dueCents(row) ? { dueCents: dueCents(row), payBy: row.pay_by, open: !row.pay_by || Date.parse(row.pay_by) > now } : null,
-    paid: !!row.paid_at && row.created_by === "admin",
+    paid: !!row.paid_at && invoiced(row),
     refundedCents: row.refunded_cents ?? 0,
     // A refund can be asked for when it can't be done online (e.g. the session already happened).
     canRequestRefund: !row.package_id && !!row.stripe_payment_intent_id && row.amount_cents - (row.refunded_cents ?? 0) > 0
       && !(row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN)
       && !(row.status === "cancelled" && row.refund_requested_at),
     refundRequest: await (await import("./refunds")).refundRequestStatus(env, "booking", row.id),
+    series: await (await import("./series")).seriesSummary(env, row.series_id),
     cutoffHours: CHANGE_CUTOFF_HOURS,
     serviceId: row.service_id,
     service: serviceLabel(service),
@@ -749,7 +764,7 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
   if (row.group_id) await sessions.refreshGroup(env, row.group_id);
   // An unpaid session Avery booked: close any payment page still open. If it
   // was paid at that very moment, the payment is refunded automatically.
-  if (row.created_by === "admin" && !row.paid_at && row.stripe_checkout_session_id) {
+  if (invoiced(row) && !row.paid_at && row.stripe_checkout_session_id) {
     try {
       const s = await stripe.expireCheckoutSession(env, row.stripe_checkout_session_id);
       if (s.status === "complete" && stripe.isPaid(s) && s.metadata?.purpose === "payment") await sessions.recordPayment(env, s, Date.now());

@@ -72,7 +72,7 @@ export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
     const start = Date.parse(b.start_utc);
     const paid = b.package_id ? 0 : b.amount_cents;
     const refunded = b.refunded_cents ?? 0;
-    const method = b.package_id ? "Bundle credit" : paid > 0 ? "Card" : b.created_by === "admin" && b.price_cents > 0 && !b.paid_at ? "Unpaid" : "Free";
+    const method = b.package_id ? "Bundle credit" : paid > 0 ? "Card" : b.price_cents !== null && b.price_cents > 0 && !b.paid_at ? "Unpaid" : "Free";
     rows.push([
       b.group_id ? "Group session" : "Session", day(start), time(start), b.name, b.email, serviceLabel(findService(b.service_id)!),
       b.status === "confirmed" ? (start < Date.now() ? "Happened" : "Upcoming") : `Cancelled (${String(b.cancel_reason ?? "").replace(/_/g, " ")})`,

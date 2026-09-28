@@ -173,6 +173,10 @@ export async function adminCreateSession(env: Env, body: unknown, ctx: { now: nu
   const payBy = parsePayBy(b, start, now, anyoneOwes);
   const message = clean(b.message, 1000, true) || null;
   await checkBundles(env, students, service, start, now);
+  const { parseRepeat, createSeries } = await import("./series");
+  const repeat = parseRepeat(b.repeat, service);
+  if (repeat && students.length > 1) throw new BookingError(400, "Repeating is for one student at a time.");
+  if (repeat && students[0].packageId) throw new BookingError(400, "Repeating sessions are paid each time, so they can't use a bundle credit.");
 
   const customerIds: string[] = [];
   for (const s of students) customerIds.push(await upsertCustomer(env, s));
@@ -193,9 +197,14 @@ export async function adminCreateSession(env: Env, body: unknown, ctx: { now: nu
 
   if (students.length === 1) {
     const id = crypto.randomUUID();
+    const seriesId = repeat ? await createSeries(env, {
+      customerId: customerIds[0], serviceId: service.id, startedBy: "admin", repeat, firstStart: start, priceCents: students[0].priceCents,
+      payByRule: String(b.payBy ?? "none"), name: students[0].name, pronouns: students[0].pronouns || null, timeZone: AVERY_TZ, message, active: true,
+    }) : null;
     try {
       await env.DB.batch([
         seat(students[0], customerIds[0], id, null),
+        ...(seriesId ? [env.DB.prepare("UPDATE bookings SET series_id = ?1 WHERE id = ?2").bind(seriesId, id)] : []),
         ...blocks.map((blk) => env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
         ...useCredit(students[0], id),
       ]);
@@ -455,7 +464,7 @@ export async function adminStudents(env: Env, now: number) {
        (SELECT MIN(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc > ?1) AS next_start,
        (SELECT MAX(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS last_start,
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS past,
-       (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.created_by = 'admin'
+       (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.price_cents IS NOT NULL
           AND b.paid_at IS NULL AND b.package_id IS NULL AND b.price_cents > 0) AS owed_cents,
        (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked,
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows
@@ -501,9 +510,15 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
         paid: b.package_id ? "bundle" : b.amount_cents, dueCents: dueCents(b), payBy: b.pay_by, refunded: !!b.refunded_at,
         refundedCents: b.refunded_cents ?? 0, noShow: b.attendance === "no_show", remindersSent: b.payment_reminders_sent,
         lastReminderAt: b.last_payment_reminder_at, nextReminderAt: nextAutoReminder(b, now),
-        intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message,
+        intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message, seriesId: b.series_id,
       };
     }),
+    series: (await env.DB.prepare(
+      "SELECT id, service_id, every_weeks, sessions_left, last_start, price_cents, started_by FROM series WHERE customer_id = ?1 AND status IN ('pending', 'active')",
+    ).bind(customerId).all<Record<string, any>>()).results.map((x) => ({
+      id: x.id, service: serviceLabel(findService(x.service_id)!), everyWeeks: x.every_weeks, sessionsLeft: x.sessions_left,
+      lastStart: x.last_start, priceCents: x.price_cents, startedBy: x.started_by,
+    })),
     bundles: packages.results.map((p) => ({
       id: p.id, bundle: `${findService(p.service_id)?.credits ?? p.credits_total} session bundle`, status: p.status,
       expired: !!p.expires_at && Date.parse(p.expires_at) <= now, creditsTotal: p.credits_total, creditsUsed: p.credits_used,
@@ -549,7 +564,7 @@ export function nextAutoReminder(row: Pick<BookingRow, "created_by" | "package_i
 // Everything one student owes: a reminder per unpaid session.
 export async function adminRemindStudent(env: Env, customerId: string, now: number) {
   const rows = await env.DB.prepare(
-    `SELECT id FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND created_by = 'admin' AND paid_at IS NULL
+    `SELECT id FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL
        AND package_id IS NULL AND price_cents > 0 AND end_utc > ?2 ORDER BY start_utc`,
   ).bind(customerId, iso(now)).all<{ id: string }>();
   if (!rows.results.length) throw new BookingError(409, "They don't owe anything right now.");
@@ -647,6 +662,7 @@ export async function recordPayment(env: Env, s: stripe.CheckoutSession, now: nu
     ).bind(iso(now), paid, pi, promoCode ?? null, row.id).run();
     if (!res.meta.changes) return;
     const fresh = (await loadBooking(env, "id", row.id))!;
+    if (fresh.series_id) await (await import("./series")).seriesPaid(env, fresh.series_id);
     const v = view(fresh);
     // Now they've paid, the receipt carries the Zoom link and an updated calendar invite.
     await sendEmail(env, "payment_received", row.id, T.paymentReceived(v, await manageUrl(env, row.id), clientIcs(env, fresh, v, "REQUEST")));
@@ -681,7 +697,7 @@ export async function recordPayment(env: Env, s: stripe.CheckoutSession, now: nu
 // Anyone still unpaid when their pay-by deadline passes is released.
 export async function releaseUnpaid(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
-    `SELECT id FROM bookings WHERE status = 'confirmed' AND created_by = 'admin' AND paid_at IS NULL AND package_id IS NULL
+    `SELECT id FROM bookings WHERE status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL AND package_id IS NULL
        AND price_cents > 0 AND pay_by IS NOT NULL AND pay_by <= ?1 LIMIT 20`,
   ).bind(iso(now)).all<{ id: string }>();
   let released = 0;
@@ -707,6 +723,7 @@ export async function releaseUnpaid(env: Env, now: number): Promise<number> {
       const after = (await loadBooking(env, "id", id))!;
       let groupContinues = false;
       if (after.group_id) groupContinues = (await refreshGroup(env, after.group_id, now)) === "active";
+      if (after.series_id) await (await import("./series")).seriesMissedPayment(env, after.series_id, now);
       else await removeCancelled(env, after);
       const v = view(after);
       await sendEmail(env, "unpaid_released", id, T.unpaidReleased({ ...v, dueCents: after.price_cents ?? 0 }, clientIcs(env, after, v, "CANCEL")));
@@ -723,7 +740,7 @@ export async function releaseUnpaid(env: Env, now: number): Promise<number> {
 // the session when there's no deadline. Never in the first 6 hours after the invite.
 export async function sendPaymentReminders(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
-    `SELECT id FROM bookings WHERE status = 'confirmed' AND created_by = 'admin' AND paid_at IS NULL AND package_id IS NULL
+    `SELECT id FROM bookings WHERE status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL AND package_id IS NULL
        AND price_cents > 0 AND payment_reminder_sent_at IS NULL AND created_at <= ?1 AND start_utc > ?2
        AND (last_payment_reminder_at IS NULL OR last_payment_reminder_at <= ?7)
        AND ((pay_by IS NOT NULL AND pay_by <= ?3 AND pay_by > ?4) OR (pay_by IS NULL AND start_utc <= ?5 AND start_utc > ?6))

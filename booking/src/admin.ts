@@ -87,7 +87,8 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
             b.group_id, b.created_by, b.price_cents, b.paid_at, b.pay_by, b.invite_message,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
             b.refund_requested_at, b.refund_error, b.cleanup_error, b.refunded_cents, b.attendance, b.payment_reminders_sent,
-            b.last_payment_reminder_at, b.payment_reminder_sent_at, b.created_at, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
+            b.last_payment_reminder_at, b.payment_reminder_sent_at, b.created_at, b.series_id,
+            (SELECT every_weeks FROM series s WHERE s.id = b.series_id AND s.status IN ('pending', 'active')) AS series_every, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
             ${CLIENT_COLUMNS("b")}
      FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
@@ -117,6 +118,8 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
       refundedCents: b.refunded_cents,
       noShow: b.attendance === "no_show",
       studentNotes: b.student_notes,
+      seriesId: b.series_id,
+      repeatEvery: b.series_every,
       unpaidReleased: b.cancel_reason === "unpaid",
       promoCode: b.promo_code,
       zoomUrl: b.zoom_join_url,

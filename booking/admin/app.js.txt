@@ -173,11 +173,13 @@
     ? btn(b.noShow ? "Undo no-show" : "Mark no-show", `data-noshow="${esc(b.id)}" data-value="${b.noShow ? 0 : 1}"`, b.noShow ? "They did attend after all" : "Record that they didn't show up", small ? "sm" : "")
     : "";
 
+  const everyText = (n) => (n === 1 ? "every week" : `every ${n} weeks`);
   function bookingCard(b) {
     const live = b.status === "confirmed" && !b.past;
     const chips = [
       payChip(b), statusChip(b), refundChip(b), reminderChips(b),
       b.noShow ? '<span class="chip bad">No-show</span>' : "",
+      b.repeatEvery ? `<span class="chip" title="The next one is booked automatically after this one ends">&#8635; Repeats ${everyText(b.repeatEvery)}</span>` : "",
       b.byAvery ? '<span class="chip">Booked by you</span>' : "",
       live ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
       live && !b.emailed ? '<span class="chip bad">Not emailed</span>' : "",
@@ -190,6 +192,7 @@
       b.stripeUrl ? link("Payment", b.stripeUrl, "Open this payment in your Stripe dashboard") : "",
       live ? btn("Change time", `data-move="${esc(b.id)}"`, "Move this session to another date or time. The student gets an updated invite.") : "",
       live ? btn("Resend invite", `data-resend="${esc(b.id)}"`, "Email the student their invite again (with the payment link if they still owe)") : "",
+      b.repeatEvery && b.seriesId ? btn("Stop repeating", `data-stop-series="${esc(b.seriesId)}"`, "Stop booking the next session automatically. Sessions already booked stay booked.") : "",
       refundBtn(b),
       noShowBtn(b),
       live ? btn("Cancel session", `data-cancel="${esc(b.id)}"`, "Cancel this session. You'll choose whether to refund and whether to email the student.", "danger") : "",
@@ -542,6 +545,11 @@
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
       <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
       <p class="notes-status hint" aria-live="polite"></p>
+      ${s.series && s.series.length ? `<h3>Repeating</h3>${s.series.map((r) => `<div class="seat">
+        <div class="who-line"><strong>${esc(r.service)}, ${everyText(r.everyWeeks)}</strong>
+          <small>${esc(fmt(r.lastStart, { weekday: "long" }))}s at ${esc(clock(r.lastStart))}${r.sessionsLeft !== null ? ` &middot; ${r.sessionsLeft} more to book` : " &middot; until stopped"} &middot; ${r.priceCents ? `${money(r.priceCents)} each` : "free"} &middot; started by ${r.startedBy === "admin" ? "you" : "them"}</small></div>
+        <span class="seat-actions">${btn("Stop repeating", `data-stop-series="${esc(r.id)}"`, "Stop booking the next session automatically. Sessions already booked stay booked.", "sm danger")}</span>
+      </div>`).join("")}` : ""}
       <h3>Upcoming sessions</h3>
       ${upcoming.length ? upcoming.map(sessionRow).join("") : '<p class="hint">None booked.</p>'}
       <h3>Bundles</h3>
@@ -903,6 +911,18 @@
     b.disabled = false;
   }
 
+  function openStopSeries(id) {
+    formDialog(`
+      <h2 id="dlg-title">Stop repeating?</h2>
+      <p>No more sessions will be booked automatically. Sessions already booked stay booked (cancel them separately if needed).</p>
+      <label><input type="checkbox" name="notify" checked> Email the student that their sessions won't repeat</label>
+      <div class="row">${cancelButton("Keep repeating")}<button type="submit" class="btn danger">Stop repeating</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/series/${encodeURIComponent(id)}/stop`, { notifyClient: f.notify.checked });
+      await afterAction("Stopped. No more sessions will be booked automatically.");
+    });
+  }
+
   async function setNoShow(id, noShow, b) {
     b.disabled = true;
     try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/attendance`, { noShow }); await afterAction(noShow ? "Marked as a no-show." : "No-show removed."); }
@@ -1064,6 +1084,16 @@
       <div id="students"></div>
       <p><button type="button" class="btn" id="add-student" title="Add another student to make this a group session">+ Add another student</button></p>
       <div class="fgrid">
+        <label>Repeat<select name="repeat">
+          <option value="">Doesn't repeat</option>
+          <option value="1">Every week</option><option value="2">Every 2 weeks</option><option value="3">Every 3 weeks</option><option value="4">Every 4 weeks</option>
+        </select></label>
+        <label class="repeat-total" hidden>For<select name="repeatTotal">
+          <option value="">Until stopped</option><option value="4">4 sessions</option><option value="8">8 sessions</option><option value="12">12 sessions</option><option value="26">26 sessions</option>
+        </select></label>
+      </div>
+      <p class="hint repeat-hint" hidden>After each session, the next one is booked automatically at the same time, with a new invite and pay link (at this price and deadline). A clash skips that week and you're both emailed. For one student at a time.</p>
+      <div class="fgrid">
         <label>Payment deadline<select name="payBy">
           <option value="none">No deadline (reminder only)</option>
           <option value="after24">24 hours after booking</option>
@@ -1077,6 +1107,7 @@
     async (f) => {
       const body = {
         serviceId: f.serviceId.value, date: f.date.value, time: f.time.value, payBy: f.payBy.value, message: f.message.value,
+        repeat: f.repeat.value ? { everyWeeks: Number(f.repeat.value), total: f.repeatTotal.value ? Number(f.repeatTotal.value) : null } : undefined,
         students: [...list.children].map((d) => {
           const useBundle = d.querySelector("[name=useBundle]");
           const price = d.querySelector("[name=price]").value;
@@ -1170,6 +1201,17 @@
     };
     form.querySelector("#add-student").addEventListener("click", () => addRow().querySelector("[name=name]").focus());
     addRow(prefillCustomerId ? students.find((x) => x.id === prefillCustomerId) : null);
+    // Repeating: one student only; show how long once chosen.
+    const syncRepeat = () => {
+      const many = list.children.length > 1;
+      if (many) form.repeat.value = "";
+      form.repeat.disabled = many;
+      form.repeat.title = many ? "Repeating is for one student at a time" : "";
+      form.querySelector(".repeat-total").hidden = !form.repeat.value;
+      form.querySelector(".repeat-hint").hidden = !form.repeat.value;
+    };
+    form.repeat.addEventListener("change", syncRepeat);
+    new MutationObserver(syncRepeat).observe(list, { childList: true });
     const recheck = () => checkTime(form, {});
     form.serviceId.addEventListener("change", () => {
       for (const d of list.children) { d.querySelector("[name=price]").placeholder = (priceOf(form.serviceId.value) / 100).toFixed(2); refreshPayment(d); }
@@ -1183,7 +1225,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
+    const t = e.target.closest("[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1226,6 +1268,7 @@
     }
     else if (d.decline) openDecline(data.problems.refundRequests.find((x) => x.id === d.decline));
     else if (d.noshow) setNoShow(d.noshow, d.value === "1", t);
+    else if (d.stopSeries) openStopSeries(d.stopSeries);
     else if (d.export !== undefined) download(`/api/admin/export?from=${encodeURIComponent(document.getElementById("export-from").value)}&to=${encodeURIComponent(document.getElementById("export-to").value)}`, `sessions ${document.getElementById("export-from").value} to ${document.getElementById("export-to").value}.csv`, t);
     else if (d.backup !== undefined) download("/api/admin/backup", `booking backup ${nyParts(new Date().toISOString()).date}.json`, t);
     else if (d.move) openMove(d.move);

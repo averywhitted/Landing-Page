@@ -18,7 +18,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/podcast/podcast.css" />
-    <link rel="stylesheet" href="/book/booking.css?v=db9ef543" />
+    <link rel="stylesheet" href="/book/booking.css?v=93e91e1a" />
     <style>
       .mg { margin: 32px auto 0; padding: 40px 44px; max-width: 760px; }
       .mg-back { display: inline-flex; margin: 0 0 18px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--a); }
@@ -61,7 +61,7 @@
       }
     </style>
     <script>document.documentElement.classList.add("js");</script>
-    <script src="/book/booking.js?v=299106fb" defer></script>
+    <script src="/book/booking.js?v=c9df43d7" defer></script>
   </head>
 
   <body>
@@ -241,8 +241,9 @@
               <p class="mg-note">You can reschedule or cancel until ${esc(cutoffText)}${booking.canReschedule ? "" : `. This session has already been moved a few times, so to change the time again please email <a href="mailto:${CONTACT}">${CONTACT}</a>`}.</p>
               <div id="mg-extra"></div>`;
           }
-          show("Your booking", `You're booked${name}`, detailsHtml() + paymentHtml() + actions);
+          show("Your booking", `You're booked${name}`, detailsHtml() + paymentHtml() + repeatHtml() + actions);
           wireRefundAsk();
+          wireRepeat();
           document.getElementById("mg-pay")?.addEventListener("click", startPay);
           document.getElementById("mg-move")?.addEventListener("click", openPicker);
           document.getElementById("mg-cancel")?.addEventListener("click", askCancel);
@@ -269,6 +270,32 @@
               try {
                 await api("POST", "/api/refund-requests", { kind: "booking", b, t, message: document.getElementById("mg-r-msg").value });
                 flash = { kind: "ok", html: "Your request has been sent. Avery will get back to you by email." };
+              } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+              await load();
+            });
+          });
+        }
+
+        // Repeating sessions: what repeats, and a quiet way to stop it.
+        function repeatHtml() {
+          const sr = booking.series;
+          if (!sr || !["active", "pending"].includes(sr.status)) return "";
+          const every = sr.everyWeeks === 1 ? "every week" : `every ${sr.everyWeeks} weeks`;
+          return `<div id="mg-series"><p class="mg-note" style="margin:0 0 16px">This session repeats ${every}${sr.sessionsLeft !== null ? ` (${sr.sessionsLeft} more to come)` : ""}. The next one is booked automatically after this one ends. <button type="button" class="linkish" id="mg-stop-series">Stop repeating</button></p></div>`;
+        }
+        function wireRepeat() {
+          document.getElementById("mg-stop-series")?.addEventListener("click", () => {
+            document.getElementById("mg-series").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-s-title" style="margin:0 0 16px">
+                <h2 id="mg-s-title">Stop repeating?</h2>
+                <p>No more sessions will be booked automatically. Sessions already booked, including this one, stay booked.</p>
+                <div class="mg-actions"><button type="button" class="btn danger" id="mg-s-yes">Stop repeating</button><button type="button" class="btn" id="mg-s-no">Keep repeating</button></div>
+              </div>`;
+            document.getElementById("mg-s-no").addEventListener("click", renderBooking);
+            document.getElementById("mg-s-yes").addEventListener("click", async (e) => {
+              e.target.disabled = true;
+              try {
+                await api("POST", "/api/series/stop", { b, t });
+                flash = { kind: "ok", html: "Done. Your sessions won't repeat anymore. Anything already booked is still on." };
               } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
               await load();
             });
