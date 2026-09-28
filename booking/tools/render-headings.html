@@ -14,6 +14,7 @@
 <head>
   <meta charset="utf-8">
   <title>Email heading renderer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet">
   <style>
     body { font: 14px system-ui, sans-serif; background: #f6f7f9; margin: 32px; }
     .row { display: flex; align-items: center; gap: 16px; margin: 0 0 14px; }
@@ -24,6 +25,8 @@
 <body>
   <h1>Email headings</h1>
   <div id="out"></div>
+  <h2>Header lockup (assets/email-wordmark.png)</h2>
+  <div id="lockup"></div>
   <h2>Manifest (for src/email-headings.ts)</h2>
   <pre id="manifest"></pre>
   <script>
@@ -64,6 +67,29 @@
         document.getElementById("out").appendChild(row);
       }
       window.__headings = results;
+
+      // The email header: AVERY WHITTED over ACTING WORKSHOPS + PRIVATE COACHING,
+      // like the site header. Background matches the email's outer gray.
+      await document.fonts.load("600 30px Inter");
+      {
+        const NAME = 26 * SCALE, SUB = 10 * SCALE, GAP = 7 * SCALE, PAD = 2 * SCALE;
+        const c = document.createElement("canvas");
+        let x = c.getContext("2d");
+        const nameFont = () => { x.font = `${NAME}px HorizonR`; if ("letterSpacing" in x) x.letterSpacing = `${0.005 * NAME}px`; };
+        const subFont = () => { x.font = `600 ${SUB}px Inter`; if ("letterSpacing" in x) x.letterSpacing = `${0.14 * SUB}px`; };
+        nameFont(); const n = x.measureText("AVERY WHITTED");
+        subFont(); const sb = x.measureText("ACTING WORKSHOPS + PRIVATE COACHING");
+        const nameH = n.actualBoundingBoxAscent + n.actualBoundingBoxDescent;
+        const subH = sb.actualBoundingBoxAscent + sb.actualBoundingBoxDescent;
+        c.width = Math.ceil(Math.max(n.width, sb.width)) + 4;
+        c.height = Math.ceil(PAD + nameH + GAP + subH + PAD);
+        x = c.getContext("2d");
+        x.fillStyle = "#f6f7f9"; x.fillRect(0, 0, c.width, c.height);
+        nameFont(); x.fillStyle = INK; x.fillText("AVERY WHITTED", 2, PAD + n.actualBoundingBoxAscent);
+        subFont(); x.fillStyle = "#6b727b"; x.fillText("ACTING WORKSHOPS + PRIVATE COACHING", 2, PAD + nameH + GAP + sb.actualBoundingBoxAscent);
+        window.__wordmark = { dataUrl: c.toDataURL("image/png"), w: Math.round(c.width / SCALE), h: Math.round(c.height / SCALE) };
+        document.getElementById("lockup").innerHTML = `<img src="${window.__wordmark.dataUrl}" width="${window.__wordmark.w}" style="background:#f6f7f9"> <a download="email-wordmark.png" href="${window.__wordmark.dataUrl}">email-wordmark.png</a> (${window.__wordmark.w}x${window.__wordmark.h})`;
+      }
       document.getElementById("manifest").textContent = JSON.stringify(results.map(({ title, file, w, h }) => ({ title, file, w, h })), null, 2);
     })();
   </script>

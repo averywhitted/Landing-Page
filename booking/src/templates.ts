@@ -78,7 +78,7 @@ function layout(p: { preheader: string; tag: string; title: string; subtitle?: s
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
-  <tr><td style="padding:0 4px 18px;"><img src="${ASSETS}/wordmark.png" width="321" height="22" alt="AVERY WHITTED" style="display:block;border:0;outline:none;width:321px;max-width:100%;height:auto;font:900 22px/1 'Arial Black',${FONT};color:#0e1116;"></td></tr>
+  <tr><td style="padding:0 4px 18px;"><a href="https://averywhitted.com" style="text-decoration:none;"><img src="${ASSETS}/wordmark.png?v=2" width="322" height="37" alt="AVERY WHITTED &middot; Acting Workshops + Private Coaching" style="display:block;border:0;outline:none;width:322px;max-width:100%;height:auto;font:900 20px/1.2 'Arial Black',${FONT};color:#0e1116;"></a></td></tr>
   <tr><td style="background:#ffffff;border:1px solid #e1e3e8;border-radius:18px;padding:32px 30px;">
     <span style="display:inline-block;padding:5px 9px 4px;border-radius:4px;background:#e3f24d;color:#14161a;font:700 11px/1.2 ${FONT};letter-spacing:1.1px;text-transform:uppercase;">${esc(p.tag)}</span>
     ${heading(p.title)}
@@ -95,6 +95,9 @@ const para = (html: string) => `<p style="margin:0 0 16px;font:15px/1.65 ${FONT}
 const small = (html: string) => `<p style="margin:0 0 12px;font:13px/1.6 ${FONT};color:#6b727b;">${html}</p>`;
 const button = (href: string, label: string) =>
   `<p style="margin:22px 0 22px;"><a href="${esc(href)}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#1f47f5;color:#ffffff;font:700 13px/1 ${FONT};letter-spacing:0.8px;text-transform:uppercase;text-decoration:none;">${esc(label)}</a></p>`;
+// The Zoom button plus the address itself, for anyone who'd rather copy it.
+const zoomButton = (url: string) => button(url, "Join on Zoom")
+  + `<p style="margin:-12px 0 20px;font:12px/1.5 ${FONT};color:#6b727b;">Or paste this link: <a href="${esc(url)}" style="color:#6b727b;word-break:break-all;">${esc(url)}</a></p>`;
 const ghostButton = (href: string, label: string) =>
   `<p style="margin:4px 0 20px;"><a href="${esc(href)}" style="display:inline-block;padding:12px 18px;border-radius:12px;border:1.5px solid #0e1116;color:#0e1116;font:700 12px/1 ${FONT};letter-spacing:0.8px;text-transform:uppercase;text-decoration:none;">${esc(label)}</a></p>`;
 const warn = (text: string) =>
@@ -139,7 +142,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
       ? "Thanks for booking an intro call. I'm looking forward to meeting you and hearing what you're working on."
       : "You're all set. I'm looking forward to working with you."),
     details(sessionRows(b, tz, true)),
-    b.zoomUrl ? button(b.zoomUrl, "Join on Zoom") : para("I'll send your Zoom link before the session."),
+    b.zoomUrl ? zoomButton(b.zoomUrl) : para("I'll send your Zoom link before the session."),
     para("A calendar invite is attached, so you can add it to your calendar in one tap."),
     manageBlock(manageUrl, b.amountCents > 0),
     para("See you soon,<br>Avery"),
@@ -252,7 +255,7 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
     para(`Hi ${esc(firstName(b.name))},`),
     para("Your session has been moved. Here are the new details:"),
     details([...sessionRows(b, tz, false), ["Was", `<span style="color:#6b727b;text-decoration:line-through;">${esc(was)}</span>`]]),
-    b.zoomUrl ? button(b.zoomUrl, "Join on Zoom") : "",
+    b.zoomUrl ? zoomButton(b.zoomUrl) : "",
     para("The attached invite updates the event already in your calendar."),
     manageBlock(manageUrl, false),
     para("See you then,<br>Avery"),
@@ -394,7 +397,7 @@ export function sessionReminder(b: BookingView, now: number): Email {
     para(`Hi ${esc(firstName(b.name))},`),
     para(`Just a reminder that your ${esc(b.serviceName.toLowerCase())} is ${esc(when)} at <strong>${esc(clock(b.start, tz))} ${esc(zoneName(b.start, tz))}</strong>.`),
     details(sessionRows(b, tz, false)),
-    b.zoomUrl ? button(b.zoomUrl, "Join on Zoom") : para("I'll send your Zoom link before the session."),
+    b.zoomUrl ? zoomButton(b.zoomUrl) : para("I'll send your Zoom link before the session."),
     b.kind === "intro"
       ? para("Come as you are. It's a relaxed chat to get to know each other and what you're working on.")
       : para("To make the most of our time, have your material open and ready, and find a quiet spot with a good connection."),
