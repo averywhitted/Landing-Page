@@ -51,6 +51,9 @@
 .bk-dialog::backdrop { background: rgba(14, 17, 22, 0.42); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 @keyframes bk-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
 html.bk-lock { overflow: hidden; scroll-behavior: auto; }
+/* Hover effects only on devices with a real mouse. On phones, a tap that
+   triggers an animated hover can make Safari swallow the click. */
+.bk-svc:active, .bk-slot:active, .bk-row:active, .bk-day:active:not([disabled]) { border-color: var(--bk-a); }
 .bk button, .bk a, .bk input, .bk select, .bk textarea, .bk label { touch-action: manipulation; }
 
 .bk-close {
@@ -69,7 +72,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.bk-close:hover { transform: rotate(90deg); border-color: var(--bk-a); color: var(--bk-a); }
+@media (hover: hover) and (pointer: fine) { .bk-close:hover { transform: rotate(90deg); border-color: var(--bk-a); color: var(--bk-a); } }
 
 /* ── Widget layout ── */
 .bk-root { position: relative; display: flex; flex-direction: column; min-height: 0; flex: 1; }
@@ -128,7 +131,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
 .bk-step[aria-current="step"] .bk-step-n { background: var(--bk-lime); color: var(--bk-lime-ink); }
 .bk-step.is-done { color: var(--bk-text); cursor: pointer; }
 .bk-step.is-done .bk-step-n { background: var(--bk-lime); color: var(--bk-lime-ink); }
-.bk-step.is-done:hover { border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); }
+@media (hover: hover) and (pointer: fine) { .bk-step.is-done:hover { border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); } }
 
 .bk-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 30px 26px; overscroll-behavior: contain; }
 .bk-foot {
@@ -177,11 +180,11 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   cursor: pointer;
   transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
 }
-.bk-btn:hover { transform: translateY(-1px); background: var(--bk-text); color: #ffffff; }
+@media (hover: hover) and (pointer: fine) { .bk-btn:hover { transform: translateY(-1px); background: var(--bk-text); color: #ffffff; } }
 .bk-btn.primary { border-color: var(--bk-a); background: var(--bk-a); color: #ffffff; }
-.bk-btn.primary:hover { background: var(--bk-a-dark); border-color: var(--bk-a-dark); }
+@media (hover: hover) and (pointer: fine) { .bk-btn.primary:hover { background: var(--bk-a-dark); border-color: var(--bk-a-dark); } }
 .bk-btn.ghost { border-color: transparent; padding-left: 4px; padding-right: 4px; color: var(--bk-faint); }
-.bk-btn.ghost:hover { background: transparent; color: var(--bk-a); transform: none; }
+@media (hover: hover) and (pointer: fine) { .bk-btn.ghost:hover { background: transparent; color: var(--bk-a); transform: none; } }
 .bk-btn[disabled] { opacity: 0.45; cursor: not-allowed; transform: none; }
 
 /* ── Step 1: session cards ── */
@@ -200,7 +203,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   cursor: pointer;
   transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
 }
-.bk-svc:hover { transform: translateY(-2px); border-color: var(--bk-a); box-shadow: 0 16px 34px rgba(31, 71, 245, 0.12); }
+@media (hover: hover) and (pointer: fine) { .bk-svc:hover { transform: translateY(-2px); border-color: var(--bk-a); box-shadow: 0 16px 34px rgba(31, 71, 245, 0.12); } }
 .bk-svc-num {
   width: 64px;
   height: 64px;
@@ -257,7 +260,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   cursor: pointer;
   transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
-.bk-arrow:hover:not([disabled]) { border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); }
+@media (hover: hover) and (pointer: fine) { .bk-arrow:hover:not([disabled]) { border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); } }
 .bk-arrow[disabled] { opacity: 0.35; cursor: not-allowed; }
 
 .bk-tz { display: inline-flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--bk-faint); white-space: nowrap; }
@@ -275,7 +278,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   appearance: none;
   cursor: pointer;
 }
-.bk-tz-select:hover { border-color: var(--bk-a); color: var(--bk-a); }
+@media (hover: hover) and (pointer: fine) { .bk-tz-select:hover { border-color: var(--bk-a); color: var(--bk-a); } }
 
 .bk-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin: 0 0 18px; }
 .bk-days.is-8 { grid-template-columns: repeat(8, minmax(0, 1fr)); }
@@ -294,7 +297,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
 .bk-day-dow { font-size: 0.625rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--bk-faint); }
 .bk-day-num { font-family: var(--bk-display); font-size: 1.375rem; line-height: 1; }
 .bk-day-count { font-family: var(--bk-mono); font-size: 0.625rem; letter-spacing: -0.02em; color: var(--bk-faint); }
-.bk-day:hover:not([disabled]) { transform: translateY(-1px); border-color: var(--bk-a); }
+@media (hover: hover) and (pointer: fine) { .bk-day:hover:not([disabled]) { transform: translateY(-1px); border-color: var(--bk-a); } }
 .bk-day[aria-pressed="true"] { background: var(--bk-a); border-color: var(--bk-a); color: #ffffff; box-shadow: 0 6px 18px rgba(31, 71, 245, 0.3); }
 .bk-day[aria-pressed="true"] .bk-day-dow { color: rgba(255, 255, 255, 0.85); }
 .bk-day[disabled] { cursor: not-allowed; background: transparent; border-style: dashed; }
@@ -335,7 +338,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   transition: color 0.15s ease;
 }
 .bk-view button[aria-pressed="true"] { color: var(--bk-text); }
-.bk-view button:hover { color: var(--bk-a); }
+@media (hover: hover) and (pointer: fine) { .bk-view button:hover { color: var(--bk-a); } }
 
 /* List layout: larger rows grouped by part of day */
 .bk-list { display: grid; gap: 16px; }
@@ -358,8 +361,8 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
 .bk-row-time { font-family: var(--bk-mono); font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.02em; }
 .bk-row-end { font-family: var(--bk-mono); font-size: 0.8125rem; letter-spacing: -0.02em; color: var(--bk-faint); }
 .bk-row-mark { width: 20px; height: 20px; border: 1.5px solid var(--bk-line); border-radius: 999px; }
-.bk-row:hover { transform: translateY(-1px); border-color: var(--bk-a); background: var(--bk-a-soft); }
-.bk-row:hover .bk-row-mark { border-color: var(--bk-a); }
+@media (hover: hover) and (pointer: fine) { .bk-row:hover { transform: translateY(-1px); border-color: var(--bk-a); background: var(--bk-a-soft); } }
+@media (hover: hover) and (pointer: fine) { .bk-row:hover .bk-row-mark { border-color: var(--bk-a); } }
 .bk-row[aria-pressed="true"] { border-color: var(--bk-a); background: var(--bk-a); color: #ffffff; }
 .bk-row[aria-pressed="true"] .bk-row-end { color: rgba(255, 255, 255, 0.8); }
 .bk-row[aria-pressed="true"] .bk-row-mark { border-color: #ffffff; background: #ffffff; box-shadow: inset 0 0 0 4px var(--bk-a); }
@@ -376,7 +379,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
-.bk-slot:hover { transform: translateY(-1px); border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); }
+@media (hover: hover) and (pointer: fine) { .bk-slot:hover { transform: translateY(-1px); border-color: var(--bk-a); color: var(--bk-a); background: var(--bk-a-soft); } }
 .bk-slot[aria-pressed="true"] { background: var(--bk-a); border-color: var(--bk-a); color: #ffffff; }
 
 .bk-empty {
@@ -430,7 +433,7 @@ html.bk-lock { overflow: hidden; scroll-behavior: auto; }
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .bk-input::placeholder { color: #9aa0a8; }
-.bk-input:hover { border-color: rgba(14, 17, 22, 0.28); }
+@media (hover: hover) and (pointer: fine) { .bk-input:hover { border-color: rgba(14, 17, 22, 0.28); } }
 .bk-input:focus { outline: none; border-color: var(--bk-a); box-shadow: 0 0 0 3px var(--bk-a-soft); }
 textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 .bk-form.was-validated .bk-input:invalid { border-color: var(--bk-danger); }
@@ -512,7 +515,7 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
 
 /* ── Homepage hook: price chips in the Coaching section open that session ── */
 .price-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); text-underline-offset: 4px; transition: text-decoration-color 0.12s ease; }
-.price-link:hover { text-decoration-color: currentColor; }
+@media (hover: hover) and (pointer: fine) { .price-link:hover { text-decoration-color: currentColor; } }
 
 /* ── Saved-booking cart button (added to the site header when a booking is unfinished) ── */
 .bk-cart {
@@ -534,7 +537,7 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
   animation: bk-cart-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1);
   transition: transform 0.12s ease, background 0.12s ease;
 }
-.bk-cart:hover { transform: translateY(-1px); background: #1637d4; }
+@media (hover: hover) and (pointer: fine) { .bk-cart:hover { transform: translateY(-1px); background: #1637d4; } }
 .bk-cart:focus-visible { outline: 3px solid #1f47f5; outline-offset: 3px; }
 /* A plain lime dot (no number: there's only ever one booking in progress) */
 .bk-cart-badge {
