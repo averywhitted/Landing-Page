@@ -38,3 +38,16 @@ export type Env = {
 };
 
 export const usingFakes = (env: Env) => env.LOCAL_FAKES === "1";
+
+// Is this the real site, or a test copy of the pages served from this Mac?
+export const isLiveSite = (env: Env) => /^https:\/\/(www\.)?averywhitted\.com\/?$/.test(env.SITE_URL);
+
+// Addresses of this Mac: itself, or on the home network (so a phone on the
+// same Wi-Fi can test). Only trusted while testing, never on the live site.
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/;
+
+// May a booking page at this address use the service?
+export function allowedPage(env: Env, protocol: string, host: string): boolean {
+  if (protocol === "https:" && (host === "averywhitted.com" || host === "www.averywhitted.com")) return true;
+  return protocol === "http:" && !isLiveSite(env) && LOCAL_HOST.test(host);
+}

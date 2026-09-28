@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./env";
+import { allowedPage } from "./env";
 import { SERVICES, findService } from "./services";
 import { RULES } from "./settings";
 import { calendarFor } from "./calendar";
@@ -30,11 +31,17 @@ import adminJs from "../admin/app.js.txt";
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Only averywhitted.com (and local previews on this Mac) may call the API from a browser.
-const ALLOWED_ORIGINS = ["https://averywhitted.com", "https://www.averywhitted.com"];
+// Only averywhitted.com may call the API from a browser (plus copies of the
+// pages served from this Mac or the home network while testing).
 app.use("/api/*", cors({
-  origin: (origin) =>
-    ALLOWED_ORIGINS.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : null,
+  origin: (origin, c) => {
+    try {
+      const u = new URL(origin);
+      return allowedPage(c.env, u.protocol, u.hostname) ? origin : null;
+    } catch {
+      return null;
+    }
+  },
   allowMethods: ["GET", "POST"],
   maxAge: 86400,
 }));

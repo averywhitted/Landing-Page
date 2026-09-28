@@ -165,8 +165,11 @@ export function makeWorld() {
     /* Cloudflare Turnstile */
     if (u.host === "challenges.cloudflare.com") {
       const f = new URLSearchParams(body);
-      const good = f.get("secret") === "turnstile-secret" && f.get("response") === "good-token";
-      return json(good ? { success: true } : { success: false, "error-codes": ["invalid-input-response"] });
+      // Tokens name the page they were made on: good-token (averywhitted.com), lan-token, elsewhere-token.
+      const hosts: Record<string, string> = { "good-token": "averywhitted.com", "lan-token": "192.168.1.155", "elsewhere-token": "evil.example" };
+      const host = hosts[f.get("response") ?? ""];
+      const good = f.get("secret") === "turnstile-secret" && !!host;
+      return json(good ? { success: true, hostname: host } : { success: false, "error-codes": ["invalid-input-response"] });
     }
 
     /* Resend */

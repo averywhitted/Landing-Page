@@ -379,7 +379,26 @@ test("Turnstile: bookings need a valid human-check token once it's switched on",
   assert.equal((await book("coaching-60", slot)).status, 403, "no token");
   assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "forged" })).status, 403, "bad token");
   assert.equal(world.state.stripeSessions.size, 0, "nothing held or charged for failed checks");
+  assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "elsewhere-token" })).status, 403, "a pass from another site");
+  assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "lan-token" })).status, 403, "home-network pages don't count on the live site");
   assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "good-token" })).status, 201);
+});
+
+test("home-network test pages: allowed only while testing", async () => {
+  const origin = "http://192.168.1.155:8743";
+  const allowed = async () => (await api.call("GET", "/api/services", { headers: { Origin: origin } })).headers.get("Access-Control-Allow-Origin");
+  assert.equal(await allowed(), null, "live site: no");
+  const live = env.SITE_URL;
+  env.SITE_URL = origin;
+  try {
+    assert.equal(await allowed(), origin, "test mode: yes");
+    env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    const [slot] = await openSlots();
+    assert.equal((await book("coaching-60", slot, {}, { turnstileToken: "lan-token" })).status, 201);
+  } finally {
+    env.SITE_URL = live;
+  }
+  assert.equal((await api.call("GET", "/api/services", { headers: { Origin: "https://averywhitted.com" } })).headers.get("Access-Control-Allow-Origin"), "https://averywhitted.com");
 });
 
 test("email wordmark image is served", async () => {
