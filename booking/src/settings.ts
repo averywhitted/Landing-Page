@@ -13,6 +13,7 @@ export const RULES = {
   holdMinutes: 31,               // slot is held while the client pays (Stripe needs at least 30)
   maxActiveHoldsPerPerson: 2,    // unpaid holds one email or network can have at once
   maxUpcomingIntros: 1,          // free intro chats one email can have booked at once
+  maxIntrosPerNetworkPerDay: 2,  // free intro chats one internet connection can book per day
   packageValidDays: 90,          // bundles must be used within this many days of purchase
   packageExpiryNoticeDays: 7,    // "sessions expiring" email this many days before
   packageSessionService: "coaching-60", // what one bundle credit books

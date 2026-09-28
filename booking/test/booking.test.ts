@@ -5,6 +5,7 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { makeDb, makeWorld, makeEnv, makeClient, accessToken, ACCESS_TEAM, ACCESS_AUD } from "./harness";
 import { resetAccessCache } from "../src/admin";
+import { forgetCalendars } from "../src/icloud";
 import { buildIcs } from "../src/ics";
 import type { Env } from "../src/env";
 
@@ -22,6 +23,7 @@ beforeEach(() => {
   (globalThis as any).caches = { default: { match: async () => undefined, put: async () => {} } };
   env = makeEnv(made.d1);
   api = makeClient(env);
+  forgetCalendars();
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
@@ -434,9 +436,10 @@ test("manage link: shows the booking; a wrong or altered link shows nothing", as
   assert.equal((await api.call("GET", `/api/manage?b=${other}&t=${t}`)).status, 404, "a link can't be pointed at another booking");
 });
 
-test("cancel: frees the time, removes the calendar event, emails both with a refund prompt", async () => {
+test("cancel: frees the time, removes the calendar event, refunds in full automatically, emails both", async () => {
   const { id, b, t, slots } = await confirmedBooking();
   const eventUrl = row(id).calendar_event_url;
+  const pi = row(id).stripe_payment_intent_id;
   assert.ok(world.state.calendarEvents.has(eventUrl));
   const r = await api.call("POST", "/api/manage/cancel", { body: { b, t } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
@@ -445,17 +448,26 @@ test("cancel: frees the time, removes the calendar event, emails both with a ref
   assert.equal(after.cancel_reason, "client_cancelled");
   assert.equal(claims(id), 0);
   assert.ok(!world.state.calendarEvents.has(eventUrl), "removed from the Coaching calendar");
+  assert.equal(after.calendar_event_url, null, "recorded as removed");
   assert.ok((await openSlots()).includes(slots[0]), "time is bookable again");
+
+  assert.equal(world.state.refunds.length, 1, "refunded exactly once");
+  assert.equal(world.state.refunds[0].payment_intent, pi, "the payment for this booking");
+  assert.ok(after.refunded_at);
 
   const [client, admin] = world.state.emails;
   assert.match(client.subject, /^Cancelled: 1 hour session/);
+  assert.match(client.text, /full refund of \$130 is on its way/);
   const ics = Buffer.from(client.attachments[0].content, "base64").toString();
   assert.match(ics, /METHOD:CANCEL/);
   assert.match(ics, /SEQUENCE:1/);
   assert.match(ics, new RegExp(`UID:${row(id).ics_uid}`));
-  assert.match(admin.subject, /\(refund \$130\)$/);
+  assert.match(admin.subject, /\(refunded \$130\)$/);
+  assert.match(admin.text, /Refunded \$130 automatically/);
   assert.match(admin.html, /dashboard\.stripe\.com\/test\/payments\/pi_/);
   assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 409, "can't cancel twice");
+  await api.cron();
+  assert.equal(world.state.refunds.length, 1, "never refunded a second time");
 });
 
 test("cancel and reschedule are refused inside 24 hours", async () => {
@@ -1025,4 +1037,235 @@ test("calendar files are escaped and folded correctly", () => {
   assert.match(ics, /SUMMARY:Coaching: Ana\\; Lee\\, Jr\./);
   assert.match(ics, /SEQUENCE:2/);
   for (const line of ics.split("\r\n")) assert.ok(new TextEncoder().encode(line).length <= 75, `line too long: ${line}`);
+});
+
+/* ── Refund safety: nobody can be refunded and keep the session ── */
+
+const refundsFor = (pi: string) => world.state.refunds.filter((r) => r.payment_intent === pi).length;
+
+test("refund safety: two cancellations at the same moment make one cancellation and one refund", async () => {
+  const { id, b, t } = await confirmedBooking();
+  const pi = row(id).stripe_payment_intent_id;
+  const results = await Promise.all([1, 2, 3].map(() => api.call("POST", "/api/manage/cancel", { body: { b, t } })));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409, 409]);
+  assert.equal(refundsFor(pi), 1);
+  assert.equal(world.state.emails.filter((e) => /^Cancelled:/.test(e.subject) && e.to[0] === "jamie@example.com").length, 1, "one client email");
+});
+
+test("refund safety: a cancellation racing a reschedule never puts the session back", async () => {
+  const { id, b, t, slots } = await confirmedBooking();
+  const [cancel, move] = await Promise.all([
+    api.call("POST", "/api/manage/cancel", { body: { b, t } }),
+    api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots.at(-1) } }),
+  ]);
+  assert.equal(cancel.status, 200);
+  assert.equal(move.status, 409, JSON.stringify(move.data));
+  const after = row(id);
+  assert.equal(after.status, "cancelled");
+  assert.equal(claims(id), 0, "holds no time");
+  assert.equal(world.state.calendarEvents.size, 0, "nothing left on the Coaching calendar");
+  assert.equal(refundsFor(after.stripe_payment_intent_id), 1);
+  assert.ok(!world.state.emails.some((e) => /^Rescheduled/.test(e.subject)), "no 'rescheduled' emails");
+});
+
+test("refund safety: the database refuses to reactivate a refunded booking or give it time", async () => {
+  const { id, b, t, slots } = await confirmedBooking();
+  const s = world.state.stripeSessions.get(row(id).stripe_checkout_session_id)!;
+  await api.call("POST", "/api/manage/cancel", { body: { b, t } });
+  assert.ok(row(id).refunded_at);
+  assert.throws(() => db.prepare("UPDATE bookings SET status = 'confirmed' WHERE id = ?").run(id), /refunded booking cannot be active/);
+  assert.throws(() => db.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES ('2030-01-01T15:00:00Z', ?)").run(id), /only active bookings/);
+  // A repeat "payment completed" notice from Stripe changes nothing.
+  assert.equal((await api.webhook("checkout.session.completed", paid(s), { id: "evt_late_repeat" })).status, 200);
+  assert.equal(row(id).status, "cancelled");
+  // Nor can it be moved or cancelled again.
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots.at(-1) } })).status, 409);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: { b, t } })).status, 409);
+  const view = await api.call("GET", `/api/manage?b=${b}&t=${t}`);
+  assert.equal(view.data.status, "cancelled");
+  assert.equal(view.data.zoomUrl, null, "no Zoom link shown");
+  assert.equal(refundsFor(row(id).stripe_payment_intent_id), 1);
+});
+
+test("refund safety: if Stripe refuses the refund, it retries, Avery is alerted, and the session stays cancelled", async () => {
+  const { id, b, t } = await confirmedBooking();
+  world.state.refundFailNext = 2; // the first try and the first retry fail
+  await api.call("POST", "/api/manage/cancel", { body: { b, t } });
+  let after = row(id);
+  assert.equal(after.status, "cancelled");
+  assert.equal(after.refunded_at, null);
+  assert.ok(after.refund_requested_at);
+  const admin = world.state.emails.find((e) => /^Cancelled: Jamie Rivera/.test(e.subject))!;
+  assert.match(admin.subject, /\(refund pending \$130\)$/);
+  // 15 minutes on and the retry fails too: Avery hears about it.
+  db.prepare("UPDATE bookings SET refund_requested_at = ?, updated_at = ? WHERE id = ?").run(new Date(Date.now() - 20 * 60000).toISOString(), new Date(Date.now() - 20 * 60000).toISOString(), id);
+  await api.cron();
+  const alert = world.state.emails.find((e) => /^Booking system: /.test(e.subject));
+  assert.ok(alert, "alert sent");
+  assert.match(alert!.text, /automatic refund of \$130\.00 to Jamie Rivera hasn't gone through/);
+  await api.cron();
+  after = row(id);
+  assert.ok(after.refunded_at, "went through on a later try");
+  assert.equal(refundsFor(after.stripe_payment_intent_id), 1);
+  assert.equal(after.status, "cancelled");
+});
+
+test("refund safety: if the calendar event can't be removed, Avery is told and cron keeps trying", async () => {
+  const { id, b, t } = await confirmedBooking();
+  const eventUrl = row(id).calendar_event_url;
+  world.state.calendarDeleteFailNext = 1;
+  await api.call("POST", "/api/manage/cancel", { body: { b, t } });
+  assert.ok(world.state.calendarEvents.has(eventUrl), "still there after the failure");
+  assert.equal(row(id).calendar_event_url, eventUrl, "remembered so it can be retried");
+  const admin = world.state.emails.find((e) => /^Cancelled: Jamie Rivera/.test(e.subject))!;
+  assert.match(admin.text, /couldn't be removed from your Coaching calendar/);
+  assert.doesNotMatch(admin.html, /The event has been removed/);
+  db.prepare("UPDATE bookings SET updated_at = ? WHERE id = ?").run(new Date(Date.now() - 5 * 60000).toISOString(), id);
+  await api.cron();
+  assert.ok(!world.state.calendarEvents.has(eventUrl), "removed on retry");
+  assert.equal(row(id).calendar_event_url, null);
+});
+
+test("refund safety: when Avery cancels, the refund is Avery's choice and shows until it's done", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const pi = row(id).stripe_payment_intent_id;
+  const r = await api.call("POST", `/api/admin/bookings/${id}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: false } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(refundsFor(pi), 0, "not refunded without Avery choosing to");
+  const client = world.state.emails.find((e) => /^Cancelled:/.test(e.subject))!;
+  assert.match(client.text, /full refund or a new time at no charge/);
+  let overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(overview.data.bookings.find((x: any) => x.id === id).refundOwed, "choice");
+  const refund = await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin() });
+  assert.equal(refund.status, 200);
+  assert.equal(refundsFor(pi), 1);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin() })).status, 409, "only once");
+  overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(overview.data.bookings.find((x: any) => x.id === id).refundOwed, null);
+  assert.equal(refundsFor(pi), 1);
+
+  const second = await confirmedBooking("coaching-30", 6);
+  const r2 = await api.call("POST", `/api/admin/bookings/${second.id}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: true } });
+  assert.equal(r2.status, 200);
+  assert.equal(refundsFor(row(second.id).stripe_payment_intent_id), 1, "refunded right away when chosen");
+  assert.match(world.state.emails.find((e) => /^Cancelled: 30 minute/.test(e.subject))!.text, /full refund of \$75 is on its way/);
+});
+
+test("refund safety: paid after the hold ran out and the time was taken, refund fails first: retried, never lost", async () => {
+  const [slot] = await openSlots();
+  const late = await book("coaching-60", slot);
+  const s = sessionFor(late.data.bookingId);
+  await api.webhook("checkout.session.expired", s);
+  assert.equal((await book("coaching-60", slot, { email: "fast@example.com" })).status, 201);
+  world.state.refundFailNext = 1;
+  assert.equal((await api.webhook("checkout.session.completed", paid(s))).status, 200);
+  let b = row(late.data.bookingId);
+  assert.equal(b.cancel_reason, "slot_taken_after_payment");
+  assert.equal(b.refunded_at, null);
+  assert.ok(b.refund_requested_at);
+  assert.ok(world.state.emails.some((e) => e.subject === "About your booking: you've been refunded"), "client still told");
+  // Stripe sends the same notice again: no duplicate emails, no double refund.
+  await api.webhook("checkout.session.completed", paid(s), { id: "evt_again" });
+  db.prepare("UPDATE bookings SET refund_requested_at = ? WHERE id = ?").run(new Date(Date.now() - 5 * 60000).toISOString(), b.id);
+  await api.cron();
+  b = row(b.id);
+  assert.ok(b.refunded_at);
+  assert.equal(refundsFor(b.stripe_payment_intent_id), 1);
+  assert.equal(world.state.emails.filter((e) => e.subject === "About your booking: you've been refunded").length, 1);
+});
+
+test("bundle safety: cancelling a bundle session twice at once returns one credit", async () => {
+  const { pkg, p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const s = await bundleSession(p, t, slot);
+  assert.equal(pkg().credits_used, 1);
+  const results = await Promise.all([1, 2].map(() => api.call("POST", "/api/manage/cancel", { body: { b: s.b, t: s.t } })));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(pkg().credits_used, 0, "one credit back, not two");
+  assert.equal(world.state.refunds.length, 0, "bundle sessions are never refunded individually");
+});
+
+test("bundle safety: Avery double-clicking cancel returns one credit", async () => {
+  adminEnv();
+  const { pkg, p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const s = await bundleSession(p, t, slot);
+  const results = await Promise.all([1, 2].map(() =>
+    api.call("POST", `/api/admin/bookings/${s.id}/cancel`, { headers: asAdmin(), body: { notifyClient: false, returnCredit: true } })));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(pkg().credits_used, 0);
+});
+
+test("bundle safety: a late payment notice never brings back a bundle the client cancelled", async () => {
+  const { pkg, p, t, session } = await paidBundle();
+  assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p, t } })).status, 200);
+  await api.webhook("checkout.session.completed", paid(session), { id: "evt_bundle_again" });
+  assert.equal(pkg().status, "cancelled");
+  const [slot] = await openSlots("coaching-60");
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p, t, start: slot } })).status, 409, "can't book from it");
+});
+
+/* ── Other audit fixes ── */
+
+test("intro chats: at most two per internet connection per day", async () => {
+  const slots = await openSlots("intro-15");
+  assert.equal((await book("intro-15", slots[0], { material: "", email: "a@example.com" })).status, 201);
+  assert.equal((await book("intro-15", slots[4], { material: "", email: "b@example.com" })).status, 201);
+  const third = await book("intro-15", slots[8], { material: "", email: "c@example.com" });
+  assert.equal(third.status, 429);
+});
+
+test("a later booking with the same email doesn't rename earlier ones", async () => {
+  const { id } = await confirmedBooking();
+  const [slot] = await openSlots("intro-15", 5);
+  assert.equal((await book("intro-15", slot, { material: "", name: "Someone Else", pronouns: "" })).status, 201);
+  const { loadBooking } = await import("../src/bookings");
+  const first = await loadBooking(env, "id", id);
+  assert.equal(first!.name, "Jamie Rivera");
+  assert.equal(first!.pronouns, "they/them");
+});
+
+test("a live Stripe key always means live-only access, even with a test site address left behind", async () => {
+  env.SITE_URL = "http://localhost:8743";
+  const origin = (o: string) => api.call("GET", "/api/services", { headers: { Origin: o } }).then((r) => r.headers.get("access-control-allow-origin"));
+  assert.equal(await origin("http://localhost:8743"), "http://localhost:8743", "test mode");
+  env.STRIPE_SECRET_KEY = "rk_live_example";
+  assert.equal(await origin("http://localhost:8743"), null, "live key: local pages refused");
+  assert.equal(await origin("https://averywhitted.com"), "https://averywhitted.com");
+});
+
+test("availability only looks up dates from today to a year out", async () => {
+  const far = etDate(Date.now() + 400 * DAY);
+  assert.equal((await api.call("GET", `/api/availability?service=coaching-60&from=${far}`)).status, 400);
+  assert.equal((await api.call("GET", "/api/availability?service=coaching-60&from=2001-01-01")).status, 400);
+  assert.equal((await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.now() + 300 * DAY)}`)).status, 200);
+});
+
+test("webhook: a malformed timestamp is rejected", async () => {
+  const payload = JSON.stringify({ id: "evt_x", type: "checkout.session.completed", data: { object: {} } });
+  const { createHmac } = await import("node:crypto");
+  const sig = createHmac("sha256", env.STRIPE_WEBHOOK_SECRET!).update(`abc.${payload}`).digest("hex");
+  const r = await api.call("POST", "/api/stripe/webhook", { raw: payload, headers: { "Stripe-Signature": `t=abc,v1=${sig}` } });
+  assert.equal(r.status, 400);
+});
+
+test("email heading images: built-in object names aren't served", async () => {
+  for (const name of ["constructor", "__proto__", "toString"]) {
+    assert.equal((await api.call("GET", `/email/h/${name}`)).status, 404);
+  }
+});
+
+test("iCloud: the calendar list is remembered between lookups instead of re-fetched each time", async () => {
+  await openSlots();
+  const propfinds = () => world.state.requests.filter((r) => r.startsWith("PROPFIND")).length;
+  const before = propfinds();
+  await api.call("GET", `/api/availability?service=coaching-30&from=${etDate(Date.now() + 5 * DAY)}&days=1`);
+  assert.equal(propfinds(), before, "no new discovery requests");
+});
+
+test("calendar invites: a name with a colon or quotes stays one name", async () => {
+  const ics = buildIcs({ uid: "x@y", sequence: 0, start: Date.UTC(2030, 0, 1, 15), end: Date.UTC(2030, 0, 1, 16), summary: "S",
+    attendee: { name: 'Dr: "Kim", Jr.', email: "kim@example.com" } });
+  assert.match(ics, /ATTENDEE;CN="Dr: Kim, Jr\.";ROLE=/);
 });

@@ -96,6 +96,9 @@ function describeTime(start: number, tz: string): string {
 }
 
 export const UNIQUE_CLAIM = /UNIQUE constraint failed: slot_claims/i;
+// From the database's own guards (migration 0008).
+export const INACTIVE_CLAIM = /only active bookings can claim time/i;
+export const ONCE_ONLY = /UNIQUE constraint failed: credit_ledger/i;
 
 // Is this exact start time still offered right now (live calendar + bookings)?
 // `ignore` skips one booking's own blocks and calendar event (used when moving it).
@@ -149,6 +152,14 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
     if ((intros?.n ?? 0) >= RULES.maxUpcomingIntros) {
       throw new BookingError(409, "You already have an intro chat coming up. Check your email for the details, or reply to it to change the time.");
     }
+    // Intro chats are free and confirmed at once, so also limit how many one
+    // network can book in a day (made-up email addresses can't fill the calendar).
+    const fromNetwork = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM bookings WHERE service_id = ?1 AND ip_hash = ?2 AND created_at > ?3`,
+    ).bind(service.id, ipHash, iso(now - 24 * 60 * MIN)).first<{ n: number }>();
+    if ((fromNetwork?.n ?? 0) >= RULES.maxIntrosPerNetworkPerDay) {
+      throw new BookingError(429, "A few intro chats have already been booked from this connection today. Please email info@averywhitted.com and we'll find a time.");
+    }
   }
 
   if (!(await isStillOpen(env, service, start, now))) {
@@ -173,10 +184,11 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO bookings (id, customer_id, service_id, start_utc, end_utc, status, hold_expires_at, amount_cents,
-           ics_uid, intake_json, client_time_zone, ip_hash, confirmed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+           ics_uid, intake_json, client_time_zone, ip_hash, confirmed_at, client_name, client_pronouns)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
       ).bind(id, customer!.id, service.id, iso(start), iso(end), intro ? "confirmed" : "held", intro ? null : iso(holdUntil),
-        intro ? 0 : service.priceCents, `${id}@averywhitted.com`, intakeJson, clientTz, ipHash, intro ? iso(now) : null),
+        intro ? 0 : service.priceCents, `${id}@averywhitted.com`, intakeJson, clientTz, ipHash, intro ? iso(now) : null,
+        intake.name, intake.pronouns || null),
       ...blocksFor(start, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
     ]);
@@ -225,12 +237,49 @@ export type BookingRow = {
   refunded_at: string | null; name: string; email: string; pronouns: string | null;
   reschedule_count: number; previous_start_utc: string | null; session_reminder_sent_at: string | null;
   package_id: string | null; promo_code: string | null;
+  refund_requested_at: string | null; refund_attempts: number; refund_error: string | null; cancelled_at: string | null;
 };
+
+// The name and pronouns given with this booking (older rows fall back to the customer's).
+export const CLIENT_COLUMNS = (t: string) =>
+  `COALESCE(${t}.client_name, c.name) AS name, c.email, CASE WHEN ${t}.client_name IS NULL THEN c.pronouns ELSE ${t}.client_pronouns END AS pronouns`;
 
 export async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
   return env.DB.prepare(
-    `SELECT b.*, c.name, c.email, c.pronouns FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.${where} = ?1`,
+    `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.${where} = ?1`,
   ).bind(value).first<BookingRow>();
+}
+
+/* ── Refunds ──
+   Only ever for a booking that is already cancelled in the database and was
+   marked as owed a refund (refund_requested_at). The database won't let such a
+   booking become active again, and Stripe's idempotency key means a booking
+   can't be refunded twice. Returns true once Stripe has confirmed it. */
+export async function issueRefund(env: Env, bookingId: string, now = Date.now()): Promise<boolean> {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row || row.status !== "cancelled" || !row.refund_requested_at || row.refunded_at) return !!row?.refunded_at;
+  if (row.package_id || row.amount_cents <= 0 || !row.stripe_payment_intent_id) return false;
+  try {
+    await stripe.refundPayment(env, row.stripe_payment_intent_id, row.id);
+    await env.DB.prepare("UPDATE bookings SET refunded_at = ?1, refund_error = NULL WHERE id = ?2").bind(iso(now), row.id).run();
+    return true;
+  } catch (err) {
+    const msg = (err as Error).message.slice(0, 300);
+    console.error(`refund for ${row.id} failed:`, msg);
+    await env.DB.prepare("UPDATE bookings SET refund_attempts = refund_attempts + 1, refund_error = ?1 WHERE id = ?2").bind(msg, row.id).run();
+    return false;
+  }
+}
+
+// Cron: keeps trying refunds that didn't go through (Avery is alerted after 15 minutes).
+export async function retryRefunds(env: Env, now: number): Promise<number> {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM bookings WHERE status = 'cancelled' AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
+       AND refund_attempts < 12 AND refund_requested_at <= ?1 LIMIT 20`,
+  ).bind(iso(now - 2 * MIN)).all<{ id: string }>();
+  let done = 0;
+  for (const { id } of rows.results) if (await issueRefund(env, id, now)) done++;
+  return done;
 }
 
 export function view(row: BookingRow): T.BookingView {
@@ -261,6 +310,7 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
     || await loadBooking(env, "stripe_checkout_session_id", session.id);
   if (!row) { console.error("confirmPaid: no booking for checkout session"); return null; }
   if (row.status === "confirmed") return null; // already done (duplicate notice)
+  if (row.cancel_reason === "slot_taken_after_payment") return null; // already refunded (or retrying)
 
   const paid = session.amount_total ?? row.amount_cents;
   const pi = session.payment_intent;
@@ -277,32 +327,38 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
   if (row.status === "cancelled" && row.cancel_reason === "hold_expired") {
     const service = findService(row.service_id)!;
     try {
+      // Reactivate first (only active bookings may claim time), then claim.
+      // If any block is taken, the whole batch is rolled back.
       await env.DB.batch([
-        ...blocksFor(Date.parse(row.start_utc), service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
-          env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
         env.DB.prepare(
           `UPDATE bookings SET status = 'confirmed', cancel_reason = NULL, confirmed_at = ?1, amount_cents = ?2,
-             stripe_payment_intent_id = ?3, updated_at = ?1 WHERE id = ?4`,
+             stripe_payment_intent_id = ?3, updated_at = ?1 WHERE id = ?4 AND status = 'cancelled' AND cancel_reason = 'hold_expired'`,
         ).bind(iso(now), paid, pi, row.id),
+        ...blocksFor(Date.parse(row.start_utc), service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
+          env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
       ]);
       return row.id;
     } catch (err) {
+      if (INACTIVE_CLAIM.test((err as Error).message)) return null; // its state changed meanwhile
       if (!UNIQUE_CLAIM.test((err as Error).message)) throw err;
     }
-    // Someone else has it now: refund in full and tell both people.
-    await env.DB.prepare(
-      `UPDATE bookings SET cancel_reason = 'slot_taken_after_payment', amount_cents = ?1, stripe_payment_intent_id = ?2, updated_at = ?3 WHERE id = ?4`,
+    // Someone else has it now: refund in full and tell both people. The refund
+    // is recorded as owed first, so if Stripe fails it's retried by cron.
+    const marked = await env.DB.prepare(
+      `UPDATE bookings SET cancel_reason = 'slot_taken_after_payment', amount_cents = ?1, stripe_payment_intent_id = ?2,
+         refund_requested_at = CASE WHEN ?2 IS NOT NULL AND ?1 > 0 THEN ?3 END, updated_at = ?3
+       WHERE id = ?4 AND status = 'cancelled' AND cancel_reason = 'hold_expired'`,
     ).bind(paid, pi, iso(now), row.id).run();
-    if (pi) {
-      await stripe.refundPayment(env, pi, row.id);
-      await env.DB.prepare("UPDATE bookings SET refunded_at = ?1 WHERE id = ?2").bind(iso(now), row.id).run();
-    }
+    if (!marked.meta.changes) return null;
+    const refunded = await issueRefund(env, row.id, now);
     const v = { ...view(row), amountCents: paid };
     const bookUrl = `${env.SITE_URL}/book/?service=${row.service_id}`;
     await sendEmail(env, "slot_taken_refund", row.id, T.slotTakenRefund(v, bookUrl));
     const note = T.adminNotification(v, {
       zoomMissing: false, calendarFailed: false, title: "Auto-refunded",
-      notice: "Not booked: this client paid after their hold ran out and someone else had taken the time. They were refunded in full automatically and asked to pick a new time. Nothing was added to your calendar.",
+      notice: refunded || !pi || paid <= 0
+        ? "Not booked: this client paid after their hold ran out and someone else had taken the time. They were refunded in full automatically and asked to pick a new time. Nothing was added to your calendar."
+        : "Not booked: this client paid after their hold ran out and someone else had taken the time. The automatic refund hasn't gone through yet. It will keep retrying, and you'll get an alert if it doesn't. Nothing was added to your calendar.",
     });
     await sendEmail(env, "admin_slot_taken_refund", row.id, {
       ...note, to: env.ADMIN_EMAIL, subject: `Auto-refunded: ${row.name} paid after their time was taken`,
@@ -384,6 +440,10 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
       console.error("afterConfirm: calendar write failed:", (err as Error).message);
     }
   }
+
+  // Cancelled while this was running: stop here (cron removes anything just created).
+  const still = await env.DB.prepare("SELECT status FROM bookings WHERE id = ?1").bind(row.id).first<{ status: string }>();
+  if (still?.status !== "confirmed") return;
 
   // 3. Client confirmation with calendar invite
   if (!row.client_email_sent_at) {
@@ -572,41 +632,92 @@ export async function cancelBooking(env: Env, bookingId: unknown, token: unknown
   if (!canChange(row, ctx.now)) {
     throw new BookingError(403, `Sessions can only be changed online until ${CHANGE_CUTOFF_HOURS} hours before they start. Please email info@averywhitted.com.`);
   }
-  const res = await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE bookings SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1,
-         ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
-    ).bind(iso(ctx.now), row.id),
-    env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
-    // Cancelled at least 24 hours ahead: the session goes back into the bundle.
-    ...(row.package_id ? [
-      env.DB.prepare("UPDATE packages SET credits_used = credits_used - 1, updated_at = ?1 WHERE id = ?2").bind(iso(ctx.now), row.package_id),
-      env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'cancelled_in_time')").bind(row.package_id, row.id),
-    ] : []),
-  ]);
+  // A paid single session cancelled in time is refunded in full automatically.
+  // The refund is only sent after this cancellation is saved, and only by the
+  // one request that actually made the change.
+  const owesRefund = !row.package_id && row.amount_cents > 0 && !!row.stripe_payment_intent_id;
+  let res;
+  try {
+    res = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE bookings SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1,
+           refund_requested_at = ?3, ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+      ).bind(iso(ctx.now), row.id, owesRefund ? iso(ctx.now) : null),
+      env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
+      // Cancelled at least 24 hours ahead: the session goes back into the bundle.
+      // The ledger entry can only be written once per booking, so a second
+      // cancellation arriving at the same moment is rolled back entirely.
+      ...(row.package_id ? [
+        env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'cancelled_in_time')").bind(row.package_id, row.id),
+        env.DB.prepare("UPDATE packages SET credits_used = credits_used - 1, updated_at = ?1 WHERE id = ?2").bind(iso(ctx.now), row.package_id),
+      ] : []),
+    ]);
+  } catch (err) {
+    if (ONCE_ONLY.test((err as Error).message)) throw new BookingError(409, "This session is already cancelled.");
+    throw err;
+  }
   if (!res[0].meta.changes) throw new BookingError(409, "This session is already cancelled.");
-  ctx.waitUntil(afterCancel(env, row.id));
+  ctx.waitUntil((async () => {
+    if (owesRefund) await issueRefund(env, row.id, ctx.now);
+    await afterCancelShared(env, row.id, { notifyClient: true, notifyAvery: true });
+  })());
   return { ok: true };
 }
 
-const afterCancel = (env: Env, bookingId: string) => afterCancelShared(env, bookingId, { notifyClient: true, notifyAvery: true });
-
-// Removes the calendar event and Zoom meeting, then emails whoever should hear about it.
+// Removes the calendar event and Zoom meeting (recording that they're gone, so
+// anything that failed is retried), then emails whoever should hear about it.
 export async function afterCancelShared(env: Env, bookingId: string, opts: { notifyClient: boolean; notifyAvery: boolean }): Promise<void> {
   const row = await loadBooking(env, "id", bookingId);
-  if (!row) return;
+  if (!row || row.status !== "cancelled") return;
   const v = view(row);
+  const removed = await removeCancelled(env, row);
+  const refund: T.RefundState = row.package_id || row.amount_cents <= 0 ? "none"
+    : row.refunded_at ? "refunded" : row.refund_requested_at ? "pending" : "offer";
+  const againUrl = row.package_id ? await packageUrl(env, row.package_id) : `${env.SITE_URL}/book/`;
+  const creditReturned = !row.package_id || !!(await env.DB.prepare(
+    "SELECT 1 AS ok FROM credit_ledger WHERE booking_id = ?1 AND delta > 0 AND reason IN ('cancelled_in_time', 'avery_cancelled')",
+  ).bind(row.id).first());
+  if (opts.notifyClient) await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl, refund, creditReturned));
+  if (opts.notifyAvery) {
+    await sendEmail(env, "admin_cancelled", row.id, {
+      ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id), { refund, ...removed }), to: env.ADMIN_EMAIL,
+    });
+  }
+}
+
+// Deletes a cancelled booking's calendar event and Zoom meeting. Each is
+// forgotten only once it's really gone; cron retries whatever is left.
+async function removeCancelled(env: Env, row: BookingRow): Promise<{ calendarRemoved: boolean; zoomRemoved: boolean }> {
+  let calendarRemoved = !row.calendar_event_url;
+  let zoomRemoved = !row.zoom_meeting_id;
   if (row.calendar_event_url) {
-    try { await calendarFor(env).deleteEvent(row.calendar_event_url); }
-    catch (err) { console.error("afterCancel: calendar delete failed:", (err as Error).message); }
+    try {
+      await calendarFor(env).deleteEvent(row.calendar_event_url);
+      await env.DB.prepare("UPDATE bookings SET calendar_event_url = NULL WHERE id = ?1 AND status = 'cancelled'").bind(row.id).run();
+      calendarRemoved = true;
+    } catch (err) { console.error("cancel: calendar delete failed:", (err as Error).message); }
   }
   if (row.zoom_meeting_id) {
-    try { await deleteMeeting(env, row.zoom_meeting_id); }
-    catch (err) { console.error("afterCancel: zoom delete failed:", (err as Error).message); }
+    try {
+      await deleteMeeting(env, row.zoom_meeting_id);
+      await env.DB.prepare("UPDATE bookings SET zoom_meeting_id = NULL WHERE id = ?1 AND status = 'cancelled'").bind(row.id).run();
+      zoomRemoved = true;
+    } catch (err) { console.error("cancel: zoom delete failed:", (err as Error).message); }
   }
-  const againUrl = row.package_id ? await packageUrl(env, row.package_id) : `${env.SITE_URL}/book/`;
-  if (opts.notifyClient) await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl));
-  if (opts.notifyAvery) await sendEmail(env, "admin_cancelled", row.id, { ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
+  return { calendarRemoved, zoomRemoved };
+}
+
+// Cron: finishes removing cancelled sessions from the calendar and Zoom.
+export async function cleanUpCancelled(env: Env, now: number): Promise<number> {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM bookings WHERE status = 'cancelled' AND (calendar_event_url IS NOT NULL OR zoom_meeting_id IS NOT NULL)
+       AND updated_at <= ?1 LIMIT 20`,
+  ).bind(iso(now - 2 * MIN)).all<{ id: string }>();
+  for (const { id } of rows.results) {
+    const row = await loadBooking(env, "id", id);
+    if (row) await removeCancelled(env, row);
+  }
+  return rows.results.length;
 }
 
 export async function rescheduleBooking(env: Env, bookingId: unknown, token: unknown, newStartRaw: unknown,
@@ -633,8 +744,11 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
     throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
   }
   const newEnd = newStart + service.durationMinutes * MIN;
+  // If the booking was cancelled a moment ago, the database refuses the new
+  // claims (only active bookings can hold time) and nothing changes.
+  let res;
   try {
-    await env.DB.batch([
+    res = await env.DB.batch([
       env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
       ...blocksFor(newStart, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
@@ -645,15 +759,18 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
     ]);
   } catch (err) {
     if (UNIQUE_CLAIM.test((err as Error).message)) throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
+    if (INACTIVE_CLAIM.test((err as Error).message)) throw new BookingError(409, "This session can't be rescheduled because it isn't active.");
     throw err;
   }
+  if (!res.at(-1)!.meta.changes) throw new BookingError(409, "This session can't be rescheduled because it isn't active.");
   ctx.waitUntil(afterReschedule(env, row.id));
   return { ok: true, start: iso(newStart), end: iso(newEnd) };
 }
 
 async function afterReschedule(env: Env, bookingId: string): Promise<void> {
   const row = await loadBooking(env, "id", bookingId);
-  if (!row || !row.previous_start_utc) return;
+  // Never touch the calendar or Zoom for a booking that's no longer active.
+  if (!row || row.status !== "confirmed" || !row.previous_start_utc) return;
   const v = view(row);
   const previous = Date.parse(row.previous_start_utc);
   if (row.zoom_meeting_id) {
@@ -663,7 +780,8 @@ async function afterReschedule(env: Env, bookingId: string): Promise<void> {
   let calendarFailed = false;
   try {
     const url = await calendarFor(env, await scheduling(env)).putEvent(row.ics_uid, averyEventIcs(row, v), row.calendar_event_url);
-    if (url !== row.calendar_event_url) await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
+    // Always recorded: if the booking was cancelled meanwhile, cron removes it again.
+    await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
   } catch (err) {
     calendarFailed = true;
     console.error("afterReschedule: calendar update failed:", (err as Error).message);
@@ -725,7 +843,7 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
   for (const f of failedEmails.results) problems.push(`${f.n} "${f.kind.replace(/_/g, " ")}" email${f.n === 1 ? "" : "s"} failed to send.`);
 
   const stuck = await env.DB.prepare(
-    `SELECT b.start_utc, c.name, b.calendar_event_url IS NULL AS no_cal, b.client_email_sent_at IS NULL AS no_email
+    `SELECT b.start_utc, ${CLIENT_COLUMNS("b")}, b.calendar_event_url IS NULL AS no_cal, b.client_email_sent_at IS NULL AS no_email
      FROM bookings b JOIN customers c ON c.id = b.customer_id
      WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
        AND (b.calendar_event_url IS NULL OR b.client_email_sent_at IS NULL)
@@ -742,6 +860,23 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
      WHERE p.status = 'active' AND p.confirmation_sent_at IS NULL AND p.updated_at <= ?1 LIMIT 10`,
   ).bind(iso(now - 15 * MIN)).all<{ name: string }>();
   for (const p of unsentBundles.results) problems.push(`${p.name} bought a bundle but hasn't received their bundle email.`);
+
+  const stuckRefunds = await env.DB.prepare(
+    `SELECT b.amount_cents, b.refund_error, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
+     WHERE b.status = 'cancelled' AND b.refund_requested_at IS NOT NULL AND b.refunded_at IS NULL AND b.refund_requested_at <= ?1 LIMIT 10`,
+  ).bind(iso(now - 15 * MIN)).all<{ amount_cents: number; refund_error: string | null; name: string }>();
+  for (const r of stuckRefunds.results) {
+    problems.push(`The automatic refund of $${(r.amount_cents / 100).toFixed(2)} to ${r.name} hasn't gone through${r.refund_error ? ` (Stripe said: ${r.refund_error})` : ""}. It keeps retrying; you can also refund it in Stripe.`);
+  }
+
+  const leftOver = await env.DB.prepare(
+    `SELECT b.start_utc, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
+     WHERE b.status = 'cancelled' AND b.calendar_event_url IS NOT NULL AND b.updated_at <= ?1 AND b.end_utc > ?2 LIMIT 10`,
+  ).bind(iso(now - 15 * MIN), iso(now)).all<{ start_utc: string; name: string }>();
+  for (const s of leftOver.results) {
+    const when = new Intl.DateTimeFormat("en-US", { timeZone: AVERY_TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(Date.parse(s.start_utc));
+    problems.push(`${s.name}'s session on ${when} is cancelled but couldn't be removed from your Coaching calendar yet. Please delete it by hand; it isn't happening.`);
+  }
 
   if (!problems.length) return [];
   await sendEmail(env, "attention_alert", null, { ...T.attentionAlert(problems), to: env.ADMIN_EMAIL });

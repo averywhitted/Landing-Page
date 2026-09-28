@@ -9,6 +9,10 @@ const stamp = (ms: number) => iso(ms).replace(/[-:]/g, "");
 // iCalendar text escaping: backslash, semicolon, comma, and newlines.
 const text = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 
+// Parameter values (like a name in CN=) are quoted, so ":" ";" "," inside a
+// name can't break the line. Quotes themselves aren't allowed, so they're dropped.
+const param = (s: string) => `"${s.replace(/["\r\n]/g, "")}"`;
+
 // Lines longer than 75 bytes are folded onto continuation lines.
 function fold(line: string): string {
   const bytes = new TextEncoder().encode(line);
@@ -56,8 +60,8 @@ export function buildIcs(p: {
     ...(p.description ? [`DESCRIPTION:${text(p.description)}`] : []),
     ...(p.location ? [`LOCATION:${text(p.location)}`] : []),
     ...(p.url ? [`URL:${p.url}`] : []),
-    ...(p.organizer ? [`ORGANIZER;CN=${text(p.organizer.name)}:mailto:${p.organizer.email}`] : []),
-    ...(p.attendee ? [`ATTENDEE;CN=${text(p.attendee.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:${p.attendee.email}`] : []),
+    ...(p.organizer ? [`ORGANIZER;CN=${param(p.organizer.name)}:mailto:${p.organizer.email}`] : []),
+    ...(p.attendee ? [`ATTENDEE;CN=${param(p.attendee.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:${p.attendee.email}`] : []),
     `STATUS:${p.cancelled ? "CANCELLED" : "CONFIRMED"}`,
     "TRANSP:OPAQUE",
     "END:VEVENT",

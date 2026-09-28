@@ -7,13 +7,19 @@ import { usingFakes } from "./env";
 
 export type ZoomMeeting = { id: string; joinUrl: string };
 
+// Zoom's sign-in lasts an hour; reuse it instead of signing in for every call.
+let cached: { key: string; token: string; until: number } | null = null;
+
 async function token(env: Env): Promise<string> {
+  if (cached && cached.key === env.ZOOM_CLIENT_ID && Date.now() < cached.until) return cached.token;
   const res = await fetch(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${encodeURIComponent(env.ZOOM_ACCOUNT_ID!)}`, {
     method: "POST",
     headers: { Authorization: "Basic " + btoa(`${env.ZOOM_CLIENT_ID}:${env.ZOOM_CLIENT_SECRET}`) },
   });
   if (!res.ok) throw new Error(`Zoom token failed (${res.status})`);
-  return ((await res.json()) as { access_token: string }).access_token;
+  const body = (await res.json()) as { access_token: string; expires_in?: number };
+  cached = { key: env.ZOOM_CLIENT_ID!, token: body.access_token, until: Date.now() + Math.max(0, (body.expires_in ?? 3600) - 300) * 1000 };
+  return body.access_token;
 }
 
 export function zoomConfigured(env: Env): boolean {

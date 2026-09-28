@@ -12,8 +12,7 @@ import type { Env } from "./env";
 import { findService } from "./services";
 import { RULES } from "./settings";
 import { iso } from "./time";
-import { BookingError, loadBooking, serviceLabel } from "./bookings";
-import { afterCancelShared } from "./bookings";
+import { BookingError, CLIENT_COLUMNS, ONCE_ONLY, afterCancelShared, issueRefund, loadBooking, serviceLabel } from "./bookings";
 import { SettingsError, defaults, loadScheduling, resetScheduling, saveScheduling, validate } from "./config";
 import { calendarFor } from "./calendar";
 
@@ -75,7 +74,7 @@ export async function adminOverview(env: Env, now: number) {
     `SELECT b.id, b.service_id, b.start_utc, b.end_utc, b.status, b.cancel_reason, b.amount_cents, b.promo_code,
             b.package_id, b.zoom_join_url, b.calendar_event_url IS NOT NULL AS in_calendar,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
-            c.name, c.email, c.pronouns
+            b.refund_requested_at, b.refund_error, ${CLIENT_COLUMNS("b")}
      FROM bookings b JOIN customers c ON c.id = b.customer_id
      WHERE b.status IN ('confirmed', 'cancelled') AND b.start_utc >= ?1 AND b.start_utc <= ?2
      ORDER BY b.start_utc`,
@@ -83,7 +82,7 @@ export async function adminOverview(env: Env, now: number) {
 
   const packages = await env.DB.prepare(
     `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
-            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, c.name, c.email
+            p.created_at, p.refund_due_cents, p.refunded_at, p.cancelled_at, p.stripe_payment_intent_id, ${CLIENT_COLUMNS("p")}
      FROM packages p JOIN customers c ON c.id = p.customer_id
      WHERE (p.status = 'active' AND (p.expires_at >= ?1 OR p.credits_used < p.credits_total))
         OR (p.status = 'cancelled' AND p.cancel_reason = 'client_cancelled' AND p.cancelled_at >= ?2)
@@ -119,6 +118,11 @@ export async function adminOverview(env: Env, now: number) {
       inCalendar: !!b.in_calendar,
       emailed: !!b.emailed,
       refunded: !!b.refunded_at,
+      // Paid single session, cancelled, not refunded: "auto" is being retried, "choice" is Avery's call.
+      refundOwed: b.status === "cancelled" && !b.refunded_at && !b.package_id && b.amount_cents > 0 && b.stripe_payment_intent_id
+        && ["client_cancelled", "slot_taken_after_payment", "avery_cancelled"].includes(b.cancel_reason)
+        ? (b.refund_requested_at ? "auto" : "choice") : null,
+      refundError: b.refund_error,
       stripeUrl: stripeUrl(b.stripe_payment_intent_id),
       packageId: b.package_id,
       name: b.name,
@@ -147,6 +151,9 @@ export async function adminOverview(env: Env, now: number) {
       failedEmails: failedEmails.results.map((e) => ({ kind: e.kind, error: e.error, at: e.created_at })),
       stuck: bookings.results.filter((b) => b.status === "confirmed" && Date.parse(b.end_utc) > now && (!b.in_calendar || !b.emailed))
         .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
+      // Cancelled but still on the Coaching calendar (removal keeps retrying).
+      leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.in_calendar && Date.parse(b.end_utc) > now)
+        .map((b) => ({ id: b.id, name: b.name, start: b.start_utc })),
       activeHolds: holds?.n ?? 0,
     },
   };
@@ -186,26 +193,51 @@ export async function adminResetSettings(env: Env) {
 /* ── Actions ── */
 
 // Avery cancels on a client's behalf, at any time (no 24-hour limit).
-export async function adminCancelBooking(env: Env, id: string, opts: { notifyClient: boolean; returnCredit: boolean; note?: string },
+export async function adminCancelBooking(env: Env, id: string, opts: { notifyClient: boolean; returnCredit: boolean; refund?: boolean; note?: string },
   ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
   const row = await loadBooking(env, "id", id);
   if (!row) throw new BookingError(404, "Booking not found.");
   if (row.status !== "confirmed") throw new BookingError(409, "Only confirmed bookings can be cancelled.");
   const giveBack = !!row.package_id && opts.returnCredit;
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE bookings SET status = 'cancelled', cancel_reason = 'avery_cancelled', cancelled_at = ?1,
-         ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
-    ).bind(iso(ctx.now), id),
-    env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(id),
-    ...(giveBack ? [
-      env.DB.prepare("UPDATE packages SET credits_used = credits_used - 1, updated_at = ?1 WHERE id = ?2").bind(iso(ctx.now), row.package_id),
-      env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason, note) VALUES (?1, ?2, 1, 'avery_cancelled', ?3)")
-        .bind(row.package_id, id, opts.note?.slice(0, 300) ?? null),
-    ] : []),
-  ]);
-  ctx.waitUntil(afterCancelShared(env, id, { notifyClient: opts.notifyClient, notifyAvery: false }));
+  const refund = !!opts.refund && !row.package_id && row.amount_cents > 0 && !!row.stripe_payment_intent_id;
+  let res;
+  try {
+    res = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE bookings SET status = 'cancelled', cancel_reason = 'avery_cancelled', cancelled_at = ?1, refund_requested_at = ?3,
+           ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+      ).bind(iso(ctx.now), id, refund ? iso(ctx.now) : null),
+      env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(id),
+      // Written once per booking only, so a double click can't return two credits.
+      ...(giveBack ? [
+        env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason, note) VALUES (?1, ?2, 1, 'avery_cancelled', ?3)")
+          .bind(row.package_id, id, opts.note?.slice(0, 300) ?? null),
+        env.DB.prepare("UPDATE packages SET credits_used = credits_used - 1, updated_at = ?1 WHERE id = ?2").bind(iso(ctx.now), row.package_id),
+      ] : []),
+    ]);
+  } catch (err) {
+    if (ONCE_ONLY.test((err as Error).message)) throw new BookingError(409, "This session is already cancelled.");
+    throw err;
+  }
+  if (!res[0].meta.changes) throw new BookingError(409, "This session is already cancelled.");
+  ctx.waitUntil((async () => {
+    if (refund) await issueRefund(env, id, ctx.now);
+    await afterCancelShared(env, id, { notifyClient: opts.notifyClient, notifyAvery: false });
+  })());
   return { ok: true };
+}
+
+// Refunds a session cancelled from the admin page earlier (the client chose a refund).
+export async function adminRefundBooking(env: Env, id: string, ctx: { now: number }) {
+  const row = await loadBooking(env, "id", id);
+  if (!row) throw new BookingError(404, "Booking not found.");
+  if (row.status !== "cancelled") throw new BookingError(409, "Only cancelled sessions can be refunded here.");
+  if (row.refunded_at) throw new BookingError(409, "This session is already refunded.");
+  if (row.package_id || row.amount_cents <= 0 || !row.stripe_payment_intent_id) throw new BookingError(409, "There's no payment to refund for this session.");
+  await env.DB.prepare("UPDATE bookings SET refund_requested_at = COALESCE(refund_requested_at, ?1) WHERE id = ?2 AND status = 'cancelled'")
+    .bind(iso(ctx.now), id).run();
+  const ok = await issueRefund(env, id, ctx.now);
+  return { ok, message: ok ? "Refunded." : "Stripe didn't accept the refund yet. It will keep retrying." };
 }
 
 export async function adminAdjustCredits(env: Env, packageId: string, delta: number, note: string, now: number) {

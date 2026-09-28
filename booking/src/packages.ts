@@ -15,7 +15,10 @@ import { sendEmail } from "./email";
 import { verifyHuman } from "./turnstile";
 import { manageUrl, packageUrl, validPackageToken } from "./manage";
 import * as T from "./templates";
-import { BookingError, UNIQUE_CLAIM, afterCancelShared, afterConfirm, isStillOpen, sha256, stripePaymentUrl, validateIntake } from "./bookings";
+import {
+  BookingError, CLIENT_COLUMNS, INACTIVE_CLAIM, ONCE_ONLY, UNIQUE_CLAIM, afterCancelShared, afterConfirm, isStillOpen, sha256,
+  stripePaymentUrl, validateIntake,
+} from "./bookings";
 import { scheduling } from "./config";
 
 const MIN = 60000;
@@ -34,7 +37,7 @@ export type PackageRow = {
 
 export async function loadPackage(env: Env, where: "id" | "stripe_checkout_session_id", value: string): Promise<PackageRow | null> {
   return env.DB.prepare(
-    `SELECT p.*, c.name, c.email, c.pronouns FROM packages p JOIN customers c ON c.id = p.customer_id WHERE p.${where} = ?1`,
+    `SELECT p.*, ${CLIENT_COLUMNS("p")} FROM packages p JOIN customers c ON c.id = p.customer_id WHERE p.${where} = ?1`,
   ).bind(value).first<PackageRow>();
 }
 
@@ -84,10 +87,12 @@ export async function createPackagePurchase(env: Env, body: unknown, ctx: { ip: 
 
   const id = crypto.randomUUID();
   await env.DB.prepare(
-    `INSERT INTO packages (id, customer_id, service_id, status, credits_total, amount_cents, intake_json, client_time_zone, ip_hash)
-     VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8)`,
+    `INSERT INTO packages (id, customer_id, service_id, status, credits_total, amount_cents, intake_json, client_time_zone, ip_hash,
+       client_name, client_pronouns)
+     VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
   ).bind(id, customer!.id, service.id, service.credits, service.priceCents,
-    JSON.stringify({ goal: intake.goal, material: intake.material, link: intake.link, notes: intake.notes }), clientTz, ipHash).run();
+    JSON.stringify({ goal: intake.goal, material: intake.material, link: intake.link, notes: intake.notes }), clientTz, ipHash,
+    intake.name, intake.pronouns || null).run();
 
   let session: stripe.CheckoutSession;
   try {
@@ -119,10 +124,12 @@ export async function confirmPackage(env: Env, session: stripe.CheckoutSession, 
     || await loadPackage(env, "stripe_checkout_session_id", session.id);
   if (!pkg) { console.error("confirmPackage: no bundle for checkout session"); return null; }
   if (pkg.status === "active") return null;
+  // Only a checkout still waiting, or one that ran out before this payment
+  // arrived, can become active. A bundle the client cancelled never comes back.
   const res = await env.DB.prepare(
-    `UPDATE packages SET status = 'active', expires_at = ?1, amount_cents = ?2, stripe_payment_intent_id = ?3,
+    `UPDATE packages SET status = 'active', cancel_reason = NULL, expires_at = ?1, amount_cents = ?2, stripe_payment_intent_id = ?3,
        promo_code = COALESCE(?4, promo_code), updated_at = ?5
-     WHERE id = ?6 AND status IN ('pending', 'cancelled')`,
+     WHERE id = ?6 AND (status = 'pending' OR (status = 'cancelled' AND cancel_reason = 'checkout_expired'))`,
   ).bind(iso(now + (await scheduling(env)).packageValidDays * DAY), session.amount_total ?? pkg.amount_cents, session.payment_intent,
     promoCode ?? null, iso(now), pkg.id).run();
   if (!res.meta.changes) return null;
@@ -236,12 +243,15 @@ export async function bookWithCredit(env: Env, id: unknown, token: unknown, star
   const end = start + service.durationMinutes * MIN;
   try {
     await env.DB.batch([
+      // Only written if the bundle is still active at this very moment; if it
+      // isn't, the claims below are refused and nothing is booked.
       env.DB.prepare(
         `INSERT INTO bookings (id, customer_id, service_id, start_utc, end_utc, status, amount_cents, package_id,
-           ics_uid, intake_json, client_time_zone, confirmed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6, ?7, ?8, ?9, ?10)`,
+           ics_uid, intake_json, client_time_zone, confirmed_at, client_name, client_pronouns)
+         SELECT ?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+         WHERE EXISTS (SELECT 1 FROM packages WHERE id = ?6 AND status = 'active')`,
       ).bind(bookingId, pkg.customer_id, service.id, iso(start), iso(end), pkg.id, `${bookingId}@averywhitted.com`,
-        JSON.stringify({ ...intake, notes: focus || undefined }), pkg.client_time_zone, iso(ctx.now)),
+        JSON.stringify({ ...intake, notes: focus || undefined }), pkg.client_time_zone, iso(ctx.now), pkg.name, pkg.pronouns),
       ...blocksFor(start, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, bookingId)),
       env.DB.prepare("UPDATE packages SET credits_used = credits_used + 1, updated_at = ?1 WHERE id = ?2 AND status = 'active'").bind(iso(ctx.now), pkg.id),
@@ -251,6 +261,7 @@ export async function bookWithCredit(env: Env, id: unknown, token: unknown, star
     const msg = (err as Error).message;
     if (UNIQUE_CLAIM.test(msg)) throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
     if (/CHECK constraint failed/i.test(msg)) throw new BookingError(409, "There are no sessions left in this bundle.");
+    if (INACTIVE_CLAIM.test(msg)) throw new BookingError(409, "This bundle isn't active.");
     throw err;
   }
   ctx.waitUntil(afterConfirm(env, bookingId));
@@ -341,22 +352,32 @@ export async function cancelPackage(env: Env, id: unknown, token: unknown, ctx: 
   if (pkg.status === "cancelled") throw new BookingError(409, "This bundle is already cancelled.");
   const q = await cancelQuote(env, pkg, ctx.now);
   if (!q.canCancel) throw new BookingError(409, "This bundle's use-by date has passed, so it can't be cancelled online. Please email info@averywhitted.com.");
-  const res = await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE packages SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1, refund_due_cents = ?2,
-         credits_used = credits_used - ?3, updated_at = ?1 WHERE id = ?4 AND status = 'active'`,
-    ).bind(iso(ctx.now), q.refundCents, q.cancellable.length, pkg.id),
-    ...q.cancellable.flatMap((b) => [
+  let res;
+  try {
+    res = await env.DB.batch([
       env.DB.prepare(
-        `UPDATE bookings SET status = 'cancelled', cancel_reason = 'bundle_cancelled', cancelled_at = ?1,
-           ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
-      ).bind(iso(ctx.now), b.id),
-      env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(b.id),
-      env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'bundle_cancelled')").bind(pkg.id, b.id),
-    ]),
-    env.DB.prepare("INSERT INTO credit_ledger (package_id, delta, reason, note) VALUES (?1, 0, 'bundle_cancelled', ?2)")
-      .bind(pkg.id, `refund due ${(q.refundCents / 100).toFixed(2)}`),
-  ]);
+        `UPDATE packages SET status = 'cancelled', cancel_reason = 'client_cancelled', cancelled_at = ?1, refund_due_cents = ?2,
+           credits_used = credits_used - ?3, updated_at = ?1 WHERE id = ?4 AND status = 'active'`,
+      ).bind(iso(ctx.now), q.refundCents, q.cancellable.length, pkg.id),
+      // Ledger entries are written once per booking, so a second cancellation
+      // arriving at the same moment is rolled back entirely.
+      ...q.cancellable.flatMap((b) => [
+        env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, 1, 'bundle_cancelled')").bind(pkg.id, b.id),
+        env.DB.prepare(
+          `UPDATE bookings SET status = 'cancelled', cancel_reason = 'bundle_cancelled', cancelled_at = ?1,
+             ics_sequence = ics_sequence + 1, updated_at = ?1 WHERE id = ?2 AND status = 'confirmed'`,
+        ).bind(iso(ctx.now), b.id),
+        env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(b.id),
+      ]),
+      env.DB.prepare(
+        `INSERT INTO credit_ledger (package_id, delta, reason, note) SELECT ?1, 0, 'bundle_cancelled', ?2
+         WHERE EXISTS (SELECT 1 FROM packages WHERE id = ?1 AND status = 'cancelled' AND cancelled_at = ?3)`,
+      ).bind(pkg.id, `refund due ${(q.refundCents / 100).toFixed(2)}`, iso(ctx.now)),
+    ]);
+  } catch (err) {
+    if (ONCE_ONLY.test((err as Error).message)) throw new BookingError(409, "This bundle is already cancelled.");
+    throw err;
+  }
   if (!res[0].meta.changes) throw new BookingError(409, "This bundle is already cancelled.");
   ctx.waitUntil(afterPackageCancel(env, pkg.id, q));
   return { ok: true, refundCents: q.refundCents };

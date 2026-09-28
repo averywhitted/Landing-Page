@@ -80,6 +80,9 @@ export function makeWorld() {
     promoCodes: {} as Record<string, string>,       // code -> Stripe promo id
     promoLookupForbidden: false,                    // simulate a key without "Promotion Codes: Read"
     refunds: [] as Record<string, any>[],
+    refundFailNext: 0,                              // simulate Stripe refusing refunds
+    refundedIntents: new Set<string>(),             // Stripe won't refund the same payment twice
+    calendarDeleteFailNext: 0,                      // simulate iCloud failing to delete
     emails: [] as Record<string, any>[],
     resendFailNext: 0,
     calendarEvents: new Map<string, string>(),   // url -> ics
@@ -150,7 +153,10 @@ export function makeWorld() {
         return code ? json({ id: pc[1], code }) : json({ error: { message: "No such promotion code" } }, 404);
       }
       if (p === "/v1/refunds" && method === "POST") {
+        if (state.refundFailNext > 0) { state.refundFailNext--; return json({ error: { message: "Stripe is having trouble" } }, 500); }
         const f = parseForm(body);
+        if (state.refundedIntents.has(f.payment_intent)) return json({ error: { message: "Charge has already been refunded.", code: "charge_already_refunded" } }, 400);
+        state.refundedIntents.add(f.payment_intent);
         state.refunds.push(f);
         return json({ id: `re_${++state.counter}`, status: "succeeded" });
       }
@@ -203,9 +209,13 @@ export function makeWorld() {
       if (method === "PUT" && u.pathname.startsWith("/123/calendars/coaching/")) {
         const existed = state.calendarEvents.has(url);
         state.calendarEvents.set(url, body);
-        return withUrl(new Response("", { status: existed ? 204 : 201 }), url);
+        return withUrl(new Response(null, { status: existed ? 204 : 201 }), url);
       }
-      if (method === "DELETE") { state.calendarEvents.delete(url); return withUrl(new Response("", { status: 204 }), url); }
+      if (method === "DELETE") {
+        if (state.calendarDeleteFailNext > 0) { state.calendarDeleteFailNext--; return withUrl(new Response("", { status: 503 }), url); }
+        state.calendarEvents.delete(url);
+        return withUrl(new Response(null, { status: 204 }), url);
+      }
       return withUrl(new Response(`unhandled caldav ${method} ${url}`, { status: 400 }), url);
     }
 

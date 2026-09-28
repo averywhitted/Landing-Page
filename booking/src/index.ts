@@ -14,7 +14,7 @@ import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
   releaseForSession, rescheduleBooking, retryConfirmations, sendReminders,
-  sendSessionReminders, runRetention, checkAlerts,
+  sendSessionReminders, runRetention, checkAlerts, retryRefunds, cleanUpCancelled,
 } from "./bookings";
 import { validManageToken } from "./manage";
 import {
@@ -23,8 +23,8 @@ import {
 } from "./packages";
 import { isPaid, promoCodeUsed } from "./stripe";
 import {
-  adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminResetSettings,
-  adminSaveSettings, requireAdmin,
+  adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminRefundBooking,
+  adminResetSettings, adminSaveSettings, requireAdmin,
 } from "./admin";
 import adminHtml from "../admin/index.html";
 import adminJs from "../admin/app.js.txt";
@@ -55,7 +55,8 @@ app.get("/email/wordmark.png", () => new Response(wordmark, {
 
 // Email headings drawn in Horizon (see tools/render-headings.html).
 app.get("/email/h/:file", (c) => {
-  const bytes = HEADING_BYTES[c.req.param("file")];
+  const file = c.req.param("file");
+  const bytes = Object.hasOwn(HEADING_BYTES, file) ? HEADING_BYTES[file] : undefined;
   if (!bytes) return c.notFound();
   return new Response(bytes, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
 });
@@ -89,6 +90,12 @@ app.get("/api/availability", async (c) => {
   const m = fromParam.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return c.json({ error: "from must be a date like 2026-10-01." }, 400);
   const days = Math.min(Math.max(parseInt(c.req.query("days") ?? "7", 10) || 7, 1), RULES.maxDaysPerRequest);
+  // Only from yesterday to a year ahead, so nobody can make it look up
+  // arbitrary dates in the calendar over and over.
+  const fromMs = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  if (!(fromMs >= Date.now() - 2 * 86400000 && fromMs <= Date.now() + 366 * 86400000)) {
+    return c.json({ error: "Please pick a date within the next year." }, 400);
+  }
 
   // Serve a recent answer for the same question from Cloudflare's cache for
   // up to 60 seconds, so heavy traffic doesn't hammer iCloud. Bookings are
@@ -271,9 +278,15 @@ app.post("/api/admin/bookings/:id/cancel", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     return c.json(await adminCancelBooking(c.env, c.req.param("id"), {
-      notifyClient: body.notifyClient === true, returnCredit: body.returnCredit === true,
+      notifyClient: body.notifyClient === true, returnCredit: body.returnCredit === true, refund: body.refund === true,
       note: typeof body.note === "string" ? body.note : undefined,
     }, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/bookings/:id/refund", async (c) => {
+  try {
+    return c.json(await adminRefundBooking(c.env, c.req.param("id"), { now: Date.now() }));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
@@ -369,10 +382,12 @@ async function scheduled(env: Env): Promise<void> {
   await run("bundle checkout reminders", () => sendBundleReminders(env, now));
   const session = await run("session reminders", () => sendSessionReminders(env, now));
   const retried = await run("retries", () => retryConfirmations(env, now));
+  const refunds = await run("refund retries", () => retryRefunds(env, now));
+  await run("cancelled cleanup", () => cleanUpCancelled(env, now));
   await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
-  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, cleaned, alerts: alerts?.length };
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, cleaned, alerts: alerts?.length };
   if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 

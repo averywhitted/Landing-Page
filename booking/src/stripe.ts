@@ -154,7 +154,7 @@ export async function verifyWebhook(rawBody: string, header: string | null, secr
   const parts = header.split(",").map((p) => p.split("="));
   const t = parts.find(([k]) => k === "t")?.[1];
   const sigs = parts.filter(([k]) => k === "v1").map(([, v]) => v);
-  if (!t || !sigs.length) return false;
+  if (!t || !/^\d+$/.test(t) || !sigs.length) return false;
   if (Math.abs(now / 1000 - Number(t)) > 300) return false;
 
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

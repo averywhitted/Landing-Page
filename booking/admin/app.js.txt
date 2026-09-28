@@ -48,8 +48,10 @@
   }
 
   const refundsDue = () => data.packages.filter((p) => p.cancelled && p.refundDueCents && !p.refunded);
+  const sessionRefunds = () => data.bookings.filter((b) => b.refundOwed);
   function problemsCount() {
-    return data.problems.failedEmails.length + data.problems.stuck.length + refundsDue().length;
+    return data.problems.failedEmails.length + data.problems.stuck.length + refundsDue().length
+      + sessionRefunds().length + data.problems.leftOnCalendar.length;
   }
 
   function renderTabs() {
@@ -70,6 +72,8 @@
       `<span class="chip">${esc(paid)}</span>`,
       b.status === "cancelled" ? `<span class="chip bad">Cancelled${b.cancelReason === "avery_cancelled" ? " by you" : b.cancelReason === "client_cancelled" ? " by client" : ""}</span>` : "",
       b.refunded ? '<span class="chip ok">Refunded</span>' : "",
+      b.refundOwed === "auto" ? '<span class="chip bad">Refund retrying</span>' : "",
+      b.refundOwed === "choice" ? '<span class="chip">Not refunded</span>' : "",
       b.status === "confirmed" && !b.past ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
       b.status === "confirmed" && !b.past ? `<span class="chip ${b.emailed ? "ok" : "bad"}">${b.emailed ? "Emailed" : "Not emailed"}</span>` : "",
     ].join("");
@@ -88,6 +92,7 @@
         ${b.zoomUrl && canCancel ? `<a class="btn primary" href="${esc(b.zoomUrl)}" target="_blank" rel="noopener">Zoom</a>` : ""}
         ${b.stripeUrl ? `<a class="btn" href="${esc(b.stripeUrl)}" target="_blank" rel="noopener">Stripe</a>` : ""}
         ${canCancel ? `<button class="btn danger" data-cancel="${esc(b.id)}">Cancel</button>` : ""}
+        ${b.refundOwed === "choice" ? `<button class="btn" data-refund="${esc(b.id)}">Refund ${money(b.paid)}</button>` : ""}
       </div>
     </div>`;
   }
@@ -147,6 +152,19 @@
   function renderAttention() {
     const { failedEmails, stuck, activeHolds } = data.problems;
     const parts = [];
+    const owed = sessionRefunds();
+    if (owed.length) {
+      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Session refunds</p>${owed.map((b) =>
+        `<p>${esc(b.name)}, ${esc(dayLabel(b.start))}: <strong>${money(b.paid)}</strong> &middot; ${b.refundOwed === "auto"
+          ? `automatic refund hasn't gone through yet${b.refundError ? ` (Stripe said: ${esc(b.refundError)})` : ""}. It keeps retrying.`
+          : "you cancelled this one. Refund it if they'd like a refund, or leave it if they're rebooking."}
+          <br><button class="btn" data-refund="${esc(b.id)}" style="margin-top:6px">Refund now</button>${b.stripeUrl ? ` <a class="btn" href="${esc(b.stripeUrl)}" target="_blank" rel="noopener" style="margin-top:6px">Stripe</a>` : ""}</p>`).join("")}</div>`);
+    }
+    const left = data.problems.leftOnCalendar;
+    if (left.length) {
+      parts.push(`<div class="panel"><p class="day" style="margin-top:0">Cancelled but still on your calendar</p>${left.map((s) =>
+        `<p>${esc(s.name)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.</p>`).join("")}</div>`);
+    }
     const due = refundsDue();
     if (due.length) {
       parts.push(`<div class="panel"><p class="day" style="margin-top:0">Bundle refunds to issue</p>${due.map((p) =>
@@ -161,7 +179,7 @@
         `<p><strong>${esc(e.kind.replace(/_/g, " "))}</strong> &middot; ${esc(fmt(e.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}<br><span style="font-family:var(--mono);font-size:.8125rem;color:var(--faint)">${esc(e.error || "")}</span></p>`).join("")}</div>`);
     }
     parts.push(`<div class="panel"><p class="day" style="margin-top:0">Checkouts in progress</p><p>${activeHolds} time${activeHolds === 1 ? "" : "s"} currently held while someone pays.</p></div>`);
-    return (stuck.length || failedEmails.length || due.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
+    return (stuck.length || failedEmails.length || due.length || owed.length || left.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
   }
 
   /* Settings (editable) */
@@ -179,7 +197,7 @@
   function renderSettings() {
     if (!settings) { loadSettings(); return '<p class="empty">Loading settings...</p>'; }
     const v = settings.values;
-    const opt = (list, cur, label = (x) => x) => list.map((x) => `<option value="${x}"${x === cur ? " selected" : ""}>${esc(label(x))}</option>`).join("");
+    const opt = (list, cur, label = (x) => x) => list.map((x) => `<option value="${esc(x)}"${x === cur ? " selected" : ""}>${esc(label(x))}</option>`).join("");
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const cals = settings.calendars;
     const calPicker = cals
@@ -266,7 +284,8 @@
       <p>${esc(b.name)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))}. The calendar event and Zoom meeting will be removed and the time opens up again.</p>
       <label><input type="checkbox" name="notify" checked> Email ${esc(b.name.split(" ")[0])} a cancellation (with a calendar update)</label>
       ${bundle ? '<label><input type="checkbox" name="credit" checked> Return the session to their bundle</label>' : ""}
-      ${!bundle && b.paid ? `<p>Refunds aren't automatic. ${b.stripeUrl ? `<a href="${esc(b.stripeUrl)}" target="_blank" rel="noopener">Open the payment in Stripe</a> to refund.` : "Refund it in Stripe."}</p>` : ""}
+      ${!bundle && b.paid ? `<label><input type="checkbox" name="refund" checked> Refund ${money(b.paid)} in full now</label>
+      <p>Leave this unticked if they'd rather have a new time. They'll be offered either, and you can refund later from here.</p>` : ""}
       ${bundle ? '<label style="display:block">Note for the record (optional)<textarea name="note" maxlength="300"></textarea></label>' : ""}
       <div class="row"><button class="btn" value="keep">Keep it</button><button class="btn danger" value="go">Cancel session</button></div>
     </form>`;
@@ -278,13 +297,24 @@
       e.submitter.disabled = true;
       try {
         await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/cancel`, {
-          notifyClient: f.notify.checked, returnCredit: !!f.credit?.checked, note: f.note?.value || "",
+          notifyClient: f.notify.checked, returnCredit: !!f.credit?.checked, refund: !!f.refund?.checked, note: f.note?.value || "",
         });
         $dlg.close();
         toast("Cancelled.");
         load();
       } catch (err) { e.submitter.disabled = false; toast(err.message, true); }
     });
+  }
+
+  async function refundNow(id, btn) {
+    const b = data.bookings.find((x) => x.id === id);
+    if (!confirm(`Refund ${money(b.paid)} to ${b.name} in full?`)) return;
+    btn.disabled = true;
+    try {
+      const r = await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/refund`);
+      toast(r.message || "Refunded.", !r.ok);
+      load();
+    } catch (err) { btn.disabled = false; toast(err.message, true); }
   }
 
   function openCredit(id, delta) {
@@ -334,12 +364,13 @@
   }
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-tab],[data-cancel],[data-credit],[data-extend]");
+    const t = e.target.closest("[data-tab],[data-cancel],[data-credit],[data-extend],[data-refund]");
     if (!t) return;
     if (t.dataset.tab) { tab = t.dataset.tab; history.replaceState(null, "", `#${tab}`); render(); }
     else if (t.dataset.cancel) openCancel(t.dataset.cancel);
     else if (t.dataset.credit) openCredit(t.dataset.credit, Number(t.dataset.delta));
     else if (t.dataset.extend) openExtend(t.dataset.extend);
+    else if (t.dataset.refund) refundNow(t.dataset.refund, t);
   });
 
   document.addEventListener("submit", (e) => {

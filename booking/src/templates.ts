@@ -333,14 +333,29 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
 
 // ── Client: session cancelled ──
 
-export function clientCancelled(b: BookingView, ics: string, bookUrl: string): Email {
+// What happened to the money when a session was cancelled:
+//   refunded / pending  refund sent (or being sent) automatically
+//   offer               Avery cancelled and didn't refund yet: client chooses refund or new time
+//   none                free session or bundle session
+export type RefundState = "refunded" | "pending" | "offer" | "none";
+
+function refundLine(b: BookingView, refund: RefundState): string {
+  if (refund === "refunded" || refund === "pending") return `Your full refund of ${money(b.amountCents)} is on its way. Refunds may take a few business days to appear.`;
+  if (refund === "offer") return "Since this cancellation came from my side, you can have a full refund or a new time at no charge, whichever you'd rather. Just reply to this email and let me know.";
+  return "";
+}
+
+export function clientCancelled(b: BookingView, ics: string, bookUrl: string, refund: RefundState = "none", creditReturned = true): Email {
   const tz = b.clientTimeZone;
   const when = `${day(b.start, tz)}, ${timeRange(b, tz)}`;
+  const money_ = b.bundleNote
+    ? (creditReturned ? "The session has gone back into your bundle, so you can book another time whenever you like."
+      : "This session wasn't returned to your bundle. If you have any questions, just reply to this email.")
+    : refundLine(b, refund);
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
     para(`Your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> has been cancelled.`),
-    b.bundleNote ? para("The session has gone back into your bundle, so you can book another time whenever you like.")
-      : b.amountCents > 0 ? para(`You'll be refunded in full (${esc(money(b.amountCents))}). Refunds may take a few business days to appear.`) : "",
+    money_ ? para(esc(money_)) : "",
     para("The attached update removes it from your calendar. Whenever you're ready, you're welcome to book another time:"),
     button(bookUrl, "Book another time"),
     para("Take care,<br>Avery"),
@@ -350,7 +365,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string): E
     subject: `Cancelled: ${b.serviceName} on ${shortDay(b.start, tz)}`,
     html: layout({ preheader: `Your session on ${when} is cancelled.`, tag: tagFor(b), title: "Session cancelled", body }),
     text: [`Hi ${firstName(b.name)},`, "", `Your ${b.serviceName.toLowerCase()} on ${when} has been cancelled.`,
-      ...(b.amountCents > 0 ? ["", `You'll be refunded in full (${money(b.amountCents)}). Refunds may take a few business days to appear.`] : []),
+      ...(money_ ? ["", money_] : []),
       "", `Book another time: ${bookUrl}`, "", "Take care,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "CANCEL"),
   };
@@ -420,22 +435,34 @@ export function adminRescheduled(b: BookingView, previousStart: number, opts: { 
   };
 }
 
-export function adminCancelled(b: BookingView, stripePaymentUrl: string | null): Email {
+export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
+  r: { refund: RefundState; calendarRemoved: boolean; zoomRemoved: boolean } = { refund: "none", calendarRemoved: true, zoomRemoved: true }): Email {
   const tz = AVERY_TZ;
-  const needsRefund = b.amountCents > 0;
+  const amount = money(b.amountCents);
+  const refundNote = r.refund === "refunded" ? `Refunded ${amount} automatically. They cancelled at least 24 hours ahead.`
+    : r.refund === "pending" ? `The automatic refund of ${amount} hasn't gone through yet. It keeps retrying, and you'll get an alert if it doesn't.`
+    : r.refund === "offer" ? `Not refunded. They were offered a full refund or a new time, whichever they prefer.`
+    : "";
+  const tag = r.refund === "refunded" ? ` (refunded ${amount})` : r.refund === "pending" ? ` (refund pending ${amount})` : "";
+  const leftovers = [
+    r.calendarRemoved ? "" : "It couldn't be removed from your Coaching calendar yet. It keeps retrying; if you still see it, delete it by hand. It isn't happening.",
+    r.zoomRemoved ? "" : "The Zoom meeting couldn't be deleted yet. It keeps retrying.",
+  ].filter(Boolean);
   const body = [
-    needsRefund ? warn(`Refund due: ${money(b.amountCents)}. They cancelled at least 24 hours ahead, so they were told they'll be refunded in full.`) : "",
-    needsRefund && stripePaymentUrl ? button(stripePaymentUrl, `Refund ${money(b.amountCents)} in Stripe`) : "",
+    r.refund === "pending" || r.refund === "offer" ? warn(refundNote) : refundNote ? small(refundNote) : "",
+    stripePaymentUrl && r.refund !== "none" ? button(stripePaymentUrl, r.refund === "refunded" ? "View payment in Stripe" : `Refund ${amount} in Stripe`) : "",
+    ...leftovers.map(warn),
     details(adminRows(b, { zoom: false })),
     b.bundleNote ? small("It was a bundle session, so the credit has gone back into their bundle.") : "",
-    small("The event has been removed from your Coaching calendar and the Zoom meeting deleted. The time is open for booking again."),
+    leftovers.length ? "" : small("The event has been removed from your Coaching calendar and the Zoom meeting deleted. The time is open for booking again."),
   ].join("\n");
   return {
     to: "",
-    subject: `Cancelled: ${b.name}, ${b.serviceName} on ${shortDay(b.start, tz)}${needsRefund ? ` (refund ${money(b.amountCents)})` : ""}`,
-    html: layout({ preheader: `${b.name} cancelled${needsRefund ? `: refund ${money(b.amountCents)}` : ""}`, tag: tagFor(b), title: "Booking cancelled", subtitle: b.name, body }),
+    subject: `Cancelled: ${b.name}, ${b.serviceName} on ${shortDay(b.start, tz)}${tag}`,
+    html: layout({ preheader: `${b.name} cancelled${tag}`, tag: tagFor(b), title: "Booking cancelled", subtitle: b.name, body }),
     text: [
-      needsRefund ? `Refund due: ${money(b.amountCents)}${stripePaymentUrl ? `\n${stripePaymentUrl}` : ""}\n` : "",
+      ...(refundNote ? [refundNote, ...(stripePaymentUrl ? [stripePaymentUrl] : []), ""] : []),
+      ...leftovers.flatMap((l) => [l, ""]),
       textRows([["Client", b.name], ["Session", b.serviceName], ["Was", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
     ].join("\n"),
   };

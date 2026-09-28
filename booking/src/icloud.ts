@@ -30,8 +30,25 @@ function hrefIn(xml: string, prop: string): string {
   return m[1];
 }
 
+// Finding the calendars takes three requests to Apple, and they rarely change,
+// so the list is remembered for an hour (and forgotten if a calendar goes missing).
+const found = new Map<string, { at: number; all: Record<string, string> }>();
+const FOUND_TTL = 60 * 60 * 1000;
+export function forgetCalendars() { found.clear(); }
+
 // Every calendar's name and address (names: null means all of them).
 export async function findCalendars(env: ICloudEnv, names: string[] | null): Promise<Record<string, string>> {
+  let hit = found.get(env.ICLOUD_APPLE_ID);
+  // names: null (the admin's calendar list) always asks Apple fresh.
+  if (!hit || names === null || Date.now() - hit.at > FOUND_TTL || names.some((n) => !hit!.all[n])) {
+    hit = { at: Date.now(), all: await discoverCalendars(env) };
+    found.set(env.ICLOUD_APPLE_ID, hit);
+  }
+  const all = hit.all;
+  return names === null ? { ...all } : Object.fromEntries(names.filter((n) => all[n]).map((n) => [n, all[n]]));
+}
+
+async function discoverCalendars(env: ICloudEnv): Promise<Record<string, string>> {
   const who = await dav(env, "PROPFIND", ROOT, 0,
     `<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-principal/></d:prop></d:propfind>`);
   const principal = new URL(hrefIn(who.text, "current-user-principal"), who.url).href;
@@ -41,14 +58,16 @@ export async function findCalendars(env: ICloudEnv, names: string[] | null): Pro
   const list = await dav(env, "PROPFIND", homeUrl, 1,
     `<d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>`);
 
-  const found: Record<string, string> = {};
+  const all: Record<string, string> = {};
   for (const block of list.text.split(/<[^>]*response[ >]/i).slice(1)) {
     const href = block.match(/<[^>]*href[^>]*>([^<]+)</i)?.[1];
     const name = block.match(/<[^>]*displayname[^>]*>([^<]*)</i)?.[1]?.trim();
-    if (href && name && (names === null || names.includes(name))) found[name] = new URL(href, list.url).href;
+    if (href && name) all[unescapeXml(name)] = new URL(href, list.url).href;
   }
-  return found;
+  return all;
 }
+
+const unescapeXml = (s: string) => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[e as string]!));
 
 // Parses an iCalendar date line such as
 //   DTSTART:20260930T180000Z
@@ -78,9 +97,9 @@ function busyFromIcs(text: string): Interval[] {
     if (!start) continue;
     let end = parseIcsDate(body.match(/^DTEND[^\r\n]*/m)?.[0] ?? "")?.ms;
     if (end === undefined) {
-      const dur = body.match(/^DURATION:P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/m);
+      const dur = body.match(/^DURATION:P(?:(\d+)W)?(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/m);
       end = dur
-        ? start.ms + ((+(dur[1] ?? 0) * 24 + +(dur[2] ?? 0)) * 60 + +(dur[3] ?? 0)) * 60000
+        ? start.ms + (((+(dur[1] ?? 0) * 7 + +(dur[2] ?? 0)) * 24 + +(dur[3] ?? 0)) * 60 + +(dur[4] ?? 0)) * 60000
         : start.ms + (start.allDay ? 86400000 : 0);
     }
     const uid = body.match(/^UID:(.+)$/m)?.[1]?.trim();
@@ -106,8 +125,13 @@ export async function getBusy(env: ICloudEnv, from: number, to: number, names: s
   </c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`;
 
-  const results = await Promise.all(Object.values(calendars).map((url) => dav(env, "REPORT", url, 1, query)));
-  return results.flatMap((r) => busyFromIcs(r.text));
+  try {
+    const results = await Promise.all(Object.values(calendars).map((url) => dav(env, "REPORT", url, 1, query)));
+    return results.flatMap((r) => busyFromIcs(r.text));
+  } catch (err) {
+    forgetCalendars();
+    throw err;
+  }
 }
 
 // ── Writing events to the Coaching calendar ──
@@ -131,7 +155,10 @@ export async function putEvent(env: ICloudEnv, uid: string, ics: string, existin
     },
     body: ics,
   });
-  if (res.status !== 201 && res.status !== 204 && !res.ok) throw new Error(`iCloud PUT failed with status ${res.status}`);
+  if (res.status !== 201 && res.status !== 204 && !res.ok) {
+    forgetCalendars();
+    throw new Error(`iCloud PUT failed with status ${res.status}`);
+  }
   return url;
 }
 

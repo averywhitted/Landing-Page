@@ -40,7 +40,10 @@ export type Env = {
 export const usingFakes = (env: Env) => env.LOCAL_FAKES === "1";
 
 // Is this the real site, or a test copy of the pages served from this Mac?
-export const isLiveSite = (env: Env) => /^https:\/\/(www\.)?averywhitted\.com\/?$/.test(env.SITE_URL);
+// A live Stripe key always counts as live, so a test setting left behind at
+// launch can't keep the local-testing access open.
+export const isLiveSite = (env: Env) =>
+  /^https:\/\/(www\.)?averywhitted\.com\/?$/.test(env.SITE_URL) || /^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY ?? "");
 
 // Addresses of this Mac: itself, or on the home network (so a phone on the
 // same Wi-Fi can test). Only trusted while testing, never on the live site.
