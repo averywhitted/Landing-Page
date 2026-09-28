@@ -3,7 +3,8 @@
 /book/booking.js?v=3f9a1c2e. The tag is a fingerprint of the file's contents,
 so when the file changes browsers fetch the new copy instead of a cached one.
 
-  python3 booking/scripts/stamp-assets.py          (from the repo root)
+  python3 booking/scripts/stamp-assets.py            (from the repo root)
+  python3 booking/scripts/stamp-assets.py --staged   (also update the copies staged for commit)
 
 Run it after changing book/booking.js or book/booking.css (the launch
 preflight does this too). Safe to run any number of times.
@@ -41,6 +42,24 @@ def main():
             changed.append(str(page.relative_to(ROOT)))
     print(f"booking.js v={prints['book/booking.js']}, booking.css v={prints['book/booking.css']}")
     print("updated:", ", ".join(changed) if changed else "nothing (already current)")
+    if "--staged" in sys.argv:
+        stamp_staged(prints)
+
+
+def stamp_staged(prints):
+    """Also update the copies staged for commit (git's index), leaving any other
+    uncommitted edits in those files unstaged."""
+    import subprocess
+    git = lambda *a, input=None: subprocess.run(["git", "-C", str(ROOT), *a], input=input, capture_output=True, check=True).stdout
+    for path in git("ls-files", "*.html").decode().split():
+        if SKIP & set(pathlib.PurePath(path).parts):
+            continue
+        staged = git("show", f":{path}").decode("utf-8")
+        new = stamp(staged, prints)
+        if new != staged:
+            blob = git("hash-object", "-w", "--stdin", input=new.encode("utf-8")).decode().strip()
+            git("update-index", "--cacheinfo", f"100644,{blob},{path}")
+            print("staged:", path)
 
 
 if __name__ == "__main__":

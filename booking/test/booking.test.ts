@@ -595,7 +595,7 @@ async function paidBundle(serviceId = "bundle-4") {
 }
 const ledger = (id: string) => (db.prepare("SELECT delta, reason FROM credit_ledger WHERE package_id = ? ORDER BY id").all(id) as any[]).map((l) => ({ ...l }));
 
-test("bundle: buying creates a paid-up bundle with 4 credits and a 60-day use-by date", async () => {
+test("bundle: buying creates a paid-up bundle with 4 credits and a 90-day use-by date", async () => {
   const { id, pkg, session } = await buyBundle();
   assert.equal(pkg().status, "pending");
   assert.equal(session.amount_total, 44000);
@@ -605,7 +605,7 @@ test("bundle: buying creates a paid-up bundle with 4 credits and a 60-day use-by
   assert.equal(p.status, "active");
   assert.equal(p.credits_total, 4);
   const days = (Date.parse(p.expires_at) - Date.now()) / 86400000;
-  assert.ok(days > 59.9 && days <= 60, "use by 60 days from purchase");
+  assert.ok(days > 89.9 && days <= 90, "use by 90 days from purchase");
   assert.deepEqual(ledger(id), [{ delta: 4, reason: "purchased" }]);
   const subjects = world.state.emails.map((e) => e.subject);
   assert.ok(subjects.includes("Your 4 sessions are ready to book"));

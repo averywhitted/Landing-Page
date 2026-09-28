@@ -230,7 +230,7 @@
       const promo = currentPromo();
       const promoChip = promo && s.priceCents ? `<span class="bk-promo">Code ${esc(promo)} applied at checkout</span>` : "";
       if (s.kind === "bundle") {
-        return `<div class="bk-summary"><strong>${esc(bundleTitle(s))}</strong><span class="bk-sep">&middot;</span><span>${s.credits} &times; ${esc(lengthLabel(s.durationMinutes))} on Zoom</span><span class="bk-sep">&middot;</span><span>use within 60 days</span>${promoChip}<span class="bk-price">${money(s.priceCents)}</span></div>`;
+        return `<div class="bk-summary"><strong>${esc(bundleTitle(s))}</strong><span class="bk-sep">&middot;</span><span>${s.credits} &times; ${esc(lengthLabel(s.durationMinutes))} on Zoom</span><span class="bk-sep">&middot;</span><span>use within ${s.validDays || 90} days</span>${promoChip}<span class="bk-price">${money(s.priceCents)}</span></div>`;
       }
       if (reschedule) {
         const now = reschedule.currentStart;
@@ -269,7 +269,7 @@
       const base = single60();
       const each = money(Math.round(s.priceCents / s.credits / 100) * 100);
       const save = base ? base.priceCents * s.credits - s.priceCents : 0;
-      return `${s.credits} one-hour sessions on Zoom, ${each} each${save > 0 ? `. Save ${money(save)}` : ""}. Book them anytime within 60 days.`;
+      return `${s.credits} one-hour sessions on Zoom, ${each} each${save > 0 ? `. Save ${money(save)}` : ""}. Book them anytime within ${s.validDays || 90} days.`;
     }
 
     function tzOptions() {
@@ -401,7 +401,7 @@
       const intro = s.kind === "intro";
       const bundle = s.kind === "bundle";
       const policy = bundle
-        ? "I understand my sessions need to be used within 60 days of purchase, and that each one can be rescheduled or cancelled up to 24 hours before it starts. Sessions cancelled later than that, or not used in time, can't be returned to the bundle."
+        ? `I understand my sessions need to be used within ${s.validDays || 90} days of purchase, and that each one can be rescheduled or cancelled up to 24 hours before it starts. Sessions cancelled later than that, or not used in time, can't be returned to the bundle.`
         : intro
         ? "I understand I can reschedule or cancel up to 24 hours before our call."
         : "I understand I can reschedule or cancel up to 24 hours before my session. Refunds for cancellations may take a few business days to appear.";

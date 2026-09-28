@@ -50,7 +50,8 @@ app.get("/email/h/:file", (c) => {
 });
 
 // Public list of services and prices, read from services.ts.
-app.get("/api/services", (c) => c.json(SERVICES));
+// Bundles include how long they're valid for, so the page never hard-codes it.
+app.get("/api/services", (c) => c.json(SERVICES.map((s) => (s.kind === "bundle" ? { ...s, validDays: RULES.packageValidDays } : s))));
 
 // Quick check that the service can reach its database.
 app.get("/api/health", async (c) => {
