@@ -401,6 +401,9 @@
     <script>
       document.documentElement.classList.add("js");
     </script>
+    <!-- Booking pop-up (opens from any "Book a Session" link) -->
+    <link rel="stylesheet" href="/book/booking.css?v=a7813547" />
+    <script src="/book/booking.js?v=7d0525f1" defer></script>
   </head>
 
   <body>
@@ -414,7 +417,7 @@
         </div>
         <nav>
           <a class="pill" href="index.html">Home</a>
-          <a class="pill pill-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+          <a class="pill pill-cta" href="/book/">Book a Session</a>
         </nav>
       </header>
 
@@ -499,7 +502,7 @@
               <p>This site does not run analytics or tracking scripts, and it doesn't use cookies to track you across visits.</p>
               <p>When you book a session, sign up for the email list, or send a message through the site, here's what happens with that information:</p>
               <ul>
-                <li><strong>Booking:</strong> When you book a session, we collect your name, email, pronouns (if you share them), your answers to the booking questions, and the time you chose. We use this only to schedule and prepare for your session and to send your confirmation. It's stored in our booking system (hosted by Cloudflare) and added to our calendar. Zoom links are created through Zoom, and booking emails are sent through Resend.</li>
+                <li><strong>Booking:</strong> When you book a session, we collect your name, email, pronouns (if you share them), your answers to the booking questions, and the time you chose. We use this only to schedule and prepare for your session and to send your confirmation. It's stored in our booking system (hosted by Cloudflare) and added to our calendar. Zoom links are created through Zoom, and booking emails are sent through Resend. Your answers to the booking questions are deleted two years after your session.</li>
                 <li><strong>Payments:</strong> Payments are handled by Stripe on Stripe's own secure checkout page. We never see or store your card details.</li>
                 <li><strong>Spam protection:</strong> The booking form uses Cloudflare Turnstile to check that a real person is booking. How Turnstile handles information is described in Cloudflare's <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
                 <li><strong>Unfinished bookings:</strong> If you start a booking and don't finish, your choices and answers are saved only in your own browser for up to 7 days, so you can pick up where you left off. If you reach checkout but don't complete payment, we may send you one reminder email.</li>
@@ -624,7 +627,7 @@
               <ul>
                 <li>Session rates are subject to change. However, rates will never be changed for sessions after they are booked.</li>
                 <li>Refunds will be issued in the amount that was paid for that session. Current session rates do not influence refunds.</li>
-                <li>Payment is collected through Cal.com at the time of booking.</li>
+                <li>Payment is collected securely through Stripe at the time of booking.</li>
                 <li>Refunds are issued through Stripe and may take several business days to be processed.</li>
               </ul>
             </div>
