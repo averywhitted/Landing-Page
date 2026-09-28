@@ -31,6 +31,9 @@ EMAIL_FROM = "Avery Whitted <info@averywhitted.com>"
 EMAIL_REPLY_TO = "info@averywhitted.com"
 ADMIN_EMAIL = "avery@averywhitted.com"
 ZOOM_USER = "whitted.avery@protonmail.com"
+# Admin lock (Cloudflare Access). Admin stays off until both are set.
+ACCESS_TEAM_DOMAIN = "averywhitted.cloudflareaccess.com"
+# ACCESS_AUD = ""   # the Booking admin application's AUD tag
 # "Finish your booking" emails after an unpaid checkout (max one per person per week).
 REMINDERS_ENABLED = "1"
 
