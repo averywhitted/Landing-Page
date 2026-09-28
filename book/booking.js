@@ -415,12 +415,12 @@
             <input class="bk-input" id="bk-email" name="email" type="email" autocomplete="email" required maxlength="200" value="${v("email")}"></div>
           <div class="bk-field"><label for="bk-pronouns">Pronouns <span class="bk-opt">(optional)</span></label>
             <input class="bk-input" id="bk-pronouns" name="pronouns" maxlength="40" placeholder="she/her, they/them..." value="${v("pronouns")}"></div>
-          ${intro ? "" : `<div class="bk-field"><label for="bk-link">Link to materials <span class="bk-opt">(optional)</span></label>
-            <input class="bk-input" id="bk-link" name="link" type="url" inputmode="url" maxlength="500" placeholder="https://" value="${v("link")}"></div>`}
           <div class="bk-field is-wide"><label for="bk-goal">${intro ? "What would you like to talk about?" : bundle ? "What would you like to work on across these sessions?" : "Main goal for the session"}</label>
             <textarea class="bk-input" id="bk-goal" name="goal" required maxlength="2000">${v("goal")}</textarea></div>
-          ${intro || bundle ? "" : `<div class="bk-field is-wide"><label for="bk-material">Material to work on first</label>
+          ${intro || bundle ? "" : `<div class="bk-field is-wide"><label for="bk-material">Material to work on</label>
             <textarea class="bk-input" id="bk-material" name="material" required maxlength="2000" placeholder="Sides, a monologue, a self-tape... &quot;Not sure yet&quot; is fine.">${v("material")}</textarea></div>`}
+          ${intro ? "" : `<div class="bk-field is-wide"><label for="bk-link">Link to materials <span class="bk-opt">(optional)</span></label>
+            <input class="bk-input" id="bk-link" name="link" type="url" inputmode="url" maxlength="500" placeholder="https://" value="${v("link")}"></div>`}
           <div class="bk-field is-wide"><label for="bk-notes">Anything else I should know? <span class="bk-opt">(optional)</span></label>
             <textarea class="bk-input" id="bk-notes" name="notes" maxlength="2000">${v("notes")}</textarea></div>
           <label class="bk-check"><input type="checkbox" name="policy" required${f.policy ? " checked" : ""}><span>${policy}</span></label>
@@ -774,17 +774,37 @@
     document.body.appendChild(dialog);
     const widget = createWidget(dialog.lastElementChild, { inModal: true, onClose: () => dialog.close() });
     dialog.querySelector(".bk-close").addEventListener("click", () => dialog.close());
-    // Click on the dim backdrop closes it.
-    dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
-    dialog.addEventListener("close", () => document.documentElement.classList.remove("bk-lock"));
+    // A tap on the dim backdrop closes it, but only if it also started there
+    // (a scroll that began inside the sheet and ended outside shouldn't).
+    let downOnBackdrop = false;
+    dialog.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === dialog; });
+    dialog.addEventListener("click", (e) => { if (e.target === dialog && downOnBackdrop) dialog.close(); downOnBackdrop = false; });
+    dialog.addEventListener("close", unlockPage);
     modal = { dialog, widget };
     return modal;
+  }
+
+  // Freeze the page behind the pop-up. On iPhones, letting it scroll moves
+  // Safari's address bar, which can leave taps landing off the buttons.
+  let lockedY = 0;
+  function lockPage() {
+    lockedY = window.scrollY;
+    const b = document.body.style;
+    b.position = "fixed"; b.top = `-${lockedY}px`; b.left = "0"; b.right = "0"; b.width = "100%";
+    document.documentElement.classList.add("bk-lock");
+  }
+  function unlockPage() {
+    if (!document.documentElement.classList.contains("bk-lock")) return;
+    const b = document.body.style;
+    b.position = b.top = b.left = b.right = b.width = "";
+    document.documentElement.classList.remove("bk-lock");
+    window.scrollTo({ top: lockedY, behavior: "instant" });
   }
 
   function openModal(serviceId) {
     const { dialog, widget } = getModal();
     if (!dialog.open) {
-      document.documentElement.classList.add("bk-lock");
+      lockPage();
       dialog.showModal();
       widget.focus();
     }

@@ -838,8 +838,8 @@ test("a bundle session can't be rescheduled past the bundle's use-by date", asyn
   assert.match(r.data.error, /use-by/);
 });
 
-test("cancel a whole bundle: unused sessions refunded per session; close sessions kept; emails both", async () => {
-  const { id, p, t, pkg } = await paidBundle(); // 4 sessions, $440 => $110 each
+test("cancel a whole bundle: used sessions charged at full price, the rest refunded; close sessions kept; emails both", async () => {
+  const { id, p, t, pkg } = await paidBundle(); // 4 sessions for $440; one session alone is $130
   const slots = await openSlots("coaching-60");
   const done = await bundleSession(p, t, slots[0]);
   const soon = await bundleSession(p, t, slots[6]);
@@ -851,32 +851,32 @@ test("cancel a whole bundle: unused sessions refunded per session; close session
 
   const quote = (await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.cancelQuote;
   assert.equal(quote.used, 2, "the past session and the one within 24 hours");
-  assert.equal(quote.refundCents, 22000, "2 unused x $110");
+  assert.equal(quote.refundCents, 18000, "$440 paid minus 2 used x $130");
   assert.equal(quote.cancelSessions.length, 1);
 
   const r = await api.call("POST", "/api/packages/cancel", { body: { p, t } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(pkg().status, "cancelled");
-  assert.equal(pkg().refund_due_cents, 22000);
+  assert.equal(pkg().refund_due_cents, 18000);
   assert.equal(row(later.id).status, "cancelled");
   assert.equal(row(later.id).cancel_reason, "bundle_cancelled");
   assert.equal(claims(later.id), 0);
   assert.ok(!world.state.calendarEvents.has(row(later.id).calendar_event_url), "removed from the Coaching calendar");
   assert.equal(row(soon.id).status, "confirmed", "within 24 hours: still on");
   const client = world.state.emails.find((e) => /^Your bundle is cancelled/.test(e.subject))!;
-  assert.match(client.subject, /\$220 refund on the way/);
+  assert.match(client.subject, /\$180 refund on the way/);
   assert.match(client.html, /being processed/);
-  const admin = world.state.emails.find((e) => /^Bundle cancelled: Jamie Rivera \(refund \$220\)/.test(e.subject))!;
-  assert.match(admin.html, /Refund \$220 in Stripe/);
+  const admin = world.state.emails.find((e) => /^Bundle cancelled: Jamie Rivera \(refund \$180\)/.test(e.subject))!;
+  assert.match(admin.html, /Refund \$180 in Stripe/);
   assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p, t } })).status, 409, "only once");
   const v = await api.call("GET", `/api/packages?p=${p}&t=${t}`);
   assert.equal(v.data.status, "cancelled");
-  assert.equal(v.data.refundDueCents, 22000);
+  assert.equal(v.data.refundDueCents, 18000);
 });
 
 test("cancel bundle: free sessions Avery added aren't refunded; expired bundles can't be cancelled; refunds get marked", async () => {
   adminEnv();
-  const a = await paidBundle("bundle-2"); // $230 => $115 each
+  const a = await paidBundle("bundle-2"); // $230, nothing used yet
   await api.call("POST", `/api/admin/packages/${a.id}/credits`, { headers: asAdmin(), body: { delta: 1, note: "makeup" } });
   const q = (await api.call("GET", `/api/packages?p=${a.p}&t=${a.t}`)).data.cancelQuote;
   assert.equal(q.refundCents, 23000, "the two paid sessions, not the free one");
@@ -891,6 +891,20 @@ test("cancel bundle: free sessions Avery added aren't refunded; expired bundles 
   const b = await paidBundle("bundle-3");
   db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), b.id);
   assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p: b.p, t: b.t } })).status, 409);
+});
+
+test("cancel bundle: the refund never goes below zero", async () => {
+  const { p, t } = await paidBundle("bundle-2"); // $230; two sessions alone would be $260
+  const slots = await openSlots("coaching-60");
+  const a = await bundleSession(p, t, slots[0]);
+  const b = await bundleSession(p, t, slots[6]);
+  const now = Date.now();
+  for (const [bk, hoursAgo] of [[a, 72], [b, 48]] as const) {
+    db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(now - hoursAgo * 3600000).toISOString(), new Date(now - hoursAgo * 3600000 + 3600000).toISOString(), bk.id);
+  }
+  const q = (await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.cancelQuote;
+  assert.equal(q.used, 2);
+  assert.equal(q.refundCents, 0);
 });
 
 /* ── Edge cases ── */

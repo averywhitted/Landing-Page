@@ -50,7 +50,8 @@
 .bk-dialog[open] { display: flex; flex-direction: column; animation: bk-rise 0.22s ease-out; }
 .bk-dialog::backdrop { background: rgba(14, 17, 22, 0.42); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 @keyframes bk-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
-html.bk-lock { overflow: hidden; }
+html.bk-lock { overflow: hidden; scroll-behavior: auto; }
+.bk button, .bk a, .bk input, .bk select, .bk textarea, .bk label { touch-action: manipulation; }
 
 .bk-close {
   position: absolute;
@@ -469,6 +470,10 @@ textarea.bk-input { min-height: 84px; resize: vertical; line-height: 1.55; }
     max-width: 100vw;
     height: calc(100dvh - 24px);
     max-height: calc(100dvh - 24px);
+    /* Stable height: doesn't jump when Safari's toolbar grows or shrinks. */
+    height: calc(100svh - 24px);
+    max-height: calc(100svh - 24px);
+    overscroll-behavior: contain;
     margin: auto 0 0;
     border-radius: 22px 22px 0 0;
     border-bottom: 0;

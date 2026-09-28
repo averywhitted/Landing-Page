@@ -296,7 +296,7 @@ export function adminBundleCancelled(p: BundleCancelView, stripePaymentUrl: stri
       ...(p.cancelledSessions.length ? [["Cancelled", p.cancelledSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
       ...(p.keptSessions.length ? [["Still on", p.keptSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
     ]),
-    small("Cancelled sessions have been removed from your Coaching calendar and Zoom. The refund is unused sessions at the price paid per session."),
+    small("Cancelled sessions have been removed from your Coaching calendar and Zoom. The refund is what they paid minus the sessions used, each charged at the full single-session price."),
   ].join("\n");
   return {
     to: "",

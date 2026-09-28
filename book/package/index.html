@@ -18,7 +18,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/podcast/podcast.css" />
-    <link rel="stylesheet" href="/book/booking.css?v=5902bf9d" />
+    <link rel="stylesheet" href="/book/booking.css?v=bd728f29" />
     <style>
       .pk { margin: 32px auto 0; padding: 40px 44px; max-width: 820px; }
       .pk-cancel-link { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
@@ -65,7 +65,7 @@
       }
     </style>
     <script>document.documentElement.classList.add("js");</script>
-    <script src="/book/booking.js?v=7ca73944" defer></script>
+    <script src="/book/booking.js?v=c51a95c6" defer></script>
   </head>
 
   <body>
@@ -194,10 +194,10 @@
           const list = (arr) => arr.map((iso) => `<li>${esc(when(iso))}</li>`).join("");
           document.getElementById("pk-cancel-area").innerHTML = `<div class="pk-confirm" role="alertdialog" aria-labelledby="pk-c-title">
               <h2 id="pk-c-title">Cancel your bundle?</h2>
-              <p>You've used ${q.used} of ${pkg.credits} session${pkg.credits === 1 ? "" : "s"}. Unused sessions are refunded at the price you paid per session.</p>
+              <p>You've used ${q.used} of ${pkg.credits} session${pkg.credits === 1 ? "" : "s"}. When a bundle is cancelled early, sessions already used are charged at the regular single-session price of ${money(q.sessionPriceCents)}, and the rest of what you paid (${money(q.paidCents)}) is refunded.</p>
               ${q.cancelSessions.length ? `<p>These booked sessions will be cancelled too:</p><ul>${list(q.cancelSessions)}</ul>` : ""}
               ${q.keptSessions.length ? `<p>These are less than 24 hours away, so they'll still go ahead and count as used:</p><ul>${list(q.keptSessions)}</ul>` : ""}
-              <p><strong>${q.refundCents > 0 ? `Refund: ${money(q.refundCents)}` : "No refund is due, since every session has been used."}</strong>${q.refundCents > 0 ? " Refunds may take a few business days to appear." : ""}</p>
+              <p><strong>${q.refundCents > 0 ? `Refund: ${money(q.refundCents)}` : "No refund is due, since the sessions you've used cover what you paid."}</strong>${q.refundCents > 0 ? " Refunds may take a few business days to appear." : ""}</p>
               <div class="pk-actions">
                 <button type="button" class="btn danger" id="pk-c-yes">Yes, cancel my bundle</button>
                 <button type="button" class="btn" id="pk-c-no">Keep my bundle</button>

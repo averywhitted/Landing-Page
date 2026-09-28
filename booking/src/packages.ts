@@ -305,9 +305,11 @@ export async function retryPackageEmails(env: Env, now: number): Promise<number>
 }
 
 /* ── Cancelling a whole bundle ──
-   Policy (change here if it changes): unused sessions are refunded at the
-   price paid per session. A session counts as used if it already happened
-   or is less than 24 hours away (it can't be cancelled online by then).
+   Policy (change here if it changes, and in policies.html): sessions already
+   used are charged at the full single-session price (the bundle discount
+   only applies to a finished bundle), and the rest of what was paid is
+   refunded. A session counts as used if it already happened or is less
+   than 24 hours away (it can't be cancelled online by then).
    Booked sessions 24+ hours away are cancelled along with the bundle.
    Expired bundles can't be cancelled; their unused sessions have lapsed. */
 
@@ -321,9 +323,9 @@ async function cancelQuote(env: Env, pkg: PackageRow, now: number) {
   const kept = booked.results.filter((b) => Date.parse(b.start_utc) - now < CUTOFF && Date.parse(b.start_utc) > now);
   const used = pkg.credits_used - cancellable.length;       // happened, or too close to cancel
   const paidSessions = findService(pkg.service_id)?.credits ?? pkg.credits_total;
-  const perSession = pkg.amount_cents / paidSessions;
-  // Extra sessions Avery added for free are treated as used first, so they're never refunded.
-  const refundCents = Math.max(0, Math.round(perSession * Math.max(0, paidSessions - used)));
+  // Extra sessions Avery added for free are never refunded or charged for.
+  const charged = Math.min(used, paidSessions) * sessionService().priceCents;
+  const refundCents = Math.max(0, pkg.amount_cents - charged);
   const expired = !!pkg.expires_at && Date.parse(pkg.expires_at) <= now;
   return {
     canCancel: pkg.status === "active" && !expired,
@@ -376,7 +378,7 @@ async function afterPackageCancel(env: Env, id: string, q: Awaited<ReturnType<ty
 
 export async function packageCancelQuote(env: Env, pkg: PackageRow, now: number) {
   const q = await cancelQuote(env, pkg, now);
-  return { canCancel: q.canCancel, used: q.used, refundCents: q.refundCents, cancelSessions: q.cancellable.map((b) => b.start_utc), keptSessions: q.kept.map((b) => b.start_utc) };
+  return { canCancel: q.canCancel, used: q.used, refundCents: q.refundCents, sessionPriceCents: sessionService().priceCents, paidCents: pkg.amount_cents, cancelSessions: q.cancellable.map((b) => b.start_utc), keptSessions: q.kept.map((b) => b.start_utc) };
 }
 
 /* ── "Finish buying your bundle" (same rules as single-session reminders) ── */
