@@ -211,8 +211,15 @@
           ? `<button type="button" class="bk-step${done}" data-action="goto" data-step="${i}">${inner}</button>`
           : `<span class="bk-step${done}"${current}>${inner}</span>`}</li>`;
       }).join("");
-      $body.innerHTML = [renderServices, renderTimes, renderDetails][state.step]();
-      $foot.innerHTML = renderFoot();
+      try {
+        $body.innerHTML = [renderServices, renderTimes, renderDetails][state.step]();
+        $foot.innerHTML = renderFoot();
+      } catch (err) {
+        // Never leave a half-drawn step on screen that nothing can be tapped on.
+        console.error(err);
+        $body.innerHTML = `<div class="bk-empty is-error">Something went wrong showing this step.<button type="button" class="bk-btn" data-action="goto" data-step="0">Start again</button></div>`;
+        $foot.innerHTML = "";
+      }
       if (keep) {
         const again = root.querySelector(keep);
         if (again && !again.disabled) again.focus({ preventScroll: true });
@@ -496,6 +503,10 @@
         state.slot = null;
         state.day = null;
         state.weekStart = today;
+        // The times shown belong to the old session; drop them (and any
+        // still loading) so the new one starts from a fresh load.
+        state.week = null;
+        loadToken++;
       }
       if (advance && s.kind === "bundle") { go(2); loadTurnstile().catch(() => {}); }
       else if (advance) { go(1); loadWeek(); }
