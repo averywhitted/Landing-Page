@@ -209,7 +209,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string): E
 
 // ── Avery: new booking, rescheduled, cancelled, auto-refunded ──
 
-function adminRows(b: BookingView): [string, string][] {
+function adminRows(b: BookingView, opts: { zoom?: boolean } = {}): [string, string][] {
   const tz = AVERY_TZ;
   const rows: [string, string][] = [
     ["Client", esc(b.name) + (b.pronouns ? ` (${esc(b.pronouns)})` : "")],
@@ -217,8 +217,8 @@ function adminRows(b: BookingView): [string, string][] {
     ["Session", esc(b.serviceName)],
     ["When", `${esc(day(b.start, tz))}<br>${esc(timeRange(b, tz))}`],
     ["Paid", b.amountCents > 0 ? esc(money(b.amountCents)) : "Free"],
-    ["Zoom", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">${esc(b.zoomUrl)}</a>` : "Not created"],
   ];
+  if (opts.zoom !== false) rows.push(["Zoom", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">${esc(b.zoomUrl)}</a>` : "Not created"]);
   if (b.clientTimeZone !== tz) rows.push(["Their zone", esc(`${clock(b.start, b.clientTimeZone)} ${zoneName(b.start, b.clientTimeZone)}`)]);
   return rows;
 }
@@ -277,7 +277,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null):
   const body = [
     needsRefund ? warn(`Refund due: ${money(b.amountCents)}. They cancelled at least 24 hours ahead, so they were told they'll be refunded in full.`) : "",
     needsRefund && stripePaymentUrl ? button(stripePaymentUrl, `Refund ${money(b.amountCents)} in Stripe`) : "",
-    details(adminRows(b)),
+    details(adminRows(b, { zoom: false })),
     small("The event has been removed from your Coaching calendar and the Zoom meeting deleted. The time is open for booking again."),
   ].join("\n");
   return {
@@ -288,6 +288,55 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null):
       needsRefund ? `Refund due: ${money(b.amountCents)}${stripePaymentUrl ? `\n${stripePaymentUrl}` : ""}\n` : "",
       textRows([["Client", b.name], ["Session", b.serviceName], ["Was", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
     ].join("\n"),
+  };
+}
+
+// ── Client: the day before their session ──
+
+function relativeDay(ms: number, tz: string, now: number): string {
+  const key = (t: number) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+  if (key(ms) === key(now)) return "today";
+  if (key(ms) === key(now + 86400000)) return "tomorrow";
+  return `on ${day(ms, tz)}`;
+}
+
+export function sessionReminder(b: BookingView, now: number): Email {
+  const tz = b.clientTimeZone;
+  const when = relativeDay(b.start, tz, now);
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(`Just a reminder that your ${esc(b.serviceName.toLowerCase())} is ${esc(when)} at <strong>${esc(clock(b.start, tz))} ${esc(zoneName(b.start, tz))}</strong>.`),
+    details(sessionRows(b, tz, false)),
+    b.zoomUrl ? button(b.zoomUrl, "Join on Zoom") : para("I'll send your Zoom link before the session."),
+    b.kind === "intro"
+      ? para("Come as you are. It's a relaxed chat to get to know each other and what you're working on.")
+      : para("To make the most of our time, have your material open and ready, and find a quiet spot with a good connection."),
+    small("Can't make it? It's now less than 24 hours before your session, so please reply to this email and I'll help."),
+    para("See you soon,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `Reminder: your ${b.serviceName.toLowerCase()} ${when} at ${clock(b.start, tz)}`,
+    html: layout({ preheader: `${day(b.start, tz)}, ${timeRange(b, tz)}${b.zoomUrl ? ". Zoom link inside." : ""}`, tag: tagFor(b), title: "See you soon", body }),
+    text: [`Hi ${firstName(b.name)},`, "", `Just a reminder that your ${b.serviceName.toLowerCase()} is ${when} at ${clock(b.start, tz)} ${zoneName(b.start, tz)}.`, "",
+      textRows([["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
+      "Can't make it? Please reply to this email.", "", "See you soon,", "Avery"].join("\n"),
+  };
+}
+
+// ── Avery: something needs attention ──
+
+export function attentionAlert(problems: string[]): Email {
+  const body = [
+    para("The booking system ran into something it couldn't fix on its own:"),
+    `<ul style="margin:0 0 18px;padding-left:20px;font:14px/1.6 ${FONT};color:#2c3138;">${problems.map((p) => `<li style="margin:0 0 6px;">${esc(p)}</li>`).join("")}</ul>`,
+    small("Emails and calendar updates retry automatically every few minutes, so some of these may clear on their own. You'll get at most one of these alerts an hour."),
+  ].join("\n");
+  return {
+    to: "",
+    subject: `Booking system: ${problems.length} thing${problems.length === 1 ? "" : "s"} need${problems.length === 1 ? "s" : ""} attention`,
+    html: layout({ preheader: problems[0] ?? "", tag: "Heads up", title: "Needs attention", body }),
+    text: ["The booking system ran into something it couldn't fix on its own:", "", ...problems.map((p) => `- ${p}`)].join("\n"),
   };
 }
 
@@ -338,4 +387,5 @@ export function slotTakenRefund(b: BookingView, bookUrl: string): Email {
 export const HEADING_TITLES = [
   "You're booked", "Session rescheduled", "Session cancelled", "Finish your booking", "That time was taken",
   "New booking", "Booking rescheduled", "Booking cancelled", "Auto-refunded",
+  "See you soon", "Needs attention",
 ];

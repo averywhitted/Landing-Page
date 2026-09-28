@@ -212,7 +212,7 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
 
 /* ── Confirm after payment ── */
 
-type BookingRow = {
+export type BookingRow = {
   id: string; customer_id: string; service_id: string; start_utc: string; end_utc: string; status: string;
   hold_expires_at: string | null; amount_cents: number; stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null; zoom_meeting_id: string | null; zoom_join_url: string | null;
@@ -220,16 +220,16 @@ type BookingRow = {
   client_time_zone: string | null; cancel_reason: string | null; confirmed_at: string | null;
   client_email_sent_at: string | null; admin_email_sent_at: string | null; reminder_sent_at: string | null;
   refunded_at: string | null; name: string; email: string; pronouns: string | null;
-  reschedule_count: number; previous_start_utc: string | null;
+  reschedule_count: number; previous_start_utc: string | null; session_reminder_sent_at: string | null;
 };
 
-async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
+export async function loadBooking(env: Env, where: string, value: string): Promise<BookingRow | null> {
   return env.DB.prepare(
     `SELECT b.*, c.name, c.email, c.pronouns FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.${where} = ?1`,
   ).bind(value).first<BookingRow>();
 }
 
-function view(row: BookingRow): T.BookingView {
+export function view(row: BookingRow): T.BookingView {
   const service = findService(row.service_id)!;
   const intake = row.intake_json ? JSON.parse(row.intake_json) : {};
   return {
@@ -498,6 +498,7 @@ export async function publicStatus(env: Env, by: "booking" | "session", value: s
     end: row.end_utc,
     timeZone: row.client_time_zone || AVERY_TZ,
     firstName: row.name.trim().split(/\s+/)[0],
+    icsUid: row.ics_uid, // lets "Add to calendar" update the same event as the emailed invite
   };
 }
 
@@ -605,7 +606,7 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
       env.DB.prepare(
         `UPDATE bookings SET previous_start_utc = start_utc, start_utc = ?1, end_utc = ?2, ics_sequence = ics_sequence + 1,
-           reschedule_count = reschedule_count + 1, updated_at = ?3 WHERE id = ?4 AND status = 'confirmed'`,
+           reschedule_count = reschedule_count + 1, session_reminder_sent_at = NULL, updated_at = ?3 WHERE id = ?4 AND status = 'confirmed'`,
       ).bind(iso(newStart), iso(newEnd), iso(ctx.now), row.id),
     ]);
   } catch (err) {
@@ -635,4 +636,76 @@ async function afterReschedule(env: Env, bookingId: string): Promise<void> {
   }
   await sendEmail(env, "client_rescheduled", row.id, T.clientRescheduled(v, previous, clientIcs(env, row, v, "REQUEST"), await manageUrl(env, row.id)));
   await sendEmail(env, "admin_rescheduled", row.id, { ...T.adminRescheduled(v, previous, { calendarFailed }), to: env.ADMIN_EMAIL });
+}
+
+/* ── Day-before session reminders ── */
+
+export async function sendSessionReminders(env: Env, now: number): Promise<number> {
+  // Due once a session is within 24 hours. Skipped for bookings confirmed in the
+  // last 2 hours, since they just got their confirmation email.
+  const rows = await env.DB.prepare(
+    `SELECT b.id FROM bookings b
+     WHERE b.status = 'confirmed' AND b.session_reminder_sent_at IS NULL
+       AND b.start_utc > ?1 AND b.start_utc <= ?2 AND b.confirmed_at <= ?3
+       AND (SELECT COUNT(*) FROM email_log e WHERE e.booking_id = b.id AND e.kind = 'session_reminder') < 3
+     LIMIT 25`,
+  ).bind(iso(now + 60 * MIN), iso(now + 24 * 60 * MIN), iso(now - 120 * MIN)).all<{ id: string }>();
+  let sent = 0;
+  for (const { id } of rows.results) {
+    const row = await loadBooking(env, "id", id);
+    if (!row) continue;
+    if (await sendEmail(env, "session_reminder", id, T.sessionReminder(view(row), now))) {
+      await env.DB.prepare("UPDATE bookings SET session_reminder_sent_at = ?1 WHERE id = ?2").bind(iso(now), id).run();
+      sent++;
+    }
+  }
+  return sent;
+}
+
+/* ── Keeping only what's needed (privacy policy: answers deleted after 2 years) ── */
+
+export async function runRetention(env: Env, now: number): Promise<number> {
+  const twoYears = iso(now - 730 * 24 * 60 * MIN);
+  const res = await env.DB.batch([
+    env.DB.prepare("UPDATE bookings SET intake_json = NULL WHERE intake_json IS NOT NULL AND end_utc < ?1").bind(twoYears),
+    env.DB.prepare("DELETE FROM email_log WHERE created_at < ?1").bind(iso(now - 365 * 24 * 60 * MIN)),
+    env.DB.prepare("DELETE FROM processed_webhooks WHERE processed_at < ?1").bind(iso(now - 90 * 24 * 60 * MIN)),
+  ]);
+  return res[0].meta.changes;
+}
+
+/* ── Telling Avery when something needs a human ── */
+
+export async function checkAlerts(env: Env, now: number): Promise<string[]> {
+  const last = await env.DB.prepare("SELECT last_sent_at FROM alerts_sent WHERE kind = 'attention'").first<{ last_sent_at: string }>();
+  if (last && Date.parse(last.last_sent_at) > now - 60 * MIN) return [];
+  const since = last?.last_sent_at ?? iso(now - 24 * 60 * MIN);
+  const problems: string[] = [];
+
+  const failedEmails = await env.DB.prepare(
+    `SELECT e.kind, COUNT(*) AS n FROM email_log e
+     WHERE e.status = 'failed' AND e.created_at > ?1 AND e.kind <> 'attention_alert'
+     GROUP BY e.kind`,
+  ).bind(since).all<{ kind: string; n: number }>();
+  for (const f of failedEmails.results) problems.push(`${f.n} "${f.kind.replace(/_/g, " ")}" email${f.n === 1 ? "" : "s"} failed to send.`);
+
+  const stuck = await env.DB.prepare(
+    `SELECT b.start_utc, c.name, b.calendar_event_url IS NULL AS no_cal, b.client_email_sent_at IS NULL AS no_email
+     FROM bookings b JOIN customers c ON c.id = b.customer_id
+     WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
+       AND (b.calendar_event_url IS NULL OR b.client_email_sent_at IS NULL)
+     LIMIT 10`,
+  ).bind(iso(now), iso(now - 15 * MIN)).all<{ start_utc: string; name: string; no_cal: number; no_email: number }>();
+  for (const s of stuck.results) {
+    const when = new Intl.DateTimeFormat("en-US", { timeZone: AVERY_TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(Date.parse(s.start_utc));
+    const missing = [s.no_cal ? "isn't in your Coaching calendar" : "", s.no_email ? "hasn't received their confirmation email" : ""].filter(Boolean).join(" and ");
+    problems.push(`${s.name}'s session on ${when} ${missing}.`);
+  }
+
+  if (!problems.length) return [];
+  await sendEmail(env, "attention_alert", null, { ...T.attentionAlert(problems), to: env.ADMIN_EMAIL });
+  await env.DB.prepare(
+    "INSERT INTO alerts_sent (kind, last_sent_at) VALUES ('attention', ?1) ON CONFLICT(kind) DO UPDATE SET last_sent_at = excluded.last_sent_at",
+  ).bind(iso(now)).run();
+  return problems;
 }

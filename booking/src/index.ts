@@ -12,6 +12,7 @@ import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
   releaseForSession, rescheduleBooking, retryConfirmations, sendReminders,
+  sendSessionReminders, runRetention, checkAlerts,
 } from "./bookings";
 import { validManageToken } from "./manage";
 
@@ -218,14 +219,20 @@ app.post("/api/stripe/webhook", async (c) => {
 });
 
 // Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
+// Each job is isolated so one failing doesn't stop the others.
 async function scheduled(env: Env): Promise<void> {
   const now = Date.now();
-  const holds = await expireHolds(env, now);
-  const reminders = await sendReminders(env, now);
-  const retried = await retryConfirmations(env, now);
-  if (holds.released || holds.confirmed || reminders || retried) {
-    console.log(`cron: released ${holds.released}, late-confirmed ${holds.confirmed}, reminders ${reminders}, retried ${retried}`);
-  }
+  const run = async <T>(name: string, job: () => Promise<T>): Promise<T | null> => {
+    try { return await job(); } catch (err) { console.error(`cron ${name} failed:`, (err as Error).message); return null; }
+  };
+  const holds = await run("holds", () => expireHolds(env, now));
+  const checkout = await run("checkout reminders", () => sendReminders(env, now));
+  const session = await run("session reminders", () => sendSessionReminders(env, now));
+  const retried = await run("retries", () => retryConfirmations(env, now));
+  const cleaned = await run("retention", () => runRetention(env, now));
+  const alerts = await run("alerts", () => checkAlerts(env, now));
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, checkout, session, retried, cleaned, alerts: alerts?.length };
+  if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 
 export default {

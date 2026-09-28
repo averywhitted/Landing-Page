@@ -32,6 +32,8 @@
       .done-details dt { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
       .done-details dd { margin: 0; font-family: var(--mono); letter-spacing: -0.02em; font-size: 0.9375rem; }
       .done-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .done-cal { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 22px; }
+      .done-cal .label { margin-right: 4px; }
       .done-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
       .done-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
       @media (max-width: 640px) { .done { padding: 26px 22px; margin-top: 22px; } }
@@ -97,6 +99,22 @@
              <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/book/">Book a session</a><a class="btn" href="/">Home</a></div>`);
         }
 
+        // "Add to calendar": a downloadable .ics (same event ID as the emailed
+        // invite, so it won't duplicate) and a Google Calendar link.
+        function addToCalendar(b) {
+          const stamp = (iso) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+          const title = b.kind === "intro" ? "Intro call with Avery Whitted" : "Private coaching with Avery Whitted";
+          const note = "Your Zoom link is in your confirmation email.";
+          const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//averywhitted.com//Booking//EN", "BEGIN:VEVENT",
+            `UID:${b.icsUid || `${stamp(b.start)}@averywhitted.com`}`, `DTSTAMP:${stamp(new Date().toISOString())}`,
+            `DTSTART:${stamp(b.start)}`, `DTEND:${stamp(b.end)}`, `SUMMARY:${title}`, `DESCRIPTION:${note}`, "LOCATION:Zoom",
+            "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+          document.getElementById("cal-ics").href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+          const g = new URL("https://calendar.google.com/calendar/render");
+          g.search = new URLSearchParams({ action: "TEMPLATE", text: title, dates: `${stamp(b.start)}/${stamp(b.end)}`, details: note, location: "Zoom" }).toString();
+          document.getElementById("cal-google").href = g.toString();
+        }
+
         if (!key) return notFound();
         let tries = 0;
         async function check() {
@@ -116,7 +134,7 @@
           if (b.status === "confirmed") {
             try { localStorage.removeItem("bk-draft"); } catch {}
             const w = when(b);
-            return show("You're booked", `See you soon, ${b.firstName || "friend"}`,
+            show("You're booked", `See you soon, ${b.firstName || "friend"}`,
               `<div class="prose"><p>A confirmation email with your Zoom link and a calendar invite is on its way.</p></div>
                <dl class="done-details">
                  <dt>Session</dt><dd>${esc(b.service)}</dd>
@@ -124,8 +142,14 @@
                  <dt>Time</dt><dd>${esc(w.time)}</dd>
                  <dt>Where</dt><dd>Zoom</dd>
                </dl>
+               <div class="done-cal"><span class="label">Add to calendar</span>
+                 <a class="sort-btn" id="cal-ics" href="#" download="session-with-avery-whitted.ics">Apple / Outlook</a>
+                 <a class="sort-btn" id="cal-google" href="#" target="_blank" rel="noopener">Google</a>
+               </div>
                <div class="prose"><p>Need to reschedule or cancel? Use the link in your confirmation email, up to 24 hours before your session.</p></div>
                <div class="done-actions" style="margin-top:22px"><a class="btn primary" href="/">Back to home</a><a class="btn" href="/podcast/">Listen to the podcast</a></div>`);
+            addToCalendar(b);
+            return;
           }
           if (b.status === "refunded") {
             const w = when(b);

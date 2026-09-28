@@ -515,6 +515,65 @@ test("every fixed email heading has a Horizon image, and it's served", async () 
   assert.equal((await api.call("GET", "/email/h/../../secrets")).status, 404);
 });
 
+/* ── Day-before reminders, retention, alerts ── */
+
+test("session reminder: sent once when the session is within 24 hours; a reschedule re-arms it", async () => {
+  const { id, b, t } = await confirmedBooking();
+  const soon = Date.now() + 20 * 3600000;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ?, confirmed_at = ? WHERE id = ?")
+    .run(new Date(soon).toISOString(), new Date(soon + 3600000).toISOString(), new Date(Date.now() - 3 * 3600000).toISOString(), id);
+  await api.cron();
+  const reminders = () => world.state.emails.filter((e) => /^Reminder: your 1 hour session/.test(e.subject));
+  assert.equal(reminders().length, 1);
+  assert.match(reminders()[0].subject, /(today|tomorrow) at /);
+  assert.match(reminders()[0].html, /Join on Zoom|Zoom link/);
+  await api.cron();
+  assert.equal(reminders().length, 1, "only once");
+  assert.ok(row(id).session_reminder_sent_at);
+  // Move it (pretend it's far out again) and the reminder resets.
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?")
+    .run(new Date(Date.now() + 5 * 86400000).toISOString(), new Date(Date.now() + 5 * 86400000 + 3600000).toISOString(), id);
+  const slots = await openSlots("coaching-60", 6);
+  assert.equal((await api.call("POST", "/api/manage/reschedule", { body: { b, t, start: slots[0] } })).status, 200);
+  assert.equal(row(id).session_reminder_sent_at, null);
+});
+
+test("no reminder for a session booked in the last two hours", async () => {
+  const { id } = await confirmedBooking();
+  const soon = Date.now() + 20 * 3600000;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ?, confirmed_at = ? WHERE id = ?")
+    .run(new Date(soon).toISOString(), new Date(soon + 3600000).toISOString(), new Date().toISOString(), id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => /^Reminder:/.test(e.subject)).length, 0);
+});
+
+test("retention: intake answers are removed two years after the session", async () => {
+  const { id } = await confirmedBooking();
+  const old = Date.now() - 800 * 86400000;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(old).toISOString(), new Date(old + 3600000).toISOString(), id);
+  const recent = await confirmedBooking("coaching-30", 3);
+  await api.cron();
+  assert.equal(row(id).intake_json, null);
+  assert.ok(row(recent.id).intake_json, "recent answers are kept");
+});
+
+test("alerts: Avery hears about failures, at most once an hour", async () => {
+  const [slot] = await openSlots();
+  const res = await book("coaching-60", slot);
+  world.state.resendFailNext = 99; // email is down
+  await api.webhook("checkout.session.completed", paid(sessionFor(res.data.bookingId)));
+  world.state.resendFailNext = 0;
+  db.prepare("UPDATE bookings SET confirmed_at = ? WHERE id = ?").run(new Date(Date.now() - 20 * 60000).toISOString(), res.data.bookingId);
+  world.state.resendFailNext = 2; // the retries also fail
+  await api.cron();
+  const alerts = () => world.state.emails.filter((e) => /^Booking system: /.test(e.subject));
+  assert.equal(alerts().length, 1);
+  assert.deepEqual(alerts()[0].to, ["avery@averywhitted.com"]);
+  assert.match(alerts()[0].text, /failed to send/);
+  await api.cron();
+  assert.equal(alerts().length, 1, "no repeat within the hour");
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {
