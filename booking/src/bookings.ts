@@ -579,7 +579,10 @@ export async function cancelBooking(env: Env, bookingId: unknown, token: unknown
   return { ok: true };
 }
 
-async function afterCancel(env: Env, bookingId: string): Promise<void> {
+const afterCancel = (env: Env, bookingId: string) => afterCancelShared(env, bookingId, { notifyClient: true, notifyAvery: true });
+
+// Removes the calendar event and Zoom meeting, then emails whoever should hear about it.
+export async function afterCancelShared(env: Env, bookingId: string, opts: { notifyClient: boolean; notifyAvery: boolean }): Promise<void> {
   const row = await loadBooking(env, "id", bookingId);
   if (!row) return;
   const v = view(row);
@@ -592,8 +595,8 @@ async function afterCancel(env: Env, bookingId: string): Promise<void> {
     catch (err) { console.error("afterCancel: zoom delete failed:", (err as Error).message); }
   }
   const againUrl = row.package_id ? await packageUrl(env, row.package_id) : `${env.SITE_URL}/book/`;
-  await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl));
-  await sendEmail(env, "admin_cancelled", row.id, { ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
+  if (opts.notifyClient) await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl));
+  if (opts.notifyAvery) await sendEmail(env, "admin_cancelled", row.id, { ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
 }
 
 export async function rescheduleBooking(env: Env, bookingId: unknown, token: unknown, newStartRaw: unknown,

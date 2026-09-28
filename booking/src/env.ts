@@ -14,6 +14,9 @@ export type Env = {
   REMINDERS_ENABLED?: string; // "1" turns on "finish your booking" emails
   ZOOM_FALLBACK_URL?: string; // used if Zoom isn't connected or fails
   ZOOM_USER?: string;         // Zoom login the meetings are created under
+  ACCESS_TEAM_DOMAIN?: string; // Cloudflare Access team domain, e.g. averywhitted.cloudflareaccess.com (admin lock)
+  ACCESS_AUD?: string;         // the Access application's "AUD" tag (admin lock)
+  ADMIN_ALLOWED_EMAILS?: string; // comma-separated; defaults to ADMIN_EMAIL
 
   // Secrets
   ICLOUD_APP_PASSWORD: string;

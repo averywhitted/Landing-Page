@@ -3,7 +3,8 @@
 
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { makeDb, makeWorld, makeEnv, makeClient } from "./harness";
+import { makeDb, makeWorld, makeEnv, makeClient, accessToken, ACCESS_TEAM, ACCESS_AUD } from "./harness";
+import { resetAccessCache } from "../src/admin";
 import { buildIcs } from "../src/ics";
 import type { Env } from "../src/env";
 
@@ -721,6 +722,89 @@ test("promo link on a bundle; and a key without promo permission still books", a
   world.state.promoLookupForbidden = true;
   const { session: s2 } = await buyBundle("bundle-2", { email: "c@example.com" }, { promo: "FOURPACK" });
   assert.equal(s2._form.allow_promotion_codes, "true", "falls back gracefully");
+});
+
+/* ── Admin ── */
+
+function adminEnv() {
+  env.ACCESS_TEAM_DOMAIN = ACCESS_TEAM;
+  env.ACCESS_AUD = ACCESS_AUD;
+  resetAccessCache();
+}
+const asAdmin = (token = accessToken()) => ({ "Cf-Access-Jwt-Assertion": token, "X-Admin": "1" });
+
+test("admin: switched off until Access is set up; refuses missing, forged, expired, wrong-app, and other people's passes", async () => {
+  assert.equal((await api.call("GET", "/admin")).status, 403, "off by default");
+  adminEnv();
+  assert.equal((await api.call("GET", "/admin")).status, 403, "no pass");
+  for (const bad of [
+    accessToken({}, { forged: true }),
+    accessToken({ exp: Math.floor(Date.now() / 1000) - 10 }),
+    accessToken({ aud: ["some-other-app"] }),
+    accessToken({ iss: "https://evil.cloudflareaccess.com" }),
+    accessToken({ email: "someone@else.com" }),
+    "not.a.token",
+  ]) {
+    assert.equal((await api.call("GET", "/admin", { headers: { "Cf-Access-Jwt-Assertion": bad } })).status, 403);
+  }
+  const ok = await api.call("GET", "/admin", { headers: { "Cf-Access-Jwt-Assertion": accessToken() } });
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get("content-security-policy")!, /frame-ancestors 'none'/);
+  assert.match(ok.data, /Booking admin/);
+  assert.equal((await api.call("GET", "/admin/app.js", { headers: { "Cf-Access-Jwt-Assertion": accessToken() } })).headers.get("content-type"), "text/javascript; charset=utf-8");
+});
+
+test("admin API: needs the admin header and a pass; overview lists bookings and bundles", async () => {
+  adminEnv();
+  await confirmedBooking();
+  await paidBundle();
+  assert.equal((await api.call("GET", "/api/admin/overview", { headers: { "Cf-Access-Jwt-Assertion": accessToken() } })).status, 403, "no X-Admin header");
+  assert.equal((await api.call("GET", "/api/admin/overview", { headers: { "X-Admin": "1" } })).status, 403, "no pass");
+  assert.equal((await api.call("GET", "/api/admin/overview", { headers: { ...asAdmin(), Origin: "https://evil.example" } })).status, 403, "cross-site");
+  const r = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.mode, "test");
+  assert.equal(r.data.bookings.length, 1);
+  assert.equal(r.data.bookings[0].name, "Jamie Rivera");
+  assert.match(r.data.bookings[0].stripeUrl, /dashboard\.stripe\.com\/test\/payments\//);
+  assert.equal(r.data.packages.length, 1);
+  assert.equal(r.data.packages[0].remaining, 4);
+});
+
+test("admin: cancel a bundle session for a client (no 24h limit), optionally quietly, returning the credit", async () => {
+  adminEnv();
+  const { id: pkgId, p, t } = await paidBundle();
+  const [slot] = await openSlots("coaching-60");
+  const booked = await api.call("POST", "/api/packages/book", { body: { p, t, start: slot } });
+  world.state.emails.length = 0;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?")
+    .run(new Date(Date.now() + 3 * 3600000).toISOString(), new Date(Date.now() + 4 * 3600000).toISOString(), booked.data.bookingId);
+  const r = await api.call("POST", `/api/admin/bookings/${booked.data.bookingId}/cancel`, { headers: asAdmin(), body: { notifyClient: false, returnCredit: true, note: "I was sick" } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(row(booked.data.bookingId).status, "cancelled");
+  assert.equal(row(booked.data.bookingId).cancel_reason, "avery_cancelled");
+  assert.equal((db.prepare("SELECT credits_used FROM packages WHERE id = ?").get(pkgId) as any).credits_used, 0);
+  assert.equal(world.state.emails.length, 0, "client wasn't emailed");
+  assert.ok(!world.state.calendarEvents.has(row(booked.data.bookingId).calendar_event_url));
+});
+
+test("admin: add/remove bundle sessions and extend the use-by date", async () => {
+  adminEnv();
+  const { id, pkg } = await paidBundle("bundle-2");
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: 1, note: "makeup" } })).status, 200);
+  assert.equal(pkg().credits_total, 3);
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: -1 } })).status, 200);
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: 5 } })).status, 400);
+  const before = Date.parse(pkg().expires_at);
+  assert.equal((await api.call("POST", `/api/admin/packages/${id}/extend`, { headers: asAdmin(), body: { days: 14 } })).status, 200);
+  assert.equal(Math.round((Date.parse(pkg().expires_at) - before) / 86400000), 14);
+  assert.deepEqual(ledger(id).map((l) => l.reason), ["purchased", "avery_added", "avery_removed", "avery_extended"]);
+  // Can't remove sessions that are already booked.
+  const { id: id2, p, t } = await paidBundle("bundle-2");
+  const slots = await openSlots("coaching-60");
+  await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[0] } });
+  await api.call("POST", "/api/packages/book", { body: { p, t, start: slots[6] } });
+  assert.equal((await api.call("POST", `/api/admin/packages/${id2}/credits`, { headers: asAdmin(), body: { delta: -1 } })).status, 409);
 });
 
 /* ── Calendar files ── */

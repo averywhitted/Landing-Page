@@ -6,7 +6,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, createSign } from "node:crypto";
 import worker from "../src/index";
 import type { Env } from "../src/env";
 
@@ -46,6 +46,27 @@ export function makeDb() {
     async exec(sql: string) { db.exec(sql); },
   };
   return { db, d1: d1 as unknown as D1Database };
+}
+
+/* ── Pretend Cloudflare Access (signs admin passes with a test key) ── */
+
+export const ACCESS_TEAM = "test.cloudflareaccess.com";
+export const ACCESS_AUD = "test-aud";
+const accessKeys = (() => {
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  return { privateKey, publicJwk: publicKey.export({ format: "jwk" }) };
+})();
+const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+const b64u = (b: Buffer | string) => Buffer.from(b).toString("base64url");
+
+export function accessToken(claims: Record<string, unknown> = {}, opts: { forged?: boolean } = {}): string {
+  const header = b64u(JSON.stringify({ alg: "RS256", kid: "test-kid", typ: "JWT" }));
+  const payload = b64u(JSON.stringify({
+    aud: [ACCESS_AUD], iss: `https://${ACCESS_TEAM}`, email: "avery@averywhitted.com",
+    exp: Math.floor(Date.now() / 1000) + 3600, ...claims,
+  }));
+  const sig = createSign("RSA-SHA256").update(`${header}.${payload}`).sign(opts.forged ? otherKey : accessKeys.privateKey);
+  return `${header}.${payload}.${b64u(sig)}`;
 }
 
 /* ── Fake outside world ── */
@@ -134,6 +155,11 @@ export function makeWorld() {
         return json({ id: `re_${++state.counter}`, status: "succeeded" });
       }
       return json({ error: { message: `unhandled stripe ${method} ${p}` } }, 404);
+    }
+
+    /* Cloudflare Access public keys (for the admin lock) */
+    if (u.host === ACCESS_TEAM && u.pathname === "/cdn-cgi/access/certs") {
+      return json({ keys: [{ ...accessKeys.publicJwk, kid: "test-kid", alg: "RS256", use: "sig" }] });
     }
 
     /* Cloudflare Turnstile */

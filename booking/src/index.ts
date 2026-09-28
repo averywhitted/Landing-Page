@@ -20,6 +20,9 @@ import {
   packageView, releasePackageForSession, retryPackageEmails, sendExpiryNotices,
 } from "./packages";
 import { promoCodeUsed } from "./stripe";
+import { adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminOverview, requireAdmin } from "./admin";
+import adminHtml from "../admin/index.html";
+import adminJs from "../admin/app.js.txt";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -206,6 +209,69 @@ app.post("/api/packages/book", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     return c.json(await bookWithCredit(c.env, body.p, body.t, body.start, body.focus, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+/* ── Admin (book.averywhitted.com/admin), behind Cloudflare Access ── */
+
+const ADMIN_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com https://averywhitted.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex, nofollow",
+};
+
+async function adminPage(c: any, body: string, type: string) {
+  try {
+    await requireAdmin(c.env, c.req.raw);
+  } catch (err) {
+    return c.text((err as Error).message, 403, ADMIN_HEADERS);
+  }
+  return c.body(body, 200, { ...ADMIN_HEADERS, "Content-Type": type });
+}
+app.get("/admin", (c) => adminPage(c, adminHtml, "text/html; charset=utf-8"));
+app.get("/admin/", (c) => c.redirect("/admin", 301));
+app.get("/admin/app.js", (c) => adminPage(c, adminJs, "text/javascript; charset=utf-8"));
+
+// Every admin API call: must come from the admin page itself, and carry a valid Access pass.
+app.use("/api/admin/*", async (c, next) => {
+  const origin = c.req.header("Origin");
+  if (c.req.header("X-Admin") !== "1" || (origin && origin !== new URL(c.req.url).origin)) {
+    return c.json({ error: "Forbidden." }, 403, ADMIN_HEADERS);
+  }
+  try {
+    await requireAdmin(c.env, c.req.raw);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 403, ADMIN_HEADERS);
+  }
+  for (const [k, v] of Object.entries(ADMIN_HEADERS)) c.header(k, v);
+  await next();
+});
+
+app.get("/api/admin/overview", async (c) => c.json(await adminOverview(c.env, Date.now())));
+
+app.post("/api/admin/bookings/:id/cancel", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await adminCancelBooking(c.env, c.req.param("id"), {
+      notifyClient: body.notifyClient === true, returnCredit: body.returnCredit === true,
+      note: typeof body.note === "string" ? body.note : undefined,
+    }, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/packages/:id/credits", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await adminAdjustCredits(c.env, c.req.param("id"), Number(body.delta), typeof body.note === "string" ? body.note : "", Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/packages/:id/extend", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    return c.json(await adminExtendPackage(c.env, c.req.param("id"), Number(body.days), Date.now()));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
