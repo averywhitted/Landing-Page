@@ -11,6 +11,11 @@ import newBooking from "../assets/headings/new-booking.png";
 import bookingRescheduled from "../assets/headings/booking-rescheduled.png";
 import bookingCancelled from "../assets/headings/booking-cancelled.png";
 import autoRefunded from "../assets/headings/auto-refunded.png";
+import seeYouSoon from "../assets/headings/see-you-soon.png";
+import needsAttention from "../assets/headings/needs-attention.png";
+import bundleConfirmed from "../assets/headings/bundle-confirmed.png";
+import bundlePurchased from "../assets/headings/bundle-purchased.png";
+import sessionsExpiring from "../assets/headings/sessions-expiring.png";
 
 export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number }> = {
   "You're booked": { file: "youre-booked.png", w: 316, h: 23 },
@@ -22,6 +27,11 @@ export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number
   "Booking rescheduled": { file: "booking-rescheduled.png", w: 488, h: 23 },
   "Booking cancelled": { file: "booking-cancelled.png", w: 438, h: 23 },
   "Auto-refunded": { file: "auto-refunded.png", w: 340, h: 23 },
+  "See you soon": { file: "see-you-soon.png", w: 278, h: 23 },
+  "Needs attention": { file: "needs-attention.png", w: 368, h: 23 },
+  "Bundle confirmed": { file: "bundle-confirmed.png", w: 416, h: 23 },
+  "Bundle purchased": { file: "bundle-purchased.png", w: 419, h: 23 },
+  "Sessions expiring": { file: "sessions-expiring.png", w: 391, h: 23 },
 };
 
 // Image bytes by file name, served at /email/h/<file>.
@@ -35,4 +45,9 @@ export const HEADING_BYTES: Record<string, ArrayBuffer> = {
   "booking-rescheduled.png": bookingRescheduled,
   "booking-cancelled.png": bookingCancelled,
   "auto-refunded.png": autoRefunded,
+  "see-you-soon.png": seeYouSoon,
+  "needs-attention.png": needsAttention,
+  "bundle-confirmed.png": bundleConfirmed,
+  "bundle-purchased.png": bundlePurchased,
+  "sessions-expiring.png": sessionsExpiring,
 };

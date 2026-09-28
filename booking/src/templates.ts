@@ -177,11 +177,13 @@ export type BundleView = {
   goal?: string;
 };
 
+const countWord = (n: number) => ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] ?? String(n);
+
 export function bundlePurchased(p: BundleView, bundleUrl: string): Email {
   const tz = p.clientTimeZone;
   const body = [
     para(`Hi ${esc(firstName(p.name))},`),
-    para(`Thanks for picking up a bundle. Your ${p.credits} ${esc(p.sessionLength)} sessions are ready to book whenever you are.`),
+    para(`Thanks for picking up a bundle. Your ${countWord(p.credits)} ${esc(p.sessionLength === "1 hour" ? "one-hour" : p.sessionLength)} sessions are ready to book whenever you are.`),
     details([
       ["Bundle", esc(p.bundleName)],
       ["Sessions", `${p.credits} &times; ${esc(p.sessionLength)} on Zoom`],
@@ -197,7 +199,7 @@ export function bundlePurchased(p: BundleView, bundleUrl: string): Email {
     to: p.email,
     subject: `Your ${p.credits} sessions are ready to book`,
     html: layout({ preheader: `Book your first session. Use by ${day(p.expiresAt, tz)}.`, tag: "Session bundle", title: "Bundle confirmed", body }),
-    text: [`Hi ${firstName(p.name)},`, "", `Your ${p.credits} ${p.sessionLength} sessions are ready to book.`, "",
+    text: [`Hi ${firstName(p.name)},`, "", `Your ${countWord(p.credits)} ${p.sessionLength === "1 hour" ? "one-hour" : p.sessionLength} sessions are ready to book.`, "",
       textRows([["Bundle", p.bundleName], ["Use by", day(p.expiresAt, tz)], ["Paid", money(p.amountCents)]]), "",
       `Book your sessions: ${bundleUrl}`, "", "Looking forward to it,", "Avery"].join("\n"),
   };

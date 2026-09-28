@@ -25,6 +25,11 @@ const sample: T.BookingView = {
   zoomUrl: "https://us06web.zoom.us/j/81234567890?pwd=example",
 };
 const intro: T.BookingView = { ...sample, kind: "intro", serviceName: "Intro call", durationMinutes: 15, end: start + 15 * 60000, amountCents: 0, material: "", link: "", goal: "Getting back into auditioning after a few years off." };
+const bundle: T.BundleView = {
+  name: "Jamie Rivera", email: "jamie@example.com", pronouns: "they/them", credits: 4, remaining: 4, sessionLength: "1 hour",
+  expiresAt: start + 60 * 86400000, clientTimeZone: "America/Los_Angeles", amountCents: 44000, bundleName: "4 session bundle",
+  goal: "Book more guest star roles this pilot season.",
+};
 const ics = buildIcs({ uid: "sample@averywhitted.com", sequence: 0, start, end: sample.end, summary: "Private coaching with Avery Whitted" });
 
 const out = new URL("../.email-previews/", import.meta.url);
@@ -44,6 +49,12 @@ const pages: [string, { subject: string; html: string }][] = [
   ["09-admin-new-booking-warnings", T.adminNotification({ ...sample, zoomUrl: null }, { zoomMissing: true, calendarFailed: true })],
   ["10-admin-rescheduled", T.adminRescheduled(sample, earlier, { calendarFailed: false })],
   ["11-admin-cancelled", T.adminCancelled(sample, "https://dashboard.stripe.com/test/payments/pi_sample")],
+  ["12-session-reminder", T.sessionReminder(sample, start - 20 * 3600000)],
+  ["13-bundle-confirmed", T.bundlePurchased(bundle, "https://averywhitted.com/book/package/?p=sample&t=sample")],
+  ["14-admin-bundle-purchased", T.adminBundlePurchased(bundle)],
+  ["15-bundle-expiring", T.bundleExpiring({ ...bundle, remaining: 2 }, "https://averywhitted.com/book/package/?p=sample&t=sample")],
+  ["16-bundle-session-confirmation", T.clientConfirmation({ ...sample, amountCents: 0, bundleNote: "Bundle session (3 of 4 left)" }, ics, manage)],
+  ["17-admin-alert", T.attentionAlert(["1 \"client confirmation\" email failed to send.", "Jamie Rivera's session on Thu, Oct 1, 11:00 AM isn't in your Coaching calendar."])],
 ];
 const index: string[] = [];
 for (const [name, email] of pages) {
