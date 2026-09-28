@@ -30,8 +30,8 @@ function hrefIn(xml: string, prop: string): string {
   return m[1];
 }
 
-// Finds the web address of each named calendar.
-export async function findCalendars(env: ICloudEnv, names: string[]): Promise<Record<string, string>> {
+// Every calendar's name and address (names: null means all of them).
+export async function findCalendars(env: ICloudEnv, names: string[] | null): Promise<Record<string, string>> {
   const who = await dav(env, "PROPFIND", ROOT, 0,
     `<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-principal/></d:prop></d:propfind>`);
   const principal = new URL(hrefIn(who.text, "current-user-principal"), who.url).href;
@@ -45,7 +45,7 @@ export async function findCalendars(env: ICloudEnv, names: string[]): Promise<Re
   for (const block of list.text.split(/<[^>]*response[ >]/i).slice(1)) {
     const href = block.match(/<[^>]*href[^>]*>([^<]+)</i)?.[1];
     const name = block.match(/<[^>]*displayname[^>]*>([^<]*)</i)?.[1]?.trim();
-    if (href && name && names.includes(name)) found[name] = new URL(href, list.url).href;
+    if (href && name && (names === null || names.includes(name))) found[name] = new URL(href, list.url).href;
   }
   return found;
 }
@@ -93,9 +93,9 @@ const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").re
 
 // Every busy interval between `from` and `to` across the blocking calendars.
 // Repeating events are expanded by iCloud into each occurrence.
-export async function getBusy(env: ICloudEnv, from: number, to: number): Promise<Interval[]> {
-  const calendars = await findCalendars(env, CALENDARS.busy);
-  const missing = CALENDARS.busy.filter((n) => !calendars[n]);
+export async function getBusy(env: ICloudEnv, from: number, to: number, names: string[] = CALENDARS.busy): Promise<Interval[]> {
+  const calendars = await findCalendars(env, names);
+  const missing = names.filter((n) => !calendars[n]);
   if (missing.length) throw new Error(`iCloud calendars not found: ${missing.join(", ")}`);
 
   const query = `<?xml version="1.0" encoding="utf-8"?>
@@ -112,17 +112,17 @@ export async function getBusy(env: ICloudEnv, from: number, to: number): Promise
 
 // ── Writing events to the Coaching calendar ──
 
-async function calendarUrl(env: ICloudEnv): Promise<string> {
-  const found = await findCalendars(env, [CALENDARS.booking]);
-  const url = found[CALENDARS.booking];
-  if (!url) throw new Error(`iCloud calendar not found: ${CALENDARS.booking}`);
+async function calendarUrl(env: ICloudEnv, name: string): Promise<string> {
+  const found = await findCalendars(env, [name]);
+  const url = found[name];
+  if (!url) throw new Error(`iCloud calendar not found: ${name}`);
   return url.endsWith("/") ? url : url + "/";
 }
 
 // Creates or replaces the event stored at <calendar>/<uid>.ics.
 // Returns the event's address so it can be updated or removed later.
-export async function putEvent(env: ICloudEnv, uid: string, ics: string, existingUrl?: string | null): Promise<string> {
-  const url = existingUrl || new URL(encodeURIComponent(uid) + ".ics", await calendarUrl(env)).href;
+export async function putEvent(env: ICloudEnv, uid: string, ics: string, existingUrl?: string | null, calendarName: string = CALENDARS.booking): Promise<string> {
+  const url = existingUrl || new URL(encodeURIComponent(uid) + ".ics", await calendarUrl(env, calendarName)).href;
   const res = await fetch(url, {
     method: "PUT",
     headers: {

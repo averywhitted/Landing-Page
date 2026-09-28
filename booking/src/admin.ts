@@ -10,10 +10,12 @@
 
 import type { Env } from "./env";
 import { findService } from "./services";
-import { RULES, CALENDARS } from "./settings";
+import { RULES } from "./settings";
 import { iso } from "./time";
 import { BookingError, loadBooking, serviceLabel } from "./bookings";
 import { afterCancelShared } from "./bookings";
+import { SettingsError, defaults, loadScheduling, resetScheduling, saveScheduling, validate } from "./config";
+import { calendarFor } from "./calendar";
 
 const MIN = 60000;
 const DAY = 24 * 60 * MIN;
@@ -142,18 +144,38 @@ export async function adminOverview(env: Env, now: number) {
         .map((b) => ({ id: b.id, name: b.name, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
       activeHolds: holds?.n ?? 0,
     },
-    rules: {
-      timeZone: RULES.timeZone,
-      hours: `${RULES.dayStartHour}:00 to ${RULES.dayEndHour}:00`,
-      bufferMinutes: RULES.bufferMinutes,
-      minNoticeHours: RULES.minNoticeHours,
-      slotStepMinutes: RULES.slotStepMinutes,
-      blockingCalendars: CALENDARS.busy,
-      bookingCalendar: CALENDARS.booking,
-      bundleValidDays: RULES.packageValidDays,
-      remindersEnabled: env.REMINDERS_ENABLED === "1",
-    },
   };
+}
+
+/* ── Editable settings ── */
+
+export async function adminGetSettings(env: Env) {
+  const loaded = await loadScheduling(env);
+  let calendars: string[] | null = null;
+  try { calendars = await calendarFor(env).listNames(); } catch (err) { console.error("settings: calendar list failed:", (err as Error).message); }
+  return { ...loaded, defaults: defaults(env), timeZone: RULES.timeZone, calendars };
+}
+
+export async function adminSaveSettings(env: Env, input: unknown, by: string) {
+  let values;
+  try { values = validate(input); } catch (err) {
+    if (err instanceof SettingsError) throw new BookingError(400, err.message);
+    throw err;
+  }
+  // Make sure every chosen calendar really exists in iCloud before saving.
+  let names: string[];
+  try { names = await calendarFor(env).listNames(); } catch {
+    throw new BookingError(503, "Couldn't reach iCloud to check your calendars. Please try again in a moment.");
+  }
+  const missing = values.busyCalendars.filter((n) => !names.includes(n));
+  if (missing.length) throw new BookingError(400, `These calendars weren't found in iCloud: ${missing.join(", ")}.`);
+  await saveScheduling(env, values, by);
+  return adminGetSettings(env);
+}
+
+export async function adminResetSettings(env: Env) {
+  await resetScheduling(env);
+  return adminGetSettings(env);
 }
 
 /* ── Actions ── */

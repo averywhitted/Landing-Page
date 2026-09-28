@@ -807,6 +807,67 @@ test("admin: add/remove bundle sessions and extend the use-by date", async () =>
   assert.equal((await api.call("POST", `/api/admin/packages/${id2}/credits`, { headers: asAdmin(), body: { delta: -1 } })).status, 409);
 });
 
+/* ── Editable settings ── */
+
+async function saveSettings(patch: Record<string, unknown>) {
+  const cur = (await api.call("GET", "/api/admin/settings", { headers: asAdmin() })).data.values;
+  return api.call("POST", "/api/admin/settings", { headers: asAdmin(), body: { ...cur, ...patch } });
+}
+
+test("settings: saved hours, days, and notice change which times are offered", async () => {
+  adminEnv();
+  const got = await api.call("GET", "/api/admin/settings", { headers: asAdmin() });
+  assert.equal(got.status, 200);
+  assert.deepEqual([...got.data.calendars], ["Coaching", "Personal", "Professional"], "lists the real iCloud calendars");
+  assert.equal(got.data.values.dayStartHour, 9);
+
+  const day = Date.now() + 4 * DAY;
+  const weekday = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(day) + "T12:00:00Z").getUTCDay();
+  const others = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== weekday);
+  const r = await saveSettings({ dayStartHour: 12, dayEndHour: 17, workDays: others, slotStepMinutes: 60 });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.updatedBy, "avery@averywhitted.com");
+
+  const slots = (await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.now() + 3 * DAY)}&days=3`)).data.slots as string[];
+  const et = (iso: string) => new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(Date.parse(iso));
+  assert.ok(slots.length > 0);
+  assert.ok(slots.every((s) => ["12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM"].includes(et(s))), "noon to 5, hourly");
+  assert.ok(!slots.some((s) => etDate(Date.parse(s)) === etDate(day)), "the day off offers nothing");
+  const nineAm = new Date(Date.parse(slots[0]) - 3 * 3600000).toISOString().replace(/\.000Z$/, "Z"); // before the new noon opening
+  const bad = (await api.call("POST", "/api/bookings", { body: { serviceId: "coaching-60", start: nineAm, timeZone: "America/New_York", intake: intake() } }));
+  assert.equal(bad.status, 409, "the server applies the same rules");
+});
+
+test("settings: nonsense values and unknown calendars are refused; reset restores defaults", async () => {
+  adminEnv();
+  assert.equal((await saveSettings({ dayStartHour: 18, dayEndHour: 9 })).status, 400);
+  assert.equal((await saveSettings({ workDays: [] })).status, 400);
+  assert.equal((await saveSettings({ bufferMinutes: 7 })).status, 400);
+  assert.equal((await saveSettings({ slotStepMinutes: 20 })).status, 400);
+  const unknown = await saveSettings({ busyCalendars: ["Personal", "Gym"] });
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.data.error, /Gym/);
+  const ok = await saveSettings({ busyCalendars: ["Personal"], bookingCalendar: "Coaching", bufferMinutes: 30 });
+  assert.deepEqual([...ok.data.values.busyCalendars].sort(), ["Coaching", "Personal"], "bookings calendar always blocks too");
+  const reset = await api.call("POST", "/api/admin/settings/reset", { headers: asAdmin() });
+  assert.equal(reset.data.values.bufferMinutes, 15);
+  assert.equal(reset.data.updatedAt, null);
+  assert.equal((await api.call("POST", "/api/admin/settings", { body: { bufferMinutes: 30 } })).status, 403, "admin only");
+});
+
+test("settings: a bigger buffer spaces out bookings", async () => {
+  adminEnv();
+  await saveSettings({ bufferMinutes: 60 });
+  const slots = await openSlots("coaching-60");
+  const first = await book("coaching-60", slots[0]);
+  assert.equal(first.status, 201);
+  assert.equal(claims(first.data.bookingId), 8, "60 min session + 60 min buffer = eight 15-minute blocks");
+  const after = await openSlots("coaching-60");
+  const gapOk = after.filter((s) => etDate(Date.parse(s)) === etDate(Date.parse(slots[0])))
+    .every((s) => Math.abs(Date.parse(s) - Date.parse(slots[0])) >= 2 * 3600000);
+  assert.ok(gapOk, "nothing within two hours of the start (1h session + 1h buffer either side)");
+});
+
 /* ── Calendar files ── */
 
 test("calendar files are escaped and folded correctly", () => {

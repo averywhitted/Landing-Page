@@ -20,6 +20,7 @@ import { blocksFor, openSlots } from "./availability";
 import { iso, isValidTimeZone, zonedDate, zonedToUtc } from "./time";
 import * as stripe from "./stripe";
 import { createMeeting, deleteMeeting, updateMeeting } from "./zoom";
+import { scheduling } from "./config";
 import { sendEmail } from "./email";
 import { buildIcs } from "./ics";
 import * as T from "./templates";
@@ -103,14 +104,15 @@ export async function isStillOpen(env: Env, service: Service, start: number, now
   const [y, m, d] = zonedDate(start, AVERY_TZ);
   const from = zonedToUtc(y, m, d, 0, 0, AVERY_TZ);
   const to = from + 24 * 60 * MIN;
-  const busy = (await calendarFor(env).getBusy(from, to)).filter((b) => !ignore || b.uid !== ignore.uid);
+  const cfg = await scheduling(env);
+  const busy = (await calendarFor(env, cfg).getBusy(from, to)).filter((b) => !ignore || b.uid !== ignore.uid);
   const rows = await env.DB.prepare(
     `SELECT sc.slot_start FROM slot_claims sc JOIN bookings b ON b.id = sc.booking_id
      WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND b.id <> ?4
        AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3))`,
   ).bind(iso(from - 60 * MIN), iso(to + 60 * MIN), iso(now), ignore?.bookingId ?? "").all<{ slot_start: string }>();
   const claimed = new Set(rows.results.map((r) => r.slot_start));
-  return openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed }).includes(iso(start));
+  return openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed, rules: cfg }).includes(iso(start));
 }
 
 /* ── Create ── */
@@ -175,7 +177,7 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
       ).bind(id, customer!.id, service.id, iso(start), iso(end), intro ? "confirmed" : "held", intro ? null : iso(holdUntil),
         intro ? 0 : service.priceCents, `${id}@averywhitted.com`, intakeJson, clientTz, ipHash, intro ? iso(now) : null),
-      ...blocksFor(start, service.durationMinutes).map((blk) =>
+      ...blocksFor(start, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
     ]);
   } catch (err) {
@@ -276,7 +278,7 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
     const service = findService(row.service_id)!;
     try {
       await env.DB.batch([
-        ...blocksFor(Date.parse(row.start_utc), service.durationMinutes).map((blk) =>
+        ...blocksFor(Date.parse(row.start_utc), service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
           env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
         env.DB.prepare(
           `UPDATE bookings SET status = 'confirmed', cancel_reason = NULL, confirmed_at = ?1, amount_cents = ?2,
@@ -375,7 +377,7 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   let calendarFailed = false;
   if (!row.calendar_event_url) {
     try {
-      const url = await calendarFor(env).putEvent(row.ics_uid, averyEventIcs(row, v));
+      const url = await calendarFor(env, await scheduling(env)).putEvent(row.ics_uid, averyEventIcs(row, v));
       await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
     } catch (err) {
       calendarFailed = true;
@@ -447,7 +449,7 @@ export async function expireHolds(env: Env, now: number): Promise<{ released: nu
 /* ── "Finish your booking" reminders ── */
 
 export async function sendReminders(env: Env, now: number): Promise<number> {
-  if (env.REMINDERS_ENABLED !== "1") return 0;
+  if (!(await scheduling(env)).remindersEnabled) return 0;
   const rows = await env.DB.prepare(
     `SELECT b.id FROM bookings b
      WHERE b.status = 'cancelled' AND b.cancel_reason = 'hold_expired' AND b.reminder_sent_at IS NULL
@@ -620,7 +622,7 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
   try {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(row.id),
-      ...blocksFor(newStart, service.durationMinutes).map((blk) =>
+      ...blocksFor(newStart, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
       env.DB.prepare(
         `UPDATE bookings SET previous_start_utc = start_utc, start_utc = ?1, end_utc = ?2, ics_sequence = ics_sequence + 1,
@@ -646,7 +648,7 @@ async function afterReschedule(env: Env, bookingId: string): Promise<void> {
   }
   let calendarFailed = false;
   try {
-    const url = await calendarFor(env).putEvent(row.ics_uid, averyEventIcs(row, v), row.calendar_event_url);
+    const url = await calendarFor(env, await scheduling(env)).putEvent(row.ics_uid, averyEventIcs(row, v), row.calendar_event_url);
     if (url !== row.calendar_event_url) await env.DB.prepare("UPDATE bookings SET calendar_event_url = ?1 WHERE id = ?2").bind(url, row.id).run();
   } catch (err) {
     calendarFailed = true;

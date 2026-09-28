@@ -16,6 +16,7 @@ import { verifyHuman } from "./turnstile";
 import { manageUrl, packageUrl, validPackageToken } from "./manage";
 import * as T from "./templates";
 import { BookingError, UNIQUE_CLAIM, afterConfirm, isStillOpen, sha256, validateIntake } from "./bookings";
+import { scheduling } from "./config";
 
 const MIN = 60000;
 const DAY = 24 * 60 * MIN;
@@ -93,7 +94,7 @@ export async function createPackagePurchase(env: Env, body: unknown, ctx: { ip: 
       kind: "package",
       email: intake.email,
       productName: `${bundleName(service)} (private coaching)`,
-      description: `${service.credits} one-hour sessions on Zoom, to use within ${RULES.packageValidDays} days`,
+      description: `${service.credits} one-hour sessions on Zoom, to use within ${(await scheduling(env)).packageValidDays} days`,
       amountCents: service.priceCents,
       expiresAt: ctx.now + RULES.holdMinutes * MIN,
       successUrl: `${env.SITE_URL}/book/confirmed/?session_id={CHECKOUT_SESSION_ID}`,
@@ -120,7 +121,7 @@ export async function confirmPackage(env: Env, session: stripe.CheckoutSession, 
     `UPDATE packages SET status = 'active', expires_at = ?1, amount_cents = ?2, stripe_payment_intent_id = ?3,
        promo_code = COALESCE(?4, promo_code), updated_at = ?5
      WHERE id = ?6 AND status IN ('pending', 'cancelled')`,
-  ).bind(iso(now + RULES.packageValidDays * DAY), session.amount_total ?? pkg.amount_cents, session.payment_intent,
+  ).bind(iso(now + (await scheduling(env)).packageValidDays * DAY), session.amount_total ?? pkg.amount_cents, session.payment_intent,
     promoCode ?? null, iso(now), pkg.id).run();
   if (!res.meta.changes) return null;
   await env.DB.prepare("INSERT INTO credit_ledger (package_id, delta, reason) VALUES (?1, ?2, 'purchased')")
@@ -235,7 +236,7 @@ export async function bookWithCredit(env: Env, id: unknown, token: unknown, star
          VALUES (?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6, ?7, ?8, ?9, ?10)`,
       ).bind(bookingId, pkg.customer_id, service.id, iso(start), iso(end), pkg.id, `${bookingId}@averywhitted.com`,
         JSON.stringify({ ...intake, notes: focus || undefined }), pkg.client_time_zone, iso(ctx.now)),
-      ...blocksFor(start, service.durationMinutes).map((blk) =>
+      ...blocksFor(start, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, bookingId)),
       env.DB.prepare("UPDATE packages SET credits_used = credits_used + 1, updated_at = ?1 WHERE id = ?2 AND status = 'active'").bind(iso(ctx.now), pkg.id),
       env.DB.prepare("INSERT INTO credit_ledger (package_id, booking_id, delta, reason) VALUES (?1, ?2, -1, 'booked')").bind(pkg.id, bookingId),

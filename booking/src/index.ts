@@ -6,6 +6,7 @@ import { RULES } from "./settings";
 import { calendarFor } from "./calendar";
 import { openSlots } from "./availability";
 import { zonedToUtc } from "./time";
+import { scheduling } from "./config";
 import wordmark from "../assets/email-wordmark.png";
 import { HEADING_BYTES } from "./email-headings";
 import { verifyWebhook, type CheckoutSession } from "./stripe";
@@ -20,7 +21,10 @@ import {
   packageView, releasePackageForSession, retryPackageEmails, sendExpiryNotices,
 } from "./packages";
 import { promoCodeUsed } from "./stripe";
-import { adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminOverview, requireAdmin } from "./admin";
+import {
+  adminAdjustCredits, adminCancelBooking, adminExtendPackage, adminGetSettings, adminOverview, adminResetSettings,
+  adminSaveSettings, requireAdmin,
+} from "./admin";
 import adminHtml from "../admin/index.html";
 import adminJs from "../admin/app.js.txt";
 
@@ -51,7 +55,10 @@ app.get("/email/h/:file", (c) => {
 
 // Public list of services and prices, read from services.ts.
 // Bundles include how long they're valid for, so the page never hard-codes it.
-app.get("/api/services", (c) => c.json(SERVICES.map((s) => (s.kind === "bundle" ? { ...s, validDays: RULES.packageValidDays } : s))));
+app.get("/api/services", async (c) => {
+  const validDays = (await scheduling(c.env)).packageValidDays;
+  return c.json(SERVICES.map((s) => (s.kind === "bundle" ? { ...s, validDays } : s)));
+});
 
 // Quick check that the service can reach its database.
 app.get("/api/health", async (c) => {
@@ -89,9 +96,10 @@ app.get("/api/availability", async (c) => {
   const to = from + days * 86400000;
   const now = Date.now();
 
+  const cfg = await scheduling(c.env);
   let busy;
   try {
-    busy = await calendarFor(c.env).getBusy(from, to);
+    busy = await calendarFor(c.env, cfg).getBusy(from, to);
   } catch (err) {
     console.error("availability: calendar lookup failed:", (err as Error).message);
     return c.json({ error: "Availability is temporarily unavailable. Please try again shortly." }, 503);
@@ -113,7 +121,7 @@ app.get("/api/availability", async (c) => {
     .all<{ slot_start: string }>();
   const claimed = new Set(rows.results.map((r) => r.slot_start));
 
-  const slots = openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed });
+  const slots = openSlots({ durationMinutes: service.durationMinutes, from, to, now, busy, claimed, rules: cfg });
   const farAhead = to > now + RULES.farAheadNoticeDays * 86400000;
 
   const res = c.json({
@@ -268,6 +276,18 @@ app.post("/api/admin/packages/:id/credits", async (c) => {
     return c.json(await adminAdjustCredits(c.env, c.req.param("id"), Number(body.delta), typeof body.note === "string" ? body.note : "", Date.now()));
   } catch (err) { return bookingErrorResponse(c, err); }
 });
+
+app.get("/api/admin/settings", async (c) => c.json(await adminGetSettings(c.env)));
+
+app.post("/api/admin/settings", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const who = await requireAdmin(c.env, c.req.raw);
+    return c.json(await adminSaveSettings(c.env, body, who));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/settings/reset", async (c) => c.json(await adminResetSettings(c.env)));
 
 app.post("/api/admin/packages/:id/extend", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;

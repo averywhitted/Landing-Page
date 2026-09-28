@@ -148,19 +148,89 @@
     return (stuck.length || failedEmails.length ? "" : '<p class="empty">All clear. Nothing needs you right now.</p>') + parts.join("");
   }
 
+  /* Settings (editable) */
+  let settings = null;
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hourLabel = (h) => (h === 0 || h === 24 ? "12 AM" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
+
+  async function loadSettings() {
+    try {
+      settings = await api("GET", "/api/admin/settings");
+      if (tab === "settings") render();
+    } catch (err) { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; }
+  }
+
   function renderSettings() {
-    const r = data.rules;
-    return `<div class="panel"><dl class="rules">
-      <dt>Hours</dt><dd>${esc(r.hours)} (${esc(r.timeZone)}), sessions end by closing</dd>
-      <dt>Buffer</dt><dd>${r.bufferMinutes} minutes before and after anything on your calendar</dd>
-      <dt>Notice</dt><dd>${r.minNoticeHours} hours minimum</dd>
-      <dt>Start times</dt><dd>every ${r.slotStepMinutes} minutes</dd>
-      <dt>Blocks booking</dt><dd>${esc(r.blockingCalendars.join(", "))}</dd>
-      <dt>Writes to</dt><dd>${esc(r.bookingCalendar)} calendar</dd>
-      <dt>Bundles</dt><dd>use within ${r.bundleValidDays} days</dd>
-      <dt>Reminders</dt><dd>${r.remindersEnabled ? "on" : "off"}</dd>
-    </dl></div>
-    <p class="empty">These live in the booking service's settings file. Ask Claude to change them and redeploy.</p>`;
+    if (!settings) { loadSettings(); return '<p class="empty">Loading settings...</p>'; }
+    const v = settings.values;
+    const opt = (list, cur, label = (x) => x) => list.map((x) => `<option value="${x}"${x === cur ? " selected" : ""}>${esc(label(x))}</option>`).join("");
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    const cals = settings.calendars;
+    const calPicker = cals
+      ? cals.map((n) => `<label class="check"><input type="checkbox" name="busy" value="${esc(n)}"${v.busyCalendars.includes(n) ? " checked" : ""}> ${esc(n)}</label>`).join("")
+      : `<p class="hint">Couldn't reach iCloud to list your calendars right now, so calendar choices can't be changed. Currently: ${esc(v.busyCalendars.join(", "))}.</p>`;
+    return `<form class="panel settings" id="settings-form">
+      <fieldset><legend>Working hours</legend>
+        <div class="row2">
+          <label>First start <select name="dayStartHour">${opt(hours, v.dayStartHour, hourLabel)}</select></label>
+          <label>Sessions end by <select name="dayEndHour">${opt(hours.map((h) => h + 1), v.dayEndHour, hourLabel)}</select></label>
+        </div>
+        <p class="hint">In ${settings.timeZone === "America/New_York" ? "Eastern" : esc(settings.timeZone.replace("_", " "))} time. A session can start at any time as long as it ends by the closing hour.</p>
+      </fieldset>
+      <fieldset><legend>Working days</legend>
+        <div class="days">${DAYS.map((d, i) => `<label class="day-chip"><input type="checkbox" name="workDays" value="${i}"${v.workDays.includes(i) ? " checked" : ""}><span>${d}</span></label>`).join("")}</div>
+      </fieldset>
+      <fieldset><legend>Spacing and notice</legend>
+        <div class="row2">
+          <label>Buffer around anything on your calendar <select name="bufferMinutes">${opt([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], v.bufferMinutes, (m) => `${m} min`)}</select></label>
+          <label>Minimum notice <select name="minNoticeHours">${opt([0, 2, 4, 8, 12, 24, 36, 48, 72, 96, 168], v.minNoticeHours, (h) => (h >= 24 && h % 24 === 0 ? `${h / 24} day${h === 24 ? "" : "s"}` : `${h} hours`))}</select></label>
+          <label>Offer start times every <select name="slotStepMinutes">${opt([15, 30, 60], v.slotStepMinutes, (m) => `${m} min`)}</select></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Calendars</legend>
+        <p class="hint">Anything on these calendars blocks booking (events marked "Free" don't).</p>
+        <div class="cals">${calPicker}</div>
+        ${cals ? `<label>New bookings go into <select name="bookingCalendar">${opt(cals, v.bookingCalendar)}</select></label>
+        <p class="hint">The bookings calendar always blocks time too.</p>` : ""}
+      </fieldset>
+      <fieldset><legend>Bundles and emails</legend>
+        <div class="row2">
+          <label>Bundles must be used within <select name="packageValidDays">${opt([30, 45, 60, 90, 120, 180, 365], v.packageValidDays, (d) => `${d} days`)}</select></label>
+        </div>
+        <label class="check"><input type="checkbox" name="remindersEnabled"${v.remindersEnabled ? " checked" : ""}> Send a "finish your booking" email when someone doesn't complete checkout</label>
+        <p class="hint">Changing bundle validity applies to bundles bought from now on.</p>
+      </fieldset>
+      <div class="save-row">
+        <p class="hint">${settings.updatedAt ? `Last changed ${esc(fmt(settings.updatedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} by ${esc(settings.updatedBy || "you")}.` : "Using the defaults."} Clients see changes within a minute.</p>
+        <div class="row">
+          ${settings.updatedAt ? '<button type="button" class="btn" id="settings-reset">Reset to defaults</button>' : ""}
+          <button type="submit" class="btn primary">Save settings</button>
+        </div>
+      </div>
+    </form>`;
+  }
+
+  async function saveSettings(form) {
+    const fd = new FormData(form);
+    const body = {
+      dayStartHour: Number(fd.get("dayStartHour")),
+      dayEndHour: Number(fd.get("dayEndHour")),
+      workDays: fd.getAll("workDays").map(Number),
+      bufferMinutes: Number(fd.get("bufferMinutes")),
+      minNoticeHours: Number(fd.get("minNoticeHours")),
+      slotStepMinutes: Number(fd.get("slotStepMinutes")),
+      packageValidDays: Number(fd.get("packageValidDays")),
+      busyCalendars: settings.calendars ? fd.getAll("busy") : settings.values.busyCalendars,
+      bookingCalendar: settings.calendars ? fd.get("bookingCalendar") : settings.values.bookingCalendar,
+      remindersEnabled: fd.get("remindersEnabled") === "on",
+    };
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    try {
+      settings = await api("POST", "/api/admin/settings", body);
+      toast("Saved.");
+      render();
+    } catch (err) { btn.disabled = false; toast(err.message, true); }
   }
 
   function render() {
@@ -256,6 +326,15 @@
     else if (t.dataset.extend) openExtend(t.dataset.extend);
   });
 
+  document.addEventListener("submit", (e) => {
+    if (e.target.id === "settings-form") { e.preventDefault(); saveSettings(e.target); }
+  });
+  document.addEventListener("click", async (e) => {
+    if (e.target.id !== "settings-reset") return;
+    if (!confirm("Go back to the default settings?")) return;
+    try { settings = await api("POST", "/api/admin/settings/reset"); toast("Back to defaults."); render(); } catch (err) { toast(err.message, true); }
+  });
+
   load();
-  setInterval(() => { if (!$dlg.open && document.visibilityState === "visible") load(); }, 60000);
+  setInterval(() => { if (!$dlg.open && tab !== "settings" && document.visibilityState === "visible") load(); }, 60000);
 })();
