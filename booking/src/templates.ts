@@ -703,12 +703,14 @@ export function bundleCancelled(p: BundleCancelView): Email {
   };
 }
 
-export function adminBundleCancelled(p: BundleCancelView, stripePaymentUrl: string | null): Email {
+export function adminBundleCancelled(p: BundleCancelView, stripePaymentUrl: string | null, refunded = false): Email {
   const tz = AVERY_TZ;
   const when = (ms: number) => `${shortDay(ms, tz)}, ${clock(ms, tz)}`;
   const body = [
-    p.refundCents > 0 ? warn(`Refund due: ${money(p.refundCents)}. They've been told it's processing.`) : "",
-    p.refundCents > 0 && stripePaymentUrl ? button(stripePaymentUrl, `Refund ${money(p.refundCents)} in Stripe`) : "",
+    p.refundCents > 0 && refunded ? small(`Refunded ${money(p.refundCents)} automatically.`) : "",
+    p.refundCents > 0 && !refunded ? warn(`The automatic refund of ${money(p.refundCents)} hasn't gone through yet. It will keep retrying for an hour, and you'll get an alert if it still doesn't go through.`,
+      stripePaymentUrl ? ["Resolve in Stripe", stripePaymentUrl] : FIX_ADMIN) : "",
+    p.refundCents > 0 && stripePaymentUrl && refunded ? button(stripePaymentUrl, "View payment in Stripe") : "",
     details([
       ["Client", esc(p.name)],
       ["Email", `<a href="mailto:${esc(p.email)}" style="color:#1f47f5;">${esc(p.email)}</a>`],
@@ -724,7 +726,7 @@ export function adminBundleCancelled(p: BundleCancelView, stripePaymentUrl: stri
     to: "",
     subject: `Bundle cancelled: ${p.name}${p.refundCents > 0 ? ` (refund ${money(p.refundCents)})` : ""}`,
     html: layout({ preheader: `${p.name} cancelled their bundle`, tag: "Session bundle", title: "Bundle cancelled", subtitle: p.name, body }),
-    text: textRows([["Client", p.name], ["Bundle", p.bundleName], ["Used", `${p.used} of ${p.credits}`], ["Refund due", money(p.refundCents)], ...(stripePaymentUrl ? [["Stripe", stripePaymentUrl] as [string, string]] : [])]),
+    text: textRows([["Client", p.name], ["Bundle", p.bundleName], ["Used", `${p.used} of ${p.credits}`], [refunded ? "Refunded" : "Refund pending", money(p.refundCents)], ...(stripePaymentUrl ? [["Stripe", stripePaymentUrl] as [string, string]] : [])]),
   };
 }
 

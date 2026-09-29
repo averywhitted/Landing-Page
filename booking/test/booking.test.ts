@@ -898,7 +898,11 @@ test("cancel a whole bundle: used sessions charged at full price, the rest refun
   assert.match(client.subject, /\$180 refund on the way/);
   assert.match(client.html, /being processed/);
   const admin = world.state.emails.find((e) => /^Bundle cancelled: Jamie Rivera \(refund \$180\)/.test(e.subject))!;
-  assert.match(admin.html, /Refund \$180 in Stripe/);
+  assert.match(admin.html, /Refunded \$180 automatically/);
+  const pi = pkg().stripe_payment_intent_id;
+  assert.equal(refundsFor(pi), 1, "refunded automatically");
+  assert.equal(Number(world.state.refunds.find((x) => x.payment_intent === pi)!.amount), 18000);
+  assert.ok(pkg().refunded_at);
   assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p, t } })).status, 409, "only once");
   const v = await api.call("GET", `/api/packages?p=${p}&t=${t}`);
   assert.equal(v.data.status, "cancelled");
@@ -922,6 +926,33 @@ test("cancel bundle: free sessions Avery added aren't refunded; expired bundles 
   const b = await paidBundle("bundle-3");
   db.prepare("UPDATE packages SET expires_at = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), b.id);
   assert.equal((await api.call("POST", "/api/packages/cancel", { body: { p: b.p, t: b.t } })).status, 409);
+});
+
+test("cancel bundle: a refund Stripe refuses is retried, then flagged; never sent twice", async () => {
+  adminEnv();
+  const a = await paidBundle("bundle-2");
+  const pi = a.pkg().stripe_payment_intent_id;
+  world.state.refundFailNext = 1;
+  world.state.emails.length = 0;
+  await api.call("POST", "/api/packages/cancel", { body: { p: a.p, t: a.t } });
+  assert.equal(refundsFor(pi), 0);
+  assert.equal(a.pkg().refund_attempts, 1);
+  assert.match(world.state.emails.find((e) => /^Bundle cancelled:/.test(e.subject))!.html, /gone through yet/);
+  db.prepare("UPDATE packages SET cancelled_at = ? WHERE id = ?").run(new Date(Date.now() - 10 * 60000).toISOString(), a.id);
+  await api.cron();
+  assert.equal(refundsFor(pi), 1, "retried");
+  assert.ok(a.pkg().refunded_at);
+  await api.cron();
+  assert.equal(refundsFor(pi), 1, "only once");
+
+  // Still failing after an hour of tries: Avery is alerted.
+  const b = await paidBundle("bundle-3");
+  await api.call("POST", "/api/packages/cancel", { body: { p: b.p, t: b.t } }); // refunds fine
+  db.prepare("UPDATE packages SET refunded_at = NULL, refund_attempts = 12, cancelled_at = ? WHERE id = ?").run(new Date(Date.now() - 3600000).toISOString(), b.id);
+  db.prepare("DELETE FROM alerts_sent").run();
+  world.state.emails.length = 0;
+  await api.cron();
+  assert.ok(world.state.emails.some((e) => /need/.test(e.subject) && /automatic bundle refund/.test(e.text)));
 });
 
 test("cancel bundle: the refund never goes below zero", async () => {

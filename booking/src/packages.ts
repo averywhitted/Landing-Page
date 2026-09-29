@@ -388,7 +388,43 @@ export async function cancelPackage(env: Env, id: unknown, token: unknown, ctx: 
   return { ok: true, refundCents: q.refundCents };
 }
 
+// A student's bundle cancellation is refunded automatically: exactly the
+// refund worked out when it was cancelled, once. Stripe's idempotency key
+// makes a retry the same refund, and retries stop after an hour (well inside
+// the key's 24-hour life); after that Avery is alerted to do it by hand.
+export async function issuePackageRefund(env: Env, id: string, now: number): Promise<boolean> {
+  const pkg = await loadPackage(env, "id", id);
+  if (!pkg || pkg.status !== "cancelled" || pkg.cancel_reason !== "client_cancelled") return false;
+  if (pkg.refunded_at) return true;
+  const due = pkg.refund_due_cents ?? 0;
+  if (due <= 0 || !pkg.stripe_payment_intent_id) return false;
+  try {
+    await stripe.refundPayment(env, pkg.stripe_payment_intent_id, pkg.id, due, `bundle-refund-${pkg.id}`);
+  } catch (err) {
+    const msg = (err as Error).message.slice(0, 300);
+    console.error("bundle refund failed:", msg);
+    await env.DB.prepare("UPDATE packages SET refund_error = ?1, refund_attempts = refund_attempts + 1 WHERE id = ?2").bind(msg, pkg.id).run();
+    return false;
+  }
+  await env.DB.prepare(
+    "UPDATE packages SET refunded_at = ?1, refunded_cents = refunded_cents + ?2, refund_error = NULL WHERE id = ?3 AND refunded_at IS NULL",
+  ).bind(iso(now), due, pkg.id).run();
+  return true;
+}
+
+// Cron: retries bundle refunds that didn't go through (for up to an hour).
+export async function retryPackageRefunds(env: Env, now: number): Promise<number> {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM packages WHERE status = 'cancelled' AND cancel_reason = 'client_cancelled' AND refunded_at IS NULL
+       AND refund_due_cents > 0 AND refund_attempts BETWEEN 1 AND 11 AND cancelled_at <= ?1 LIMIT 20`,
+  ).bind(iso(now - 2 * 60000)).all<{ id: string }>();
+  let done = 0;
+  for (const { id } of rows.results) if (await issuePackageRefund(env, id, now)) done++;
+  return done;
+}
+
 async function afterPackageCancel(env: Env, id: string, q: Awaited<ReturnType<typeof cancelQuote>>): Promise<void> {
+  if (q.refundCents > 0) await issuePackageRefund(env, id, Date.now());
   // Remove each cancelled session from the Coaching calendar and Zoom.
   for (const b of q.cancellable) await afterCancelShared(env, b.id, { notifyClient: false, notifyAvery: false });
   const pkg = await loadPackage(env, "id", id);
@@ -399,7 +435,9 @@ async function afterPackageCancel(env: Env, id: string, q: Awaited<ReturnType<ty
     keptSessions: q.kept.map((b) => Date.parse(b.start_utc)),
   };
   await sendEmail(env, "bundle_cancelled", null, T.bundleCancelled(v));
-  await sendEmail(env, "admin_bundle_cancelled", null, { ...T.adminBundleCancelled(v, stripePaymentUrl(env, pkg.stripe_payment_intent_id)), to: env.ADMIN_EMAIL });
+  await sendEmail(env, "admin_bundle_cancelled", null, {
+    ...T.adminBundleCancelled(v, stripePaymentUrl(env, pkg.stripe_payment_intent_id), !!pkg.refunded_at), to: env.ADMIN_EMAIL,
+  });
 }
 
 export async function packageCancelQuote(env: Env, pkg: PackageRow, now: number) {

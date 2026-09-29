@@ -739,12 +739,12 @@
     }
     if (leftOnCalendar.length) {
       parts.push(panel("Cancelled but still on your calendar", leftOnCalendar.map((s) =>
-        `<p>${nameTag(s.name, s.pronouns)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. It isn't happening. Removal keeps retrying; you can also delete it from your Coaching calendar by hand.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")));
+        `<p>${nameTag(s.name, s.pronouns)}, ${esc(dayLabel(s.start))} at ${esc(clock(s.start))}. Removal will keep retrying; you can also delete it from your Coaching calendar by hand.${s.error ? `<br><span class="mono-hint">${esc(s.error)}</span>` : ""}</p>`).join("")));
     }
     const due = refundsDue();
     if (due.length) {
       parts.push(panel("Bundle refunds to issue", due.map((p) =>
-        `<p>${nameTag(p.name, p.pronouns, p.customerId)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; ${link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it")}` : ""}${p.refundError ? `<br><span class="mono-hint">Stripe said: ${esc(p.refundError)}</span>` : ""}<br><span class="hint">Marked done automatically once Stripe records the refund.</span></p>`).join("")));
+        `<p>${nameTag(p.name, p.pronouns, p.customerId)}: <strong>${money(p.refundDueCents)}</strong> ${p.stripeUrl ? `&middot; ${link("Refund in Stripe", p.stripeUrl, "Open the payment in Stripe to refund it")}` : ""}${p.refundError ? `<br><span class="mono-hint">Stripe said: ${esc(p.refundError)}</span>` : ""}<br><span class="hint">${p.cancelledByAvery ? "" : "Student cancellations are refunded automatically; this one hasn't gone through yet. "}Marked done automatically once Stripe records the refund.</span></p>`).join("")));
     }
     if (stuck.length) {
       parts.push(panel("Bookings missing a step", stuck.map((s) =>

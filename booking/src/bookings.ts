@@ -1075,6 +1075,18 @@ export async function checkAlerts(env: Env, now: number): Promise<T.Problem[]> {
     });
   }
 
+  const stuckBundles = await env.DB.prepare(
+    `SELECT p.refund_due_cents, p.refund_error, p.stripe_payment_intent_id, c.name FROM packages p JOIN customers c ON c.id = p.customer_id
+     WHERE p.status = 'cancelled' AND p.cancel_reason = 'client_cancelled' AND p.refunded_at IS NULL AND p.refund_due_cents > 0 AND p.cancelled_at <= ?1 LIMIT 10`,
+  ).bind(iso(now - 15 * MIN)).all<{ refund_due_cents: number; refund_error: string | null; stripe_payment_intent_id: string | null; name: string }>();
+  for (const r of stuckBundles.results) {
+    const url = stripePaymentUrl(env, r.stripe_payment_intent_id);
+    problems.push({
+      text: `The automatic bundle refund of $${(r.refund_due_cents / 100).toFixed(2)} to ${r.name} hasn't gone through${r.refund_error ? ` (Stripe said: ${r.refund_error})` : ""}. Please refund it in Stripe.`,
+      fix: url ? ["Resolve in Stripe", url] : T.FIX_ADMIN,
+    });
+  }
+
   const leftOver = await env.DB.prepare(
     `SELECT b.start_utc, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
      WHERE b.status = 'cancelled' AND b.calendar_event_url IS NOT NULL AND b.updated_at <= ?1 AND b.end_utc > ?2 LIMIT 10`,

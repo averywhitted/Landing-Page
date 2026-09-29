@@ -3,6 +3,9 @@
 ALTER TABLE bookings ADD COLUMN series_conflict TEXT;      -- 'calendar' | 'day_off' | NULL
 ALTER TABLE bookings ADD COLUMN series_conflict_at TEXT;   -- when Avery was alerted
 
+-- Student bundle cancellations are refunded automatically; failed tries are retried for an hour.
+ALTER TABLE packages ADD COLUMN refund_attempts INTEGER NOT NULL DEFAULT 0;
+
 -- Payment requests Avery sends for a session (e.g. one that happened unpaid).
 CREATE TABLE payment_requests (
   id                         TEXT PRIMARY KEY,

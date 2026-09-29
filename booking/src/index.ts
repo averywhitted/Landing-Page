@@ -605,6 +605,7 @@ async function scheduled(env: Env): Promise<void> {
   await run("backup", () => extras.nightlyBackup(env, now));
   await run("cancelled cleanup", () => cleanUpCancelled(env, now));
   await run("bundle email retries", () => retryPackageEmails(env, now));
+  await run("bundle refund retries", async () => (await import("./packages")).retryPackageRefunds(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
   const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, repeats, undecided, cleaned, alerts: alerts?.length };
