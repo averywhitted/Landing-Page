@@ -20,6 +20,7 @@ import {
   stripePaymentUrl, validateIntake,
 } from "./bookings";
 import { scheduling } from "./config";
+import { customerForAlias } from "./aliases";
 
 const MIN = 60000;
 const DAY = 24 * 60 * MIN;
@@ -97,7 +98,8 @@ export async function createPackagePurchase(env: Env, body: unknown, ctx: { ip: 
     throw new BookingError(429, "You have a checkout in progress. Please finish it, or try again in 30 minutes.");
   }
 
-  const customer = await env.DB.prepare(
+  const aliased = await customerForAlias(env, intake.email);
+  const customer = aliased ? { id: aliased } : await env.DB.prepare(
     `INSERT INTO customers (id, name, email, pronouns) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(email) DO UPDATE SET name = excluded.name, pronouns = excluded.pronouns
      RETURNING id`,

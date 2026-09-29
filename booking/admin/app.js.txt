@@ -448,6 +448,7 @@
   let students = null;
   async function loadStudents() {
     students = await api("GET", "/api/admin/students");
+    loadDuplicates();
     return students;
   }
 
@@ -483,17 +484,18 @@
     const head = (key, label) => `<button type="button" class="sh${studentSort.key === key ? " on" : ""}" data-sort="${key}" title="Sort by ${label.toLowerCase()}">${label}${studentSort.key === key ? (studentSort.dir > 0 ? " &uarr;" : " &darr;") : ""}</button>`;
     return `<div class="toolbar">
         <input type="search" id="student-search" placeholder="Search by name or email" value="${esc(studentFilter)}" aria-label="Search students">
+        ${dupes.length ? btn(`${dupes.length} possible duplicate${dupes.length === 1 ? "" : "s"}`, "data-dupes", "Review students who look like the same person: merge them or mark them as different people", "warnbtn") : ""}
         <div class="filters">${Object.entries(shows).map(([k, [label]]) => `<button type="button" class="fchip" data-sfilter="${k}" aria-pressed="${studentShow === k}">${label}</button>`).join("")}</div>
       </div>
       <div class="panel student-list">
         <div class="student-row student-head">${head("name", "Name")}${head("next", "Next")}${head("last", "Last session")}${head("owes", "Owes")}${head("bundle", "Bundle")}</div>
-        ${list.length ? list.map((s) => `<button type="button" class="student-row" data-student="${esc(s.id)}" title="Open ${esc(s.name)}'s profile">
+        ${list.length ? list.map((s) => `<div class="student-item"><button type="button" class="student-row" data-student="${esc(s.id)}" title="Open ${esc(s.name)}'s profile">
           <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</strong><small>${esc(s.email)}</small></span>
           <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
           <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
           <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}${s.noShows ? ` <span class="chip" title="Sessions marked as no-shows">${s.noShows} no-show${s.noShows === 1 ? "" : "s"}</span>` : ""}</span>
           <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${pips(x.total, x.total - x.remaining)}${x.remaining} left`).join("<br>") : "None"}</span>
-        </button>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
+        </button>${btn("Edit", `data-edit-student="${esc(s.id)}"`, `Edit ${s.name}'s name, email and pronouns`, "sm sr-edit")}</div>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
       </div>`;
   }
 
@@ -584,6 +586,7 @@
           <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
         <span class="seat-actions">${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
       </div>
+      <div class="seat-actions" style="margin:10px 0 0">${btn("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns")}${btn("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet")}${btn("Delete", `data-delete-student="${esc(s.id)}"`, "Permanently remove this student and their records from your booking system", "danger")}</div>
       ${(s.paymentRequests || []).length ? `<h3>Payment requests</h3>${s.paymentRequests.map(requestRow).join("")}` : ""}
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
@@ -613,6 +616,250 @@
       try { await api("POST", `/api/admin/students/${encodeURIComponent(s.id)}/notes`, { notes: notes.value }); saved = notes.value; status.textContent = "Saved."; }
       catch (err) { status.textContent = `Couldn't save: ${err.message}`; }
     });
+  }
+
+  // Change a student's name, email or pronouns (also updated on their past bookings).
+  async function openEditStudent(id) {
+    let s = (students || []).find((x) => x.id === id);
+    if (!s) {
+      try { s = await api("GET", `/api/admin/students/${encodeURIComponent(id)}`); }
+      catch (err) { toast(err.message, true); return; }
+    }
+    formDialog(`
+      <h2 id="dlg-title">Edit student</h2>
+      <div class="fgrid">
+        <label>Name<input type="text" name="name" value="${esc(s.name)}" maxlength="100" required autocomplete="off"></label>
+        <label>Pronouns (optional)<input type="text" name="pronouns" value="${esc(s.pronouns || "")}" maxlength="40" autocomplete="off"></label>
+        <label style="grid-column:1/-1">Email<input type="email" name="email" value="${esc(s.email)}" maxlength="200" required autocomplete="off"></label>
+      </div>
+      <p class="hint">The new name and pronouns show on all their past and upcoming sessions. A new email is where future messages go; the old one still finds this student if they book with it.</p>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Save</button></div>`,
+    async (f) => {
+      const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/edit`, { name: f.name.value, email: f.email.value, pronouns: f.pronouns.value });
+      students = null;
+      await afterAction(r.emailChanged ? "Saved. Future messages go to the new email." : "Saved.");
+    });
+    $dlg.querySelector("[name=name]").focus();
+  }
+
+  // Delete a student and their records. Refused while anything is still live.
+  async function openDeleteStudent(id) {
+    let p;
+    try { p = await api("GET", `/api/admin/students/${encodeURIComponent(id)}/delete`); }
+    catch (err) { toast(err.message, true); return; }
+    const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+    if (p.blockers.length) {
+      showDialog(`<h2 id="dlg-title">Can't delete ${esc(p.name)} yet</h2>
+        <p>Something is still open for them. Sort these out first, then come back:</p>
+        <ul class="blockers">${p.blockers.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>
+        <div class="row">${cancelButton("OK")}</div>`);
+      return;
+    }
+    const r = p.removes;
+    const form = formDialog(`
+      <h2 id="dlg-title">Delete ${esc(p.name)}?</h2>
+      <div class="danger-box">
+        <strong>This can't be undone.</strong> It permanently removes from your booking system:
+        <ul>
+          <li>${esc(p.name)}'s profile, email and your private notes about them</li>
+          <li>${plural(r.sessions, "session")} on record (${r.cancelledSessions} of them cancelled)</li>
+          <li>${plural(r.bundles, "bundle")} and ${plural(r.paymentRequests, "payment request")}</li>
+          <li>The record of ${money(r.paidCents)} they paid. <strong>Your CSV export and totals will no longer include it</strong>, so download the export first if you need it for taxes.</li>
+        </ul>
+      </div>
+      <div class="note-box">
+        <strong>Not touched (this only clears your own records):</strong>
+        <ul>
+          <li><strong>Stripe:</strong> their payments and receipts stay in your Stripe dashboard. Nothing is refunded or removed there.</li>
+          <li><strong>iCloud calendar and Zoom:</strong> events and meetings from past sessions stay where they are.</li>
+          <li><strong>Resend:</strong> its history of emails sent to them stays.</li>
+          <li><strong>Backups:</strong> nightly backups made before now still contain them for up to 30 days.</li>
+        </ul>
+      </div>
+      <label class="field"><span>Type <strong>DELETE</strong> to confirm</span><input type="text" name="confirm" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <div class="row">${cancelButton()}<button type="submit" class="btn danger" disabled>Delete permanently</button></div>`,
+    async (f) => {
+      await api("POST", `/api/admin/students/${encodeURIComponent(id)}/delete`, { confirm: f.confirm.value });
+      students = null;
+      studentOpen = null;
+      $dlg.close();
+      toast(`${p.name} deleted.`);
+      await load();
+    }, "wide");
+    const go = form.querySelector("[type=submit]");
+    form.confirm.addEventListener("input", () => { go.disabled = form.confirm.value.trim() !== "DELETE"; });
+    form.confirm.focus();
+  }
+
+  /* ── Duplicate students: merge or ignore ── */
+
+  let dupes = [];                    // groups from /api/admin/duplicates
+  async function loadDuplicates() {
+    try { dupes = (await api("GET", "/api/admin/duplicates")).groups; } catch { dupes = []; }
+    if (tab === "students" && !$dlg.open) render();
+  }
+
+  function openDuplicates() {
+    if (!dupes.length) { $dlg.open && $dlg.close(); toast("No possible duplicates."); return; }
+    const member = (m, g, checked) => `<label class="dup-member">
+        <input type="radio" name="keep-${esc(g.id)}" value="${esc(m.id)}"${checked ? " checked" : ""}>
+        <span class="dup-info"><strong>${esc(m.name)}${m.pronouns ? ` <span class="pn">(${esc(m.pronouns)})</span>` : ""}</strong>
+          <small>${esc(m.email)}</small>
+          <small>${m.sessions} session${m.sessions === 1 ? "" : "s"}${m.upcoming ? `, ${m.upcoming} upcoming` : ""}${m.bundles ? `, ${m.bundles} active bundle${m.bundles === 1 ? "" : "s"}` : ""} &middot; ${money(m.paidCents)} paid &middot; since ${esc(shortDate(m.since))}</small></span>
+        <span class="chip ok dup-keep">Keep this one</span>
+      </label>`;
+    showDialog(`<h2 id="dlg-title">Possible duplicates</h2>
+      <p>${dupes.length} group${dupes.length === 1 ? "" : "s"} of students that look like the same person. For each, pick the record to keep and merge, or say they're different people.</p>
+      ${dupes.map((g, i) => `<div class="dup-group" data-dup="${i}">
+        <div class="dup-why">Match: ${esc(g.why.join(" and "))}</div>
+        ${g.members.map((m) => member(m, g, m.id === g.keepId)).join("")}
+        <div class="seat-actions">${btn("Merge into the one I picked", `data-dup-merge="${i}"`, "Move everything into the kept student and remove the others", "primary")}${btn("Not the same person", `data-dup-ignore="${i}"`, "Stop suggesting these students as duplicates")}</div>
+      </div>`).join("")}
+      <p class="hint">Merging moves all sessions, bundles, payments, repeats and notes to the kept student, and the others' email addresses keep pointing at them. Nothing changes in Stripe. It can't be undone.</p>
+      <div class="row">${cancelButton("Close")}</div>`, "wide");
+  }
+
+  async function dupAction(kind, index, b) {
+    const g = dupes[index];
+    if (!g) return;
+    const keepId = ($dlg.querySelector(`input[name="keep-${CSS.escape(g.id)}"]:checked`) || {}).value;
+    const keep = g.members.find((m) => m.id === keepId);
+    b.disabled = true;
+    try {
+      if (kind === "merge") {
+        const others = g.members.filter((m) => m.id !== keepId);
+        if (!keep || !confirm(`Merge ${others.map((m) => `${m.name} (${m.email})`).join(" and ")} into ${keep.name} (${keep.email})?\n\nTheir sessions, bundles, payments and notes move over and the other record is removed. This can't be undone.`)) { b.disabled = false; return; }
+        await api("POST", "/api/admin/duplicates/merge", { keepId, mergeIds: others.map((m) => m.id) });
+        toast(`Merged into ${keep.name}.`);
+      } else {
+        await api("POST", "/api/admin/duplicates/ignore", { ids: g.members.map((m) => m.id) });
+        toast("Got it. They won't be suggested again.");
+      }
+      students = null;
+      dupes = (await api("GET", "/api/admin/duplicates")).groups;
+      await load();
+      if (dupes.length) openDuplicates(); else { $dlg.close(); render(); }
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  }
+
+  /* ── Copy a link to the booking page ── */
+
+  const BOOK_URL = "https://averywhitted.com/book/";
+  async function openBookingLink() {
+    let list = [];
+    try { list = await (await fetch("/api/services", { cache: "no-store" })).json(); } catch { /* the plain link still works */ }
+    const opt = (s) => `<option value="${esc(s.id)}">${esc(s.name)} (${s.priceCents ? money(s.priceCents) : "free"})</option>`;
+    showDialog(`<h2 id="dlg-title">Booking link</h2>
+      <p>A link students can use to book themselves. Anyone with it can book; nothing about it is private.</p>
+      <label class="field">Opens on<select id="bl-service"><option value="">The booking page (they choose)</option>${list.filter((s) => s.kind !== "bundle").map(opt).join("")}${list.some((s) => s.kind === "bundle") ? `<optgroup label="Bundles">${list.filter((s) => s.kind === "bundle").map(opt).join("")}</optgroup>` : ""}</select></label>
+      <label class="field" style="margin-top:10px">Promo code (optional)<input type="text" id="bl-promo" maxlength="40" placeholder="e.g. WELCOME10" autocomplete="off"></label>
+      <p class="hint" id="bl-hint">The code is applied for them when they follow the link.</p>
+      <label class="field" style="margin-top:10px">Link<input type="text" id="bl-url" readonly></label>
+      <div class="row">${cancelButton("Close")}<button type="button" class="btn primary" id="bl-copy">Copy link</button></div>`);
+    const svc = $dlg.querySelector("#bl-service"), promo = $dlg.querySelector("#bl-promo"), url = $dlg.querySelector("#bl-url"), hint = $dlg.querySelector("#bl-hint");
+    const build = () => {
+      const code = promo.value.trim();
+      const ok = !code || /^[A-Za-z0-9_-]{2,40}$/.test(code);
+      hint.textContent = ok ? "The code is applied for them when they follow the link." : "Promo codes use letters, numbers, dashes and underscores only.";
+      const q = new URLSearchParams();
+      if (svc.value) q.set("service", svc.value);
+      if (code && ok) q.set("promo", code);
+      url.value = BOOK_URL + (q.toString() ? `?${q}` : "");
+      return ok;
+    };
+    svc.addEventListener("change", build);
+    promo.addEventListener("input", build);
+    build();
+    $dlg.querySelector("#bl-copy").addEventListener("click", async () => {
+      if (!build()) { toast("Fix the promo code first.", true); return; }
+      try { await navigator.clipboard.writeText(url.value); }
+      catch { url.select(); document.execCommand("copy"); }
+      toast("Link copied.");
+    });
+  }
+
+  /* ── Connections: status lights and their logs ── */
+
+  let lights = null;                 // [{ id, label, light, summary, details }]
+  const connDetail = {};             // id -> { ...status, events }
+  let connProblemsOnly = false;
+  const LIGHT_WORD = { ok: "Working", warn: "Needs a look", error: "Down", idle: "No data yet" };
+
+  async function loadLights(fresh) {
+    try { lights = (await api("GET", `/api/admin/status${fresh ? "?fresh=1" : ""}`)).services; } catch { return; }
+    renderLights();
+  }
+
+  function renderLights() {
+    const box = document.getElementById("lights");
+    if (!box || !lights) return;
+    const bad = lights.filter((l) => l.light === "error").length, warn = lights.filter((l) => l.light === "warn").length;
+    const open = tab.startsWith("conn/") ? tab.slice(5) : "";
+    box.innerHTML = '<span class="lights-title">Connections</span>'
+      + lights.map((l) => `<button type="button" class="light ${l.light}" data-light="${esc(l.id)}"${l.id === open ? ' aria-current="page"' : ""} title="${esc(`${l.label}: ${l.summary}`)}" aria-label="${esc(`${l.label}: ${LIGHT_WORD[l.light]}. ${l.summary} Open its log.`)}"><span class="ldot" aria-hidden="true"></span>${esc(l.label)}${l.light === "warn" || l.light === "error" ? `<span class="lword">${l.light === "error" ? "Down" : "Check"}</span>` : ""}</button>`).join("")
+      + `<span class="lights-note ${bad ? "bad" : warn ? "warn" : ""}">${bad ? `${bad} down` : warn ? `${warn} need${warn === 1 ? "s" : ""} a look` : "All working"}</span>`;
+  }
+
+  const CONN_HELP = {
+    stripe: { error: "Check that the key hasn't been rolled or deleted in Stripe (Developers > API keys). If it was replaced, save the new one in Keychain and run push-secrets.sh, then deploy.", warn: "Open the log to see what Stripe last refused or which webhook failed. Stripe retries failed webhooks on its own for a few days." },
+    icloud: { error: "Usually the app-specific password was revoked. Make a new one at appleid.apple.com and paste it in Settings > iCloud password.", warn: "Try Check now. If it stays amber, the password may be about to fail." },
+    resend: { error: "Check the Resend key and that the averywhitted.com domain still shows Verified in Resend. Until then no confirmations or reminders go out.", warn: "The latest email failed. Open the log for Resend's reason. Failed emails are retried automatically." },
+    zoom: { error: "Signing in to Zoom failed. Check the Server-to-Server app in the Zoom Marketplace is still activated and its scopes include creating and deleting meetings.", warn: "Open the log for Zoom's last error, or connect Zoom if it isn't set up." },
+    database: { error: "The booking database isn't answering. Check Cloudflare's status page and D1 in the dashboard.", warn: "The database is slow right now. It usually clears on its own." },
+    backups: { error: "Nightly backups have stopped. Try Back up now; if it fails, the log shows why. You can also download a manual backup from Settings.", warn: "Try Back up now to make one immediately." },
+    turnstile: { error: "Cloudflare rejected the Turnstile secret, so real people can't book. Replace it in Cloudflare (Turnstile > your widget) and run push-secrets.sh.", warn: "Bookings aren't being bot-checked. Add the Turnstile secret to turn it on." },
+  };
+  const connLinks = (id) => ({
+    stripe: [["Stripe webhooks", `https://dashboard.stripe.com/${data && data.mode === "test" ? "test/" : ""}webhooks`]],
+    resend: [["Resend dashboard", "https://resend.com/emails"]],
+    zoom: [["Zoom app settings", "https://marketplace.zoom.us/user/build"]],
+    database: [["Cloudflare dashboard", "https://dash.cloudflare.com/"]],
+    backups: [["Cloudflare dashboard", "https://dash.cloudflare.com/"]],
+    turnstile: [["Cloudflare dashboard", "https://dash.cloudflare.com/"]],
+  }[id] || []);
+
+  function renderConnection(id) {
+    const d = connDetail[id];
+    if (!d) {
+      api("GET", `/api/admin/status/${encodeURIComponent(id)}`)
+        .then((r) => { connDetail[id] = r; if (tab === `conn/${id}`) render(); })
+        .catch((err) => { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; });
+      return '<p class="empty">Loading...</p>';
+    }
+    const help = CONN_HELP[id] && CONN_HELP[id][d.light];
+    const events = d.events.filter((e) => !connProblemsOnly || e.level === "error" || e.level === "warn");
+    const actions = [
+      btn("Check now", `data-conn-check="${esc(id)}"`, "Test the connection right now", "primary"),
+      id === "backups" ? btn("Back up now", "data-conn-backup", "Make a backup right now (replaces today's nightly one)") : "",
+      id === "resend" ? btn("Send me a test email", "data-conn-testemail", "Email you a short test message") : "",
+      id === "icloud" ? btn("Change iCloud password", 'data-tab="settings"', "Go to Settings to paste a new app-specific password") : "",
+      ...connLinks(id).map(([label, href]) => link(label, href, `Open ${label} in a new tab`)),
+    ].join("");
+    return `<div class="panel conn-head">
+        <div class="conn-title"><span class="light-big ${d.light}" aria-hidden="true"></span>
+          <div><h2>${esc(d.label)} <span class="conn-word ${d.light}">${LIGHT_WORD[d.light]}</span></h2><p>${esc(d.summary)}</p></div></div>
+        ${d.details.length ? `<ul class="conn-details">${d.details.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${help ? `<div class="warn-line">${esc(help)}</div>` : ""}
+        <div class="seat-actions conn-actions">${actions}</div>
+      </div>
+      <div class="toolbar"><h3 style="margin:0">Log</h3>
+        <div class="filters"><button type="button" class="fchip" data-conn-filter="all" aria-pressed="${!connProblemsOnly}">Everything</button><button type="button" class="fchip" data-conn-filter="problems" aria-pressed="${connProblemsOnly}">Problems only</button></div></div>
+      <div class="panel conn-log">${events.length ? events.map((e) => `<div class="ev">
+          <span class="ev-time">${esc(whenShort(e.at))}</span>
+          <span class="chip ${e.level === "ok" ? "ok" : e.level === "error" ? "bad" : e.level === "warn" ? "lime" : ""}">${{ ok: "OK", info: "Info", warn: "Warning", error: "Problem" }[e.level]}</span>
+          <span class="ev-msg">${esc(e.message)}</span></div>`).join("")
+        : `<p class="hint" style="margin:8px 0">${connProblemsOnly ? "No problems logged. That's good." : "Nothing logged yet. Events appear here as this connection is used."}</p>`}</div>
+      <p class="hint">Events are kept for 90 days. They contain no card numbers, email addresses or message contents.</p>`;
+  }
+
+  async function connAction(path, okText, b, id) {
+    b.disabled = true;
+    try {
+      connDetail[id] = await api("POST", path);
+      toast(okText);
+      loadLights(true);
+      render();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
   }
 
   /* ── Bundles ── */
@@ -899,10 +1146,11 @@
     mode.className = `mode ${data.mode}`;
     renderTabs();
     const scroll = window.scrollY;
-    $main.innerHTML = {
+    renderLights();
+    $main.innerHTML = /^conn\/[a-z]+$/.test(tab) ? renderConnection(tab.slice(5)) : ({
       sessions: renderSessions, students: renderStudents, bundles: renderBundles,
       attention: renderAttention, settings: renderSettings,
-    }[tab]?.() ?? renderSessions();
+    }[tab] || renderSessions)();
     window.scrollTo(0, scroll);
     const bsearch = document.getElementById("bundle-search");
     if (bsearch) {
@@ -1376,10 +1624,21 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
+    const t = e.target.closest("[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
+    else if (d.light) { tab = `conn/${d.light}`; delete connDetail[d.light]; history.replaceState(null, "", `#${tab}`); render(); window.scrollTo(0, 0); }
+    else if (d.connCheck) connAction(`/api/admin/status/${encodeURIComponent(d.connCheck)}/check`, "Checked.", t, d.connCheck);
+    else if (d.connBackup !== undefined) connAction("/api/admin/status/backups/run", "Backup saved.", t, "backups");
+    else if (d.connTestemail !== undefined) connAction("/api/admin/status/resend/test", "Test email sent. Check your inbox.", t, "resend");
+    else if (d.connFilter) { connProblemsOnly = d.connFilter === "problems"; render(); }
+    else if (d.dupes !== undefined) openDuplicates();
+    else if (d.dupMerge !== undefined) dupAction("merge", Number(d.dupMerge), t);
+    else if (d.dupIgnore !== undefined) dupAction("ignore", Number(d.dupIgnore), t);
+    else if (d.exportStudent) download(`/api/admin/students/${encodeURIComponent(d.exportStudent)}/export`, `${String(d.fname || "student").replace(/[\\/:*?"<>|]/g, "").trim() || "student"} records.csv`, t);
+    else if (d.editStudent) openEditStudent(d.editStudent);
+    else if (d.deleteStudent) openDeleteStudent(d.deleteStudent);
     else if (d.view) { view = d.view; store.set("admin-view", view); render(); }
     else if (d.scale) { scale = d.scale; store.set("admin-scale", scale); render(); }
     else if (d.filter) {
@@ -1452,6 +1711,7 @@
     try { settings = await api("POST", "/api/admin/settings/reset"); toast("Back to defaults."); render(); } catch (err) { toast(err.message, true); }
   });
 
+  document.getElementById("copy-link").addEventListener("click", () => { studentOpen = null; openBookingLink(); });
   document.getElementById("new-session").addEventListener("click", () => { studentOpen = null; openNewSession(); });
   document.getElementById("refresh").addEventListener("click", async (e) => {
     const b = e.currentTarget;
@@ -1464,5 +1724,14 @@
   });
 
   load();
-  setInterval(() => { if (!$dlg.open && tab !== "settings" && document.visibilityState === "visible") load(); }, 60000);
+  loadLights();
+  setInterval(() => {
+    if ($dlg.open || tab === "settings" || document.visibilityState !== "visible") return;
+    load();
+    loadLights();
+    if (tab.startsWith("conn/")) {
+      const id = tab.slice(5);
+      api("GET", `/api/admin/status/${encodeURIComponent(id)}`).then((r) => { connDetail[id] = r; if (tab === `conn/${id}`) render(); }).catch(() => {});
+    }
+  }, 60000);
 })();

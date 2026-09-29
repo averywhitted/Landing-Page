@@ -2264,3 +2264,174 @@ test("clear test data: only in test mode, removes calendar events, keeps setting
   env.STRIPE_SECRET_KEY = "rk_live_example";
   assert.equal((await api.call("POST", "/api/admin/clear-test-data", { headers: asAdmin(), body: { confirm: "CLEAR" } })).status, 403, "never in live mode");
 });
+
+/* ── Favicon, students edit/delete, status lights ── */
+
+test("the booking service serves the same favicon files as averywhitted.com", async () => {
+  for (const [path, type] of [["/favicon.ico", "image/x-icon"], ["/favicon.svg", "image/svg+xml"], ["/apple-touch-icon.png", "image/png"]]) {
+    const r = await api.call("GET", path);
+    assert.equal(r.status, 200, path);
+    assert.equal(r.headers.get("content-type"), type);
+  }
+  adminEnv();
+  const page = await api.call("GET", "/admin", { headers: { "Cf-Access-Jwt-Assertion": accessToken() } });
+  assert.match(page.data, /rel="icon" href="\/favicon\.svg"/);
+});
+
+test("admin: editing a student updates name, pronouns and email everywhere; refuses a taken email", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const cid = row(id).customer_id;
+  await book("coaching-60", (await openSlots("coaching-60", 5))[0], { name: "Other Person", email: "other@example.com" });
+  const other = (db.prepare("SELECT id FROM customers WHERE email = 'other@example.com'").get() as any).id;
+  assert.equal((await api.call("POST", `/api/admin/students/${cid}/edit`, { headers: asAdmin(), body: { name: "", email: "a@b.co" } })).status, 400);
+  assert.equal((await api.call("POST", `/api/admin/students/${cid}/edit`, { headers: asAdmin(), body: { name: "Jamie R", email: "not-an-email" } })).status, 400);
+  assert.equal((await api.call("POST", `/api/admin/students/${cid}/edit`, { headers: asAdmin(), body: { name: "Jamie R", email: "OTHER@example.com" } })).status, 409, "email already used");
+  const r = await api.call("POST", `/api/admin/students/${cid}/edit`, { headers: asAdmin(), body: { name: "Jamie Q. Rivera", email: "Jamie.New@Example.com", pronouns: "he/him" } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.emailChanged, true);
+  const c = db.prepare("SELECT * FROM customers WHERE id = ?").get(cid) as any;
+  assert.deepEqual([c.name, c.email, c.pronouns], ["Jamie Q. Rivera", "jamie.new@example.com", "he/him"]);
+  assert.equal(row(id).client_name, "Jamie Q. Rivera", "the copy on the booking follows");
+  assert.equal((db.prepare("SELECT name FROM customers WHERE id = ?").get(other) as any).name, "Other Person", "nobody else changed");
+  assert.equal((await api.call("POST", "/api/admin/students/nope/edit", { headers: asAdmin(), body: { name: "X", email: "x@y.co" } })).status, 404);
+});
+
+test("admin: a student with live business can't be deleted, and says why", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const cid = row(id).customer_id;
+  const preview = await api.call("GET", `/api/admin/students/${cid}/delete`, { headers: asAdmin() });
+  assert.equal(preview.status, 200);
+  assert.ok(preview.data.blockers.some((b: string) => /upcoming session/.test(b)), JSON.stringify(preview.data));
+  const del = await api.call("POST", `/api/admin/students/${cid}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } });
+  assert.equal(del.status, 409);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM customers WHERE id = ?").get(cid) as any).n, 1, "still there");
+});
+
+test("admin: deleting a student removes their records here (needs DELETE typed) and nobody else's", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const cid = row(id).customer_id;
+  const { id: otherId } = await (async () => {
+    const slots = await openSlots("coaching-60", 6);
+    const res = await book("coaching-60", slots[0], { name: "Other Person", email: "other@example.com" });
+    await api.webhook("checkout.session.completed", paid(sessionFor(res.data.bookingId)));
+    return { id: res.data.bookingId as string };
+  })();
+  // Make Jamie's session a past one.
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?")
+    .run(new Date(Date.now() - 3 * DAY).toISOString(), new Date(Date.now() - 3 * DAY + 3600000).toISOString(), id);
+  db.prepare("DELETE FROM slot_claims WHERE booking_id = ?").run(id);
+  const preview = await api.call("GET", `/api/admin/students/${cid}/delete`, { headers: asAdmin() });
+  assert.deepEqual(preview.data.blockers, []);
+  assert.equal(preview.data.removes.sessions, 1);
+  assert.equal((await api.call("POST", `/api/admin/students/${cid}/delete`, { headers: asAdmin(), body: { confirm: "delete please" } })).status, 400, "must type DELETE");
+  const del = await api.call("POST", `/api/admin/students/${cid}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } });
+  assert.equal(del.status, 200, JSON.stringify(del.data));
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM customers WHERE id = ?").get(cid) as any).n, 0);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM bookings WHERE id = ?").get(id) as any).n, 0);
+  assert.equal(row(otherId).status, "confirmed", "the other student's booking is untouched");
+  assert.ok(claims(otherId) > 0, "and still holds its time");
+  // Nothing was sent to Stripe to remove or refund anything.
+  assert.equal((await api.call("GET", `/api/admin/students/${cid}`, { headers: asAdmin() })).status, 404);
+});
+
+test("admin: status lights cover every connection; logs fill in as things happen; check now is logged", async () => {
+  adminEnv();
+  await confirmedBooking();
+  const r = await api.call("GET", "/api/admin/status", { headers: asAdmin() });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(r.data.services.map((s: any) => s.id), ["stripe", "icloud", "resend", "zoom", "database", "backups", "turnstile"]);
+  for (const s of r.data.services) assert.match(s.light, /^(ok|warn|error|idle)$/);
+  assert.equal(r.data.services.find((s: any) => s.id === "database").light, "ok");
+  const resend = await api.call("GET", "/api/admin/status/resend", { headers: asAdmin() });
+  assert.ok(resend.data.events.some((e: any) => e.level === "ok" && /Sent a "/.test(e.message)), "emails show in the Resend log");
+  assert.equal((await api.call("GET", "/api/admin/status/bogus", { headers: asAdmin() })).status, 404);
+  const chk = await api.call("POST", "/api/admin/status/database/check", { headers: asAdmin() });
+  assert.equal(chk.status, 200);
+  assert.match(chk.data.events[0].message, /^Checked by hand/);
+  assert.equal((await api.call("GET", "/api/admin/status")).status, 403, "needs the admin pass");
+  // A forged Stripe notice lands in the Stripe log as a warning.
+  await api.webhook("checkout.session.completed", {}, { secret: "whsec_wrong" });
+  const stripe = await api.call("GET", "/api/admin/status/stripe", { headers: asAdmin() });
+  assert.ok(stripe.data.events.some((e: any) => e.level === "warn" && /bad signature/.test(e.message)));
+});
+
+/* ── Duplicates, merging, and per-student export ── */
+
+async function twoJamies() {
+  const { id } = await confirmedBooking();
+  const slots = await openSlots("coaching-60", 6);
+  const res = await book("coaching-60", slots[0], { name: "jamie  rivera", email: "jamie.alt@example.org", pronouns: "" });
+  await api.webhook("checkout.session.completed", paid(sessionFor(res.data.bookingId)));
+  // A different person, who must never be suggested.
+  const third = await book("coaching-60", slots[6], { name: "Casey Lane", email: "casey@example.com" });
+  await api.webhook("checkout.session.completed", paid(sessionFor(third.data.bookingId)));
+  return { firstId: id, secondId: res.data.bookingId as string, first: row(id).customer_id as string, second: row(res.data.bookingId).customer_id as string };
+}
+
+test("admin: duplicates are found by name or inbox; 'not the same person' hides them for good", async () => {
+  adminEnv();
+  const { first, second } = await twoJamies();
+  const r = await api.call("GET", "/api/admin/duplicates", { headers: asAdmin() });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.groups.length, 1, JSON.stringify(r.data));
+  assert.deepEqual(r.data.groups[0].members.map((m: any) => m.id).sort(), [first, second].sort());
+  assert.match(r.data.groups[0].why.join(), /same name/);
+  assert.equal((await api.call("POST", "/api/admin/duplicates/ignore", { headers: asAdmin(), body: { ids: [first] } })).status, 400);
+  assert.equal((await api.call("POST", "/api/admin/duplicates/ignore", { headers: asAdmin(), body: { ids: [first, second] } })).status, 200);
+  assert.equal((await api.call("GET", "/api/admin/duplicates", { headers: asAdmin() })).data.groups.length, 0);
+  // Gmail dots and +tags count as the same inbox.
+  db.prepare("UPDATE customers SET email = 'casey.lane+x@gmail.com' WHERE email = 'casey@example.com'").run();
+  db.prepare("UPDATE customers SET name = 'Someone Else', email = 'caseylane@gmail.com' WHERE id = ?").run(second);
+  db.prepare("DELETE FROM duplicate_ignores").run();
+  assert.equal((await api.call("GET", "/api/admin/duplicates", { headers: asAdmin() })).data.groups.length, 1, "same Gmail inbox");
+});
+
+test("admin: merging moves everything to the kept student and their old email still finds them", async () => {
+  adminEnv();
+  const { firstId, secondId, first, second } = await twoJamies();
+  db.prepare("UPDATE customers SET notes = 'Works on comedy' WHERE id = ?").run(second);
+  db.prepare("UPDATE customers SET notes = 'Prefers mornings' WHERE id = ?").run(first);
+  assert.equal((await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: first, mergeIds: [first] } })).status, 400, "nothing to merge");
+  const r = await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: first, mergeIds: [second] } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM customers WHERE id = ?").get(second) as any).n, 0);
+  assert.equal(row(firstId).customer_id, first);
+  assert.equal(row(secondId).customer_id, first, "the other booking moved over");
+  assert.equal(row(secondId).client_name, "Jamie Rivera", "and shows the kept name");
+  const kept = db.prepare("SELECT notes, pronouns FROM customers WHERE id = ?").get(first) as any;
+  assert.match(kept.notes, /Prefers mornings[\s\S]*jamie\.alt@example\.org[\s\S]*Works on comedy/);
+  assert.equal(kept.pronouns, "they/them");
+  assert.equal((await api.call("GET", "/api/admin/duplicates", { headers: asAdmin() })).data.groups.length, 0);
+  // Booking again with the old address goes to the same student.
+  const slots = await openSlots("coaching-60", 9);
+  const again = await book("coaching-60", slots[0], { name: "J Rivera", email: "JAMIE.ALT@example.org" });
+  assert.equal(again.status, 201, JSON.stringify(again.data));
+  assert.equal(row(again.data.bookingId).customer_id, first);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM customers WHERE email LIKE 'jamie.alt%'").get() as any).n, 0);
+});
+
+test("admin: changing a student's email keeps the old one pointing at them", async () => {
+  adminEnv();
+  const { id } = await confirmedBooking();
+  const cid = row(id).customer_id;
+  await api.call("POST", `/api/admin/students/${cid}/edit`, { headers: asAdmin(), body: { name: "Jamie Rivera", email: "jamie.new@example.com", pronouns: "they/them" } });
+  const slots = await openSlots("coaching-60", 8);
+  const again = await book("coaching-60", slots[0], { email: "jamie@example.com" });
+  assert.equal(row(again.data.bookingId).customer_id, cid);
+});
+
+test("admin: export one student's records as CSV", async () => {
+  adminEnv();
+  const { first, second } = await twoJamies();
+  await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: first, mergeIds: [second] } });
+  const r = await api.call("GET", `/api/admin/students/${first}/export`, { headers: asAdmin() });
+  assert.equal(r.status, 200);
+  const lines = String(r.data).trim().split("\r\n");
+  assert.match(lines[0], /^"Type","Date"/);
+  assert.equal(lines.length, 3, "two sessions plus the header");
+  assert.ok(!String(r.data).includes("Casey Lane"), "only this student");
+  assert.equal((await api.call("GET", "/api/admin/students/nope/export", { headers: asAdmin() })).status, 404);
+});

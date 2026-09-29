@@ -10,6 +10,10 @@ import { zonedToUtc } from "./time";
 import { scheduling } from "./config";
 import wordmark from "../assets/email-wordmark.png";
 import { HEADING_BYTES } from "./email-headings";
+import faviconIco from "../assets/favicon/favicon.ico";
+import faviconSvg from "../assets/favicon/favicon.svg";
+import touchIcon from "../assets/favicon/apple-touch-icon.png";
+import { logEvent } from "./events";
 import { verifyWebhook, type CheckoutSession } from "./stripe";
 import {
   BookingError, afterConfirm, cancelBooking, confirmPaid, createBooking, expireHolds, manageView, publicStatus,
@@ -52,6 +56,12 @@ app.use("/api/*", cors({
 }));
 
 app.get("/", (c) => c.text("Hello from the averywhitted.com booking service."));
+
+// The same tab icon as averywhitted.com (copies of the site's favicon files).
+const icon = (bytes: ArrayBuffer, type: string) => () => new Response(bytes, { headers: { "Content-Type": type, "Cache-Control": "public, max-age=86400" } });
+app.get("/favicon.ico", icon(faviconIco, "image/x-icon"));
+app.get("/favicon.svg", icon(faviconSvg, "image/svg+xml"));
+app.get("/apple-touch-icon.png", icon(touchIcon, "image/png"));
 
 // The "AVERY WHITTED" wordmark (in Horizon) shown at the top of every email.
 app.get("/email/wordmark.png", () => new Response(wordmark, {
@@ -453,6 +463,68 @@ app.post("/api/admin/students/:id/notes", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/students/:id/edit", async (c) => {
+  try { const { adminEditStudent } = await import("./students"); return c.json(await adminEditStudent(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/students/:id/delete", async (c) => {
+  try { const { adminDeletePreview } = await import("./students"); return c.json(await adminDeletePreview(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/delete", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminDeleteStudent } = await import("./students"); return c.json(await adminDeleteStudent(c.env, c.req.param("id"), body.confirm, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.get("/api/admin/students/:id/export", async (c) => {
+  try {
+    const { adminExportStudent } = await import("./extras");
+    const { csv } = await adminExportStudent(c.env, c.req.param("id"));
+    return c.body(csv, 200, { "Content-Type": "text/csv; charset=utf-8" });
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+// Possible duplicate students: find them, merge them, or mark them as different people.
+app.get("/api/admin/duplicates", async (c) => {
+  const { adminDuplicates } = await import("./students");
+  return c.json({ groups: await adminDuplicates(c.env, Date.now()) });
+});
+app.post("/api/admin/duplicates/merge", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminMergeStudents } = await import("./students"); return c.json(await adminMergeStudents(c.env, body.keepId, body.mergeIds, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/duplicates/ignore", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminIgnoreDuplicates } = await import("./students"); return c.json(await adminIgnoreDuplicates(c.env, body.ids)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+// Status lights and the running log behind each one.
+app.get("/api/admin/status", async (c) => {
+  const { allStatuses } = await import("./status");
+  return c.json({ services: await allStatuses(c.env, Date.now(), c.req.query("fresh") === "1") });
+});
+app.get("/api/admin/status/:service", async (c) => {
+  try { const { serviceDetail } = await import("./status"); return c.json(await serviceDetail(c.env, c.req.param("service"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/status/:service/check", async (c) => {
+  try { const { checkNow } = await import("./status"); return c.json(await checkNow(c.env, c.req.param("service"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/status/backups/run", async (c) => {
+  try { const { backupNow } = await import("./status"); return c.json(await backupNow(c.env, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/status/resend/test", async (c) => {
+  try { const { testEmail } = await import("./status"); return c.json(await testEmail(c.env, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/bookings/:id/attendance", async (c) => {
   const body = await jsonBody(c);
   try { const { adminSetAttendance } = await import("./extras"); return c.json(await adminSetAttendance(c.env, c.req.param("id"), body.noShow === true, Date.now())); }
@@ -541,13 +613,17 @@ app.post("/api/packages/cancel", async (c) => {
 app.post("/api/stripe/webhook", async (c) => {
   const raw = await c.req.text();
   const ok = await verifyWebhook(raw, c.req.header("stripe-signature") ?? null, c.env.STRIPE_WEBHOOK_SECRET ?? "");
-  if (!ok) return c.text("Invalid signature", 400);
+  if (!ok) {
+    await logEvent(c.env, "stripe", "warn", "A webhook arrived with a bad signature and was rejected");
+    return c.text("Invalid signature", 400);
+  }
 
   const event = JSON.parse(raw) as { id: string; type: string; data: { object: Record<string, unknown> } };
   const first = await c.env.DB.prepare("INSERT OR IGNORE INTO processed_webhooks (stripe_event_id) VALUES (?1)").bind(event.id).run();
   if (!first.meta.changes) return c.json({ received: true, duplicate: true });
 
   const now = Date.now();
+  await logEvent(c.env, "stripe", "ok", `Received "${event.type}" from Stripe`);
   try {
     if (event.type === "checkout.session.completed") {
       const s = event.data.object as unknown as CheckoutSession;
@@ -588,6 +664,7 @@ app.post("/api/stripe/webhook", async (c) => {
     // Let Stripe retry: forget that we saw this event.
     await c.env.DB.prepare("DELETE FROM processed_webhooks WHERE stripe_event_id = ?1").bind(event.id).run();
     console.error(`webhook ${event.type} failed:`, (err as Error).message);
+    await logEvent(c.env, "stripe", "error", `Couldn't process "${event.type}" (Stripe will retry): ${(err as Error).message}`);
     return c.text("Temporary error", 500);
   }
   return c.json({ received: true });
@@ -598,7 +675,11 @@ app.post("/api/stripe/webhook", async (c) => {
 async function scheduled(env: Env): Promise<void> {
   const now = Date.now();
   const run = async <T>(name: string, job: () => Promise<T>): Promise<T | null> => {
-    try { return await job(); } catch (err) { console.error(`cron ${name} failed:`, (err as Error).message); return null; }
+    try { return await job(); } catch (err) {
+      console.error(`cron ${name} failed:`, (err as Error).message);
+      await logEvent(env, name === "backup" ? "backups" : name === "icloud health" ? "icloud" : "database", "error", `Background job "${name}" failed: ${(err as Error).message}`);
+      return null;
+    }
   };
   const holds = await run("holds", () => expireHolds(env, now));
   const bundles = await run("bundle checkouts", () => expirePendingPackages(env, now));

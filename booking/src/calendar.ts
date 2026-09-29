@@ -6,6 +6,7 @@ import { usingFakes } from "./env";
 import * as icloud from "./icloud";
 import type { Interval } from "./icloud";
 import { icloudCredentials } from "./secrets";
+import { logEvent } from "./events";
 
 export type CalendarProvider = {
   getBusy(from: number, to: number): Promise<Interval[]>;
@@ -20,8 +21,19 @@ export function calendarFor(env: Env, cals?: { busyCalendars: string[]; bookingC
   // The password changed from the admin page, if there is one; otherwise the Cloudflare secret.
   return {
     getBusy: async (from, to) => icloud.getBusy(await icloudCredentials(env), from, to, cals?.busyCalendars),
-    putEvent: async (uid, ics, existingUrl) => icloud.putEvent(await icloudCredentials(env), uid, ics, existingUrl, cals?.bookingCalendar),
-    deleteEvent: async (url) => icloud.deleteEvent(await icloudCredentials(env), url),
+    putEvent: async (uid, ics, existingUrl) => {
+      try {
+        const url = await icloud.putEvent(await icloudCredentials(env), uid, ics, existingUrl, cals?.bookingCalendar);
+        await logEvent(env, "icloud", "ok", existingUrl ? "Updated a session on the calendar" : "Added a session to the calendar");
+        return url;
+      } catch (err) { await logEvent(env, "icloud", "error", `Couldn't write to the calendar: ${(err as Error).message}`); throw err; }
+    },
+    deleteEvent: async (url) => {
+      try {
+        await icloud.deleteEvent(await icloudCredentials(env), url);
+        await logEvent(env, "icloud", "ok", "Removed a session from the calendar");
+      } catch (err) { await logEvent(env, "icloud", "error", `Couldn't remove a calendar event: ${(err as Error).message}`); throw err; }
+    },
     listNames: async () => Object.keys(await icloud.findCalendars(await icloudCredentials(env), null)).sort(),
   };
 }

@@ -22,10 +22,10 @@ migrations_dir = "migrations"
 binding = "BACKUPS"
 bucket_name = "averywhitted-booking-backups"
 
-# Bundle images (the email wordmark) into the service as raw bytes.
+# Bundle images (the email wordmark, the favicon) into the service as raw bytes.
 [[rules]]
 type = "Data"
-globs = ["**/*.png"]
+globs = ["**/*.png", "**/*.ico", "**/*.svg"]
 fallthrough = true
 
 # Not secret. The app-specific password is stored separately with:

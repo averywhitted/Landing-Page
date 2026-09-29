@@ -4,6 +4,7 @@
 
 import type { Env } from "./env";
 import { usingFakes } from "./env";
+import { logEvent } from "./events";
 
 export type Email = {
   to: string;
@@ -47,5 +48,7 @@ export async function sendEmail(env: Env, kind: string, bookingId: string | null
   }
   await env.DB.prepare("INSERT INTO email_log (booking_id, kind, status, error) VALUES (?1, ?2, ?3, ?4)")
     .bind(bookingId, kind, status, error).run();
+  const label = kind.replace(/_/g, " ");
+  await logEvent(env, "resend", status === "sent" ? "ok" : "error", status === "sent" ? `Sent a "${label}" email` : `Couldn't send a "${label}" email: ${error}`);
   return status === "sent";
 }

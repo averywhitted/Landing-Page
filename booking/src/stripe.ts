@@ -3,6 +3,7 @@
 
 import type { Env } from "./env";
 import { usingFakes } from "./env";
+import { logEvent } from "./events";
 
 function apiBase(env: Env): string {
   // Only local tests may point at a fake Stripe.
@@ -33,6 +34,11 @@ async function stripe<T>(env: Env, method: "GET" | "POST", path: string, data?: 
     body: data ? formEncode(data).join("&") : undefined,
   });
   const body = (await res.json().catch(() => ({}))) as T & { error?: { message?: string; code?: string } };
+  // Only what matters goes in the log: money-moving calls, and every failure
+  // (except "not found" lookups, which are routine).
+  const what = method === "POST" && path === "refunds" ? "refund" : method === "POST" && path === "checkout/sessions" ? "checkout page" : null;
+  if (!res.ok && res.status !== 404) await logEvent(env, "stripe", "error", `Stripe refused ${method} ${path.split("?")[0].replace(/\/cs_[^/]+/, "")} (${res.status}): ${body.error?.message ?? "unknown error"}`);
+  else if (res.ok && what) await logEvent(env, "stripe", "ok", what === "refund" ? "Sent a refund to Stripe" : "Created a checkout page");
   if (!res.ok) {
     const err = new Error(`Stripe ${path} failed (${res.status}): ${body.error?.message ?? "unknown error"}`) as Error & { code?: string };
     err.code = body.error?.code;

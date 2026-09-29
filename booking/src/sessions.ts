@@ -14,6 +14,7 @@
 // it passes is released automatically (cron). Students can instead use a
 // credit from a bundle they already bought.
 
+import { customerForAlias } from "./aliases";
 import type { Env } from "./env";
 import { findService, type Service } from "./services";
 import { RULES } from "./settings";
@@ -104,6 +105,8 @@ async function checkBundles(env: Env, students: Student[], service: Service, sta
 }
 
 async function upsertCustomer(env: Env, s: Student): Promise<string> {
+  const aliased = await customerForAlias(env, s.email);
+  if (aliased) return aliased;
   const row = await env.DB.prepare(
     `INSERT INTO customers (id, name, email, pronouns) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(email) DO UPDATE SET name = excluded.name, pronouns = COALESCE(excluded.pronouns, customers.pronouns)

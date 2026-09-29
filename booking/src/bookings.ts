@@ -26,6 +26,7 @@ import { buildIcs } from "./ics";
 import * as T from "./templates";
 import { verifyHuman } from "./turnstile";
 import { manageUrl, packageUrl, validManageToken } from "./manage";
+import { customerForAlias } from "./aliases";
 
 const AVERY_TZ = RULES.timeZone;
 const MIN = 60000;
@@ -189,7 +190,8 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
     throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
   }
 
-  const customer = await env.DB.prepare(
+  const aliased = await customerForAlias(env, intake.email);
+  const customer = aliased ? { id: aliased } : await env.DB.prepare(
     `INSERT INTO customers (id, name, email, pronouns) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(email) DO UPDATE SET name = excluded.name, pronouns = excluded.pronouns
      RETURNING id`,
@@ -1058,6 +1060,7 @@ export async function runRetention(env: Env, now: number): Promise<number> {
     env.DB.prepare("UPDATE packages SET intake_json = NULL WHERE intake_json IS NOT NULL AND expires_at < ?1").bind(twoYears),
     env.DB.prepare("DELETE FROM email_log WHERE created_at < ?1").bind(iso(now - 365 * 24 * 60 * MIN)),
     env.DB.prepare("DELETE FROM processed_webhooks WHERE processed_at < ?1").bind(iso(now - 90 * 24 * 60 * MIN)),
+    env.DB.prepare("DELETE FROM integration_events WHERE created_at < ?1").bind(iso(now - 90 * 24 * 60 * MIN)),
   ]);
   return res[0].meta.changes;
 }

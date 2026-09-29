@@ -4,6 +4,7 @@
 
 import type { Env } from "./env";
 import { usingFakes } from "./env";
+import { logEvent } from "./events";
 
 export type ZoomMeeting = { id: string; joinUrl: string };
 
@@ -20,6 +21,12 @@ async function token(env: Env): Promise<string> {
   const body = (await res.json()) as { access_token: string; expires_in?: number };
   cached = { key: env.ZOOM_CLIENT_ID!, token: body.access_token, until: Date.now() + Math.max(0, (body.expires_in ?? 3600) - 300) * 1000 };
   return body.access_token;
+}
+
+// For the admin status light: can we sign in to Zoom right now?
+export async function zoomPing(env: Env): Promise<void> {
+  cached = null;
+  await token(env);
 }
 
 export function zoomConfigured(env: Env): boolean {
@@ -47,9 +54,14 @@ export async function createMeeting(env: Env, p: { topic: string; start: number;
       });
       if (!res.ok) throw new Error(`Zoom create failed (${res.status})`);
       const m = (await res.json()) as { id: number; join_url: string };
+      await logEvent(env, "zoom", "ok", "Created a Zoom meeting");
       return { id: String(m.id), joinUrl: m.join_url };
     } catch (err) {
-      if (attempt === 2) { console.error("zoom:", (err as Error).message); return null; }
+      if (attempt === 2) {
+        console.error("zoom:", (err as Error).message);
+        await logEvent(env, "zoom", "error", `Couldn't create a Zoom meeting: ${(err as Error).message}`);
+        return null;
+      }
       await new Promise((r) => setTimeout(r, 800));
     }
   }
@@ -63,7 +75,12 @@ export async function updateMeeting(env: Env, id: string, p: { start: number; du
     headers: { Authorization: `Bearer ${await token(env)}`, "Content-Type": "application/json" },
     body: JSON.stringify({ start_time: new Date(p.start).toISOString().replace(/\.\d{3}Z$/, "Z"), duration: p.durationMinutes, timezone: "UTC" }),
   });
-  if (!res.ok) throw new Error(`Zoom update failed (${res.status}): ${await zoomMessage(res)}`);
+  if (!res.ok) {
+    const why = `Zoom update failed (${res.status}): ${await zoomMessage(res)}`;
+    await logEvent(env, "zoom", "error", `Couldn't move a Zoom meeting: ${why}`);
+    throw new Error(why);
+  }
+  await logEvent(env, "zoom", "ok", "Moved a Zoom meeting");
 }
 
 export async function deleteMeeting(env: Env, id: string): Promise<void> {
@@ -72,7 +89,12 @@ export async function deleteMeeting(env: Env, id: string): Promise<void> {
     method: "DELETE",
     headers: { Authorization: `Bearer ${await token(env)}` },
   });
-  if (!res.ok && res.status !== 404) throw new Error(`Zoom delete failed (${res.status}): ${await zoomMessage(res)}`);
+  if (!res.ok && res.status !== 404) {
+    const why = `Zoom delete failed (${res.status}): ${await zoomMessage(res)}`;
+    await logEvent(env, "zoom", "error", `Couldn't delete a Zoom meeting: ${why}`);
+    throw new Error(why);
+  }
+  await logEvent(env, "zoom", "ok", "Deleted a Zoom meeting");
 }
 
 // Zoom's own explanation, e.g. a missing permission on the app.
