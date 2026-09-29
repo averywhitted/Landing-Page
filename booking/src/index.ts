@@ -171,6 +171,21 @@ app.post("/api/bookings", async (c) => {
   }
 });
 
+// Back from Stripe without paying, or "Start over": let that time go now
+// rather than in 30 minutes. Only the browser that made the hold has its id.
+app.post("/api/bookings/release", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const id = typeof body.id === "string" && /^[0-9a-f-]{36}$/.test(body.id) ? body.id : "";
+  if (!id) return c.json({ error: "Invalid request." }, 400);
+  try {
+    const { releaseAbandonedHold } = await import("./bookings");
+    return c.json({ ok: true, result: await releaseAbandonedHold(c.env, id, Date.now()) });
+  } catch (err) {
+    console.error("release hold failed:", (err as Error).message);
+    return c.json({ error: "Something went wrong." }, 500);
+  }
+});
+
 // What the confirmation page shows: /api/confirmation?session_id=... or ?booking=...
 app.get("/api/confirmation", async (c) => {
   const session = c.req.query("session_id");

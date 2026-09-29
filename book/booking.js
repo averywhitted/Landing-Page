@@ -125,13 +125,16 @@
     return servicesPromise;
   }
   const slotCache = new Map();
+  // Set after letting a hold go, so the next lookup skips Cloudflare's
+  // one-minute cache and shows the freed time straight away.
+  let fresh = "";
   // `extra` carries the manage link (b, t) when rescheduling, so the booking
   // being moved doesn't block the times next to it.
   async function loadSlots(serviceId, from, extra = "") {
     const key = `${serviceId}|${from}|${extra}`;
     const hit = slotCache.get(key);
     if (hit && Date.now() - hit.at < 60000) return hit.data;
-    const r = await fetch(`${API}/api/availability?service=${encodeURIComponent(serviceId)}&from=${from}&days=7${extra}`);
+    const r = await fetch(`${API}/api/availability?service=${encodeURIComponent(serviceId)}&from=${from}&days=7${extra}${fresh}`);
     if (!r.ok) throw new Error(String(r.status));
     const data = await r.json();
     slotCache.set(key, { at: Date.now(), data });
@@ -582,7 +585,13 @@
           }),
         });
         const data = await r.json().catch(() => ({}));
-        if (r.ok && data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
+        if (r.ok && data.checkoutUrl) {
+          // Remember the hold, so "Start over" can let the time go straight away.
+          const d = readDraft();
+          if (d && data.bookingId) writeDraft({ ...d, holdId: data.bookingId });
+          window.location.href = data.checkoutUrl;
+          return;
+        }
         if (r.ok && data.confirmationUrl) { window.location.href = data.confirmationUrl; return; }
         if (r.status === 404) {
           state.message = { kind: "info", text: "Booking isn't switched on yet. This is a preview of the new booking flow, and nothing was sent." };
@@ -629,7 +638,7 @@
       else if (a === "view") setView(t.dataset.view);
       else if (a === "keep" && reschedule) reschedule.onCancel();
       else if (a === "confirm-move" && reschedule && state.slot && !state.submitting) confirmMove();
-      else if (a === "start-over") { clearDraft(); state.form = {}; state.service = null; state.slot = null; state.week = null; render(); }
+      else if (a === "start-over") { releaseHold((readDraft() || {}).holdId); clearDraft(); state.form = {}; state.service = null; state.slot = null; state.week = null; render(); }
     });
     async function confirmMove() {
       state.submitting = true;
@@ -769,6 +778,16 @@
     store.set(DRAFT_KEY, JSON.stringify({ ...d, savedAt: Date.now() }));
     updateCart();
   }
+  // Lets go of an unpaid hold this browser made (back from Stripe, or "Start
+  // over"), so the time is free again at once instead of in 30 minutes.
+  function releaseHold(id) {
+    if (!id || !/^[0-9a-f-]{36}$/.test(id)) return Promise.resolve();
+    slotCache.clear();
+    fresh = `&fresh=${Date.now()}`;
+    return fetch(`${API}/api/bookings/release`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }), keepalive: true,
+    }).catch(() => {});
+  }
   function clearDraft() {
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     updateCart();
@@ -883,8 +902,15 @@
     inlineWidget = createWidget(inlineHost);
     const params = new URLSearchParams(location.search);
     const saved = readDraft();
-    // Back from Stripe without paying: pick up exactly where they left off.
-    if (params.get("checkout") === "cancelled" && saved) inlineWidget.resume(saved);
+    // Back from Stripe without paying: let the hold go, then pick up exactly
+    // where they left off (their time is free again, so they can pick it).
+    if (params.get("checkout") === "cancelled") {
+      const hold = params.get("hold") || (saved && saved.holdId);
+      releaseHold(hold).then(() => {
+        const d = readDraft();
+        if (d) { if (d.holdId) writeDraft({ ...d, holdId: undefined }); inlineWidget.resume(readDraft()); }
+      });
+    }
     else if (params.get("service")) inlineWidget.start(params.get("service"));
   }
 
