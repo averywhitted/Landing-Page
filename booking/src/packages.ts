@@ -416,7 +416,7 @@ export async function issuePackageRefund(env: Env, id: string, now: number): Pro
 export async function retryPackageRefunds(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT id FROM packages WHERE status = 'cancelled' AND cancel_reason = 'client_cancelled' AND refunded_at IS NULL
-       AND refund_due_cents > 0 AND refund_attempts BETWEEN 1 AND 11 AND cancelled_at <= ?1 LIMIT 20`,
+       AND refund_due_cents > 0 AND refund_attempts < 12 AND cancelled_at <= ?1 LIMIT 20`,
   ).bind(iso(now - 2 * 60000)).all<{ id: string }>();
   let done = 0;
   for (const { id } of rows.results) if (await issuePackageRefund(env, id, now)) done++;

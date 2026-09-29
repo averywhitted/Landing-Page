@@ -115,7 +115,7 @@
   const stuckRefunds = () => data.bookings.filter((b) => b.refundStuck || b.refundOwed === "choice");
   function problemsCount() {
     const p = data.problems;
-    const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past).length;
+    const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.held).length;
     return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow
       + (p.refundRequests || []).length + (p.held || []).length + (p.paymentRequests || []).length + (p.icloud ? 1 : 0);
   }
@@ -152,7 +152,7 @@
   const GAP = 12 * 3600000;
   const whenShort = (iso) => fmt(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const remindBtn = (b, small) => {
-    if (!(b.dueCents && b.status === "confirmed" && !b.past)) return "";
+    if (!(b.dueCents && b.status === "confirmed")) return "";
     const label = small ? "Remind" : "Send payment reminder";
     const last = b.lastReminderAt ? Date.parse(b.lastReminderAt) : 0;
     if (last > Date.now() - GAP) {
@@ -715,11 +715,12 @@
     }
     const reqs = data.problems.paymentRequests || [];
     if (reqs.length) parts.push(panel("Payment requests", reqs.map(requestRow).join("")));
-    const due2 = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past);
+    // Still owed, including sessions that already happened without being paid for.
+    const due2 = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.held);
     if (due2.length) {
       parts.push(panel("Payments due", due2.map((b) => `<div class="seat">
         <div class="who-line"><strong>${nameTag(b.name, b.pronouns, b.customerId)}</strong>
-          <small>${esc(dayLabel(b.start))} at ${esc(clock(b.start))} &middot; ${money(b.dueCents)}${b.payBy ? ` due by ${esc(whenShort(b.payBy))}` : ""}</small></div>
+          <small>${esc(dayLabel(b.start))} at ${esc(clock(b.start))} &middot; ${money(b.dueCents)}${b.past ? ", session has happened" : b.payBy ? ` due by ${esc(whenShort(b.payBy))}` : ""}</small></div>
         <span class="seat-chips">${reminderChips(b)}</span>
         <span class="seat-actions">${remindBtn(b, true)}</span>
       </div>`).join("")));

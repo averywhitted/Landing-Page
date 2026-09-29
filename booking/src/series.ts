@@ -158,7 +158,20 @@ export async function bookNextSessions(env: Env, now: number): Promise<number> {
          WHERE id = ?3 AND last_start = ?4 AND status = 'active'`,
       ).bind(iso(next), iso(now), s.id, s.last_start).run();
       if (!claim.meta.changes) continue;
-      const result = await bookOne(env, s, service, next, now);
+      let result: Outcome;
+      try {
+        result = await bookOne(env, s, service, next, now);
+      } catch (err) {
+        // Nothing was booked: undo the claim so the next run tries this week again.
+        const made = await env.DB.prepare("SELECT 1 AS x FROM bookings WHERE series_id = ?1 AND start_utc = ?2").bind(s.id, iso(next)).first();
+        if (!made) {
+          await env.DB.prepare(
+            `UPDATE series SET last_start = ?1, sessions_left = CASE WHEN sessions_left IS NULL THEN NULL ELSE sessions_left + 1 END
+             WHERE id = ?2 AND last_start = ?3`,
+          ).bind(s.last_start, s.id, iso(next)).run();
+        }
+        throw err;
+      }
       if (result === "booked" || result === "held") booked++;
       else {
         // A skipped week doesn't count toward a set number of sessions.
@@ -255,8 +268,8 @@ export async function adminKeepHeld(env: Env, bookingId: string, now: number) {
 // Cron: anything still held 2 days before goes ahead at the usual time.
 export async function releaseUndecided(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
-    "SELECT id, series_conflict FROM bookings WHERE status = 'confirmed' AND series_conflict IS NOT NULL AND start_utc <= ?1 LIMIT 20",
-  ).bind(iso(now + 2 * DAY)).all<{ id: string; series_conflict: Clash }>();
+    "SELECT id, series_conflict FROM bookings WHERE status = 'confirmed' AND series_conflict IS NOT NULL AND start_utc <= ?1 AND start_utc > ?2 LIMIT 20",
+  ).bind(iso(now + 2 * DAY), iso(now)).all<{ id: string; series_conflict: Clash }>();
   let n = 0;
   for (const r of rows.results) {
     if (await releaseHeld(env, r.id, now)) {

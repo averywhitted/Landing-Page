@@ -209,6 +209,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
 
 const dueLine = (b: BookingView, tz: string) => b.payBy
   ? `Please pay ${money(b.dueCents!)} by ${day(b.payBy, tz)} at ${clock(b.payBy, tz)} ${zoneName(b.payBy, tz)}. Paying by then confirms your ${b.group ? "spot in the session" : "session"}; after that, ${b.group ? "your spot" : "the time"} will be opened up to other students.`
+  : b.end <= Date.now() ? `Please pay ${money(b.dueCents!)} for this session when you can.`
   : `Please pay ${money(b.dueCents!)} before your session.`;
 
 export function adminInvite(b: BookingView, ics: string, manageUrl: string, payUrl: string | null): Email {
@@ -761,11 +762,13 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
 //   refunded / pending  refund sent (or being sent) automatically
 //   offer               Avery cancelled and didn't refund yet: client chooses refund or new time
 //   none                free session or bundle session
-export type RefundState = "refunded" | "pending" | "offer" | "none";
+//   offer_reply         the same, but they reply to choose (e.g. a spot in a group session)
+export type RefundState = "refunded" | "pending" | "offer" | "offer_reply" | "none";
 
 function refundLine(b: BookingView, refund: RefundState): string {
   if (refund === "refunded" || refund === "pending") return `Your full refund of ${money(b.amountCents)} is on its way. Refunds may take a few business days to appear.`;
   if (refund === "offer") return "Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer. You can choose using the button below.";
+  if (refund === "offer_reply") return "Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer. Please reply to this email and let me know.";
   return "";
 }
 
@@ -868,6 +871,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
   const refundNote = r.refund === "refunded" ? `Refunded ${amount} automatically. They cancelled at least 24 hours ahead.`
     : r.refund === "pending" ? `The automatic refund of ${amount} hasn't gone through yet. It will keep retrying, and you'll get an alert if it still doesn't go through.`
     : r.refund === "offer" ? `Not refunded yet. They can choose a full refund or a new time at no charge from their session page, and you'll be emailed when they do.`
+    : r.refund === "offer_reply" ? `Not refunded yet. They were offered a full refund or a new time at no charge, and asked to reply with their choice.`
     : "";
   const tag = r.refund === "refunded" ? ` (refunded ${amount})` : r.refund === "pending" ? ` (refund pending ${amount})` : "";
   const leftovers: [string, Fix][] = [
@@ -875,7 +879,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
     ...(r.zoomRemoved ? [] : [["The Zoom meeting couldn't be deleted yet. It will keep retrying; you can also delete it in Zoom.", FIX_ZOOM] as [string, Fix]]),
   ];
   const body = [
-    r.refund === "pending" || r.refund === "offer" ? warn(refundNote) : refundNote ? small(refundNote) : "",
+    r.refund === "pending" || r.refund === "offer" || r.refund === "offer_reply" ? warn(refundNote) : refundNote ? small(refundNote) : "",
     stripePaymentUrl && r.refund !== "none" ? button(stripePaymentUrl, r.refund === "refunded" ? "View payment in Stripe" : `Refund ${amount} in Stripe`) : "",
     ...leftovers.map(([t, f]) => warn(t, f)),
     details(adminRows(b, { zoom: false })),

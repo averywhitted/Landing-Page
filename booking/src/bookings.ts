@@ -766,7 +766,8 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
   const v = view(row);
   const removed = await removeCancelled(env, row);
   const refund: T.RefundState = row.package_id || row.amount_cents <= 0 ? "none"
-    : row.refunded_at ? "refunded" : row.refund_requested_at ? "pending" : "offer";
+    : row.refunded_at ? "refunded" : row.refund_requested_at ? "pending"
+    : hasCancelOffer(row) ? "offer" : "offer_reply";
   const againUrl = row.package_id ? await packageUrl(env, row.package_id)
     : refund === "offer" && hasCancelOffer(row) ? await manageUrl(env, row.id)
     : `${env.SITE_URL}/book/`;
@@ -922,6 +923,7 @@ export async function rebookCancelled(env: Env, bookingId: unknown, token: unkno
       catch (err) { console.error("rebook: zoom update failed:", (err as Error).message); }
     }
     await afterConfirm(env, row.id); // Zoom, calendar, and their confirmation
+    if (row.calendar_event_url) await refreshCalendarEvent(env, row.id); // an old event that was never removed
     const fresh = await loadBooking(env, "id", row.id);
     if (fresh) {
       await sendEmail(env, "admin_rebooked", row.id, {

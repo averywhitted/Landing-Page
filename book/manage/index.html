@@ -210,7 +210,7 @@
           const by = p.payBy ? Date.parse(p.payBy) : null;
           const due = by
             ? `Please pay by ${esc(f(by, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(f(by, { hour: "numeric", minute: "2-digit" }))} ${esc(zone(by))}. Paying by then confirms your ${booking.group ? "spot" : "session"}; after that, ${booking.group ? "your spot" : "the time"} will be opened up to other students.`
-            : "Please pay before your session.";
+            : booking.status === "past" ? "This session hasn't been paid for yet." : "Please pay before your session.";
           return `<div class="mg-pay"><p>${due}</p><div class="mg-actions"><button type="button" class="btn primary" id="mg-pay">Pay ${money(p.dueCents)}</button></div></div>`;
         }
 
