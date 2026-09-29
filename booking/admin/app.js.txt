@@ -1339,7 +1339,7 @@
           <label>Name<input type="text" name="name" required maxlength="120" placeholder="Start typing to find a student"></label>
           <label>Email<input type="email" name="email" required maxlength="200"></label>
           <label>Pronouns<input type="text" name="pronouns" maxlength="40" placeholder="optional"></label>
-          <label>Price ($)<input type="number" name="price" min="0" step="0.01" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
+          <label>Price ($)<input type="number" name="price" min="0" step="0.01" title="$0 for free, otherwise at least $0.50 (Stripe's minimum)" placeholder="${(priceOf(form.serviceId.value) / 100).toFixed(2)}"></label>
         </div>
         <div class="bundle-slot"></div>`;
       list.appendChild(div);

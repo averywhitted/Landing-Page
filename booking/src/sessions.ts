@@ -69,6 +69,8 @@ function parseStudents(b: Record<string, unknown>, service: Service): Student[] 
     if (x.priceCents !== undefined && x.priceCents !== null && x.priceCents !== "") {
       priceCents = Number(x.priceCents);
       if (!Number.isInteger(priceCents) || priceCents < 0 || priceCents > 500000) throw new BookingError(400, `The price for ${name} doesn't look right.`);
+      // Stripe can't charge less than $0.50.
+      if (priceCents > 0 && priceCents < 50) throw new BookingError(400, `The price for ${name} is below Stripe's minimum of $0.50. Use $0 for a free session, or at least $0.50.`);
     }
     return { name, email, pronouns: clean(x.pronouns, 40), priceCents: packageId ? 0 : priceCents, packageId };
   });
@@ -601,6 +603,7 @@ export async function startPayment(env: Env, bookingId: unknown, token: unknown,
   if (row.paid_at) throw new BookingError(409, "This session is already paid. Thank you!");
   const due = dueCents(row);
   if (!due) throw new BookingError(409, row.status === "cancelled" ? "This session has been cancelled." : "There's nothing to pay for this session.");
+  if (due < 50) throw new BookingError(409, "This amount is too small to pay by card. Please reply to your invite email.");
   if (row.pay_by && Date.parse(row.pay_by) <= now) throw new BookingError(409, "The payment deadline has passed. Please reply to your invite email.");
   // No deadline: it can still be paid after the session has happened.
 

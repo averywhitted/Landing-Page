@@ -1465,6 +1465,15 @@ test("book a student: a free session has no pay link; overlapping another bookin
   assert.equal(backToBack.status, 201, "Avery can book back to back");
 });
 
+test("book a student: prices under Stripe's $0.50 minimum are refused (free is fine)", async () => {
+  adminEnv();
+  const tiny = await adminBook({ students: [student("Tiny", "tiny@example.com", { priceCents: 1 })] });
+  assert.equal(tiny.status, 400);
+  assert.match(tiny.data.error, /\$0\.50/);
+  assert.equal((await adminBook({ time: "15:00", students: [student("Fifty", "fifty@example.com", { priceCents: 50 })] })).status, 201);
+  assert.equal((await adminBook({ time: "17:00", students: [student("Free", "free@example.com", { priceCents: 0 })] })).status, 201);
+});
+
 test("book a student: pay-by deadline releases unpaid sessions automatically; a deadline that's too soon is refused", async () => {
   adminEnv();
   const soonAt = Math.ceil((Date.now() + 5 * 3600000) / 900000) * 900000; // 5 hours from now, on a quarter hour
