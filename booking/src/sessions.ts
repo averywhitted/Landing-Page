@@ -142,6 +142,9 @@ export async function adminCheckTime(env: Env, body: unknown, now: number) {
       .filter((e) => e.start < end + buffer && e.end > start - buffer && e.uid !== ignoreUid)
       .map((e) => ({ start: iso(e.start), end: iso(e.end) }));
   } catch { /* calendar unreachable: no warning either way */ }
+  // Times kept for someone's repeating sessions (Avery can still book over them).
+  const reserved = await (await import("./series")).reservedBlocks(env, start, end);
+  const reservedFor = [...new Set(blocksFor(start, service.durationMinutes, 0).map((blk) => reserved.get(blk)).filter(Boolean))] as string[];
   const taken = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM slot_claims sc LEFT JOIN bookings b ON b.id = sc.booking_id LEFT JOIN groups g ON g.id = sc.group_id
      WHERE sc.slot_start IN (${blocksFor(start, service.durationMinutes, 0).map((x) => `'${x}'`).join(",")})
@@ -154,6 +157,7 @@ export async function adminCheckTime(env: Env, body: unknown, now: number) {
     start: iso(start),
     end: iso(end),
     overlapsBooking: (taken?.n ?? 0) > 0,
+    reservedFor,
     calendarClash,
     outsideHours: h < cfg.dayStartHour || endMinutes > cfg.dayEndHour * 60,
     dayOff: await isDayOff(env, start),
@@ -400,7 +404,10 @@ export async function adminMove(env: Env, target: { bookingId?: string; groupId?
       ]);
     } catch (err) { mapWriteError(err); }
     if (!res!.at(-1)!.meta.changes) throw new BookingError(409, "Only confirmed sessions can be moved.");
-    ctx.waitUntil(afterReschedule(env, row.id, { notifyAvery: false }));
+    // A held repeat goes out as a fresh invite at its new time; anything else as a reschedule.
+    ctx.waitUntil(row.series_conflict
+      ? (async () => { await (await import("./series")).releaseHeld(env, row.id, Date.now()); })()
+      : afterReschedule(env, row.id, { notifyAvery: false }));
     return { ok: true, start: iso(start) };
   }
 
@@ -449,6 +456,7 @@ async function afterGroupMove(env: Env, groupId: string, previous: number): Prom
 export async function adminResendInvite(env: Env, bookingId: string) {
   const row = await loadBooking(env, "id", bookingId);
   if (!row || row.status !== "confirmed") throw new BookingError(409, "Only confirmed sessions can be re-sent.");
+  if (row.series_conflict) throw new BookingError(409, "This session is waiting for you to keep or move it. Keeping it sends the invite.");
   const v = view(row);
   const manage = await manageUrl(env, row.id);
   const ics = clientIcs(env, row, v, "REQUEST");
@@ -514,6 +522,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
         refundedCents: b.refunded_cents ?? 0, noShow: b.attendance === "no_show", remindersSent: b.payment_reminders_sent,
         lastReminderAt: b.last_payment_reminder_at, nextReminderAt: nextAutoReminder(b, now),
         intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message, seriesId: b.series_id,
+        held: b.series_conflict,
       };
     }),
     series: (await env.DB.prepare(
@@ -537,6 +546,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
 export async function adminRemind(env: Env, bookingId: string, now: number) {
   const row = await loadBooking(env, "id", bookingId);
   if (!row || !dueCents(row)) throw new BookingError(409, "Nothing is owed on this session.");
+  if (row.series_conflict) throw new BookingError(409, "This session is waiting for you to keep or move it; the student hasn't been told about it yet.");
   const last = row.last_payment_reminder_at ? Date.parse(row.last_payment_reminder_at) : 0;
   if (last > now - REMINDER_GAP) {
     const fmt = (ms: number) => new Intl.DateTimeFormat("en-US", { timeZone: RULES.timeZone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(ms);
@@ -568,7 +578,7 @@ export function nextAutoReminder(row: Pick<BookingRow, "created_by" | "package_i
 export async function adminRemindStudent(env: Env, customerId: string, now: number) {
   const rows = await env.DB.prepare(
     `SELECT id FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL
-       AND package_id IS NULL AND price_cents > 0 AND end_utc > ?2 ORDER BY start_utc`,
+       AND package_id IS NULL AND price_cents > 0 AND end_utc > ?2 AND series_conflict IS NULL ORDER BY start_utc`,
   ).bind(customerId, iso(now)).all<{ id: string }>();
   if (!rows.results.length) throw new BookingError(409, "They don't owe anything right now.");
   let sent = 0;
@@ -701,7 +711,7 @@ export async function recordPayment(env: Env, s: stripe.CheckoutSession, now: nu
 export async function releaseUnpaid(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT id FROM bookings WHERE status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL AND package_id IS NULL
-       AND price_cents > 0 AND pay_by IS NOT NULL AND pay_by <= ?1 LIMIT 20`,
+       AND price_cents > 0 AND pay_by IS NOT NULL AND pay_by <= ?1 AND series_conflict IS NULL LIMIT 20`,
   ).bind(iso(now)).all<{ id: string }>();
   let released = 0;
   for (const { id } of rows.results) {
@@ -744,7 +754,7 @@ export async function releaseUnpaid(env: Env, now: number): Promise<number> {
 export async function sendPaymentReminders(env: Env, now: number): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT id FROM bookings WHERE status = 'confirmed' AND price_cents IS NOT NULL AND paid_at IS NULL AND package_id IS NULL
-       AND price_cents > 0 AND payment_reminder_sent_at IS NULL AND created_at <= ?1 AND start_utc > ?2
+       AND price_cents > 0 AND payment_reminder_sent_at IS NULL AND created_at <= ?1 AND start_utc > ?2 AND series_conflict IS NULL
        AND (last_payment_reminder_at IS NULL OR last_payment_reminder_at <= ?7)
        AND ((pay_by IS NOT NULL AND pay_by <= ?3 AND pay_by > ?4) OR (pay_by IS NULL AND start_utc <= ?5 AND start_utc > ?6))
      LIMIT 20`,

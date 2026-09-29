@@ -117,7 +117,7 @@
     const p = data.problems;
     const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past).length;
     return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow
-      + (p.refundRequests || []).length + (p.icloud ? 1 : 0);
+      + (p.refundRequests || []).length + (p.held || []).length + (p.icloud ? 1 : 0);
   }
 
   function renderTabs() {
@@ -174,19 +174,24 @@
     : "";
 
   const everyText = (n) => (n === 1 ? "every week" : `every ${n} weeks`);
+  const clashText = (c) => (c === "day_off" ? "falls on a day off" : "clashes with your calendar");
+  const heldButtons = (id, small) => btn("Keep this time", `data-keep="${esc(id)}"`, "Keep it as is and send the student their invite", small ? "sm primary" : "primary")
+    + btn("Move it", `data-move="${esc(id)}"`, "Pick another time; the student gets the invite for the new time", small ? "sm" : "");
   function bookingCard(b) {
     const live = b.status === "confirmed" && !b.past;
+    const held = live && b.held;
     const chips = [
+      held ? `<span class="chip bad" title="The student hasn't been told yet. If you don't decide, it goes ahead 2 days before.">Waiting for you: ${clashText(b.held)}</span>` : "",
       payChip(b), statusChip(b), refundChip(b), reminderChips(b),
       b.noShow ? '<span class="chip bad">No-show</span>' : "",
       b.repeatEvery ? `<span class="chip" title="The next one is booked automatically after this one ends">&#8635; Repeats ${everyText(b.repeatEvery)}</span>` : "",
       b.byAvery ? '<span class="chip">Booked by you</span>' : "",
       live ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
-      live && !b.emailed ? '<span class="chip bad">Not emailed</span>' : "",
+      live && !b.emailed && !held ? '<span class="chip bad">Not emailed</span>' : "",
     ].join("");
     const intake = b.intake ? Object.entries({ Goal: b.intake.goal, Material: b.intake.material, Link: b.intake.link, Notes: b.intake.notes })
       .filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Link" ? `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>` : esc(v)}</dd>`).join("") : "";
-    const actions = [
+    const actions = held ? [heldButtons(b.id), btn("Cancel session", `data-cancel="${esc(b.id)}"`, "Cancel this week's session. The student hasn't been told about it.", "danger")].join("") : [
       b.zoomUrl && live ? link("Join Zoom", b.zoomUrl, "Open this session's Zoom meeting", "primary") : "",
       remindBtn(b),
       b.stripeUrl ? link("Payment", b.stripeUrl, "Open this payment in your Stripe dashboard") : "",
@@ -648,6 +653,13 @@
     const parts = [];
     const panel = (title, body) => `<div class="panel"><p class="day" style="margin-top:0">${title}</p>${body}</div>`;
     const { icloud, refundRequests } = data.problems;
+    const held = data.problems.held || [];
+    if (held.length) {
+      parts.push(panel("Repeating sessions waiting for you", `<p class="mono-hint" style="margin-top:0">These clash with your calendar or a day off. The student hasn't been told yet; if you don't decide, each goes ahead at the usual time 2 days before.</p>` + held.map((h) => `<div class="seat">
+        <div class="who-line"><strong>${nameTag(h.name, h.pronouns)}</strong><small>${esc(dayLabel(h.start))} at ${esc(clock(h.start))} &middot; ${clashText(h.clash)}</small></div>
+        <span class="seat-actions">${heldButtons(h.id, true)}</span>
+      </div>`).join("")));
+    }
     if (icloud) {
       parts.push(`<div class="panel alert-panel"><p class="day" style="margin-top:0">Can't reach your iCloud calendar</p>
         <p>Since ${esc(whenShort(icloud.failingSince))}, the booking page can't read your calendars, so clients can't see open times or book. The usual cause is the app-specific password being revoked (for example after an Apple ID password change). Make a new one at account.apple.com and send it to the booking service.</p>
@@ -891,6 +903,7 @@
       const r = await api("POST", "/api/admin/check-time", { serviceId: form.serviceId?.value || extra.serviceId, date: form.date.value, time: form.time.value, ...extra });
       const w = [];
       if (r.overlapsBooking) w.push("<p class=\"bad\">This overlaps another booking, so it can't be booked.</p>");
+      if (r.reservedFor && r.reservedFor.length) w.push(`<p>This time is kept for ${esc(r.reservedFor.join(" and "))}'s repeating sessions. If you book it, their session that week will be skipped.</p>`);
       if (r.calendarClash && r.calendarClash.length) w.push(`<p>Something on your calendar is at ${r.calendarClash.map((c) => `${esc(clock(c.start))} to ${esc(clock(c.end))}`).join(", ")} (within your buffer). You can still book it.</p>`);
       if (r.outsideHours) w.push("<p>This is outside your usual working hours.</p>");
       if (r.withinNotice) w.push("<p>This is sooner than your usual notice period.</p>");
@@ -993,6 +1006,12 @@
       toast(r.sent > 1 ? `${r.sent} payment reminders sent.` : "Payment reminder sent.");
     } catch (err) { toast(err.message, true); }
     b.disabled = false;
+  }
+
+  async function keepHeld(id, b) {
+    b.disabled = true;
+    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/keep`); toast("Kept. The invite is on its way."); await load(); }
+    catch (err) { toast(err.message, true); b.disabled = false; }
   }
 
   async function resend(id, b) {
@@ -1331,6 +1350,7 @@
     else if (d.cancelGroup) openCancelGroup(d.cancelGroup);
     else if (d.cancelBundle) openCancelBundle(d.cancelBundle);
     else if (d.resend) resend(d.resend, t);
+    else if (d.keep) keepHeld(d.keep, t);
   });
 
   document.addEventListener("submit", (e) => {

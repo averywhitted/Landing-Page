@@ -319,6 +319,12 @@ for (const kind of ["bookings", "packages"] as const) {
   });
 }
 
+// A repeating session held because it clashes with Avery's calendar: keep it (sends the invite).
+app.post("/api/admin/bookings/:id/keep", async (c) => {
+  try { const { adminKeepHeld } = await import("./series"); return c.json(await adminKeepHeld(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/series/:id/stop", async (c) => {
   const body = await jsonBody(c);
   try { const { stopSeries } = await import("./series"); return c.json(await stopSeries(c.env, c.req.param("id"), "admin", Date.now(), body.notifyClient !== false)); }
@@ -533,6 +539,7 @@ async function scheduled(env: Env): Promise<void> {
   const series = await import("./series");
   const repeats = await run("repeating sessions", () => series.bookNextSessions(env, now));
   await run("abandoned repeats", () => series.dropAbandonedSeries(env, now));
+  const undecided = await run("held repeats", () => series.releaseUndecided(env, now));
   const extras = await import("./extras");
   await run("icloud health", () => extras.checkCalendarHealth(env, now));
   await run("backup", () => extras.nightlyBackup(env, now));
@@ -540,7 +547,7 @@ async function scheduled(env: Env): Promise<void> {
   await run("bundle email retries", () => retryPackageEmails(env, now));
   const cleaned = await run("retention", () => runRetention(env, now));
   const alerts = await run("alerts", () => checkAlerts(env, now));
-  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, repeats, cleaned, alerts: alerts?.length };
+  const summary = { released: holds?.released, lateConfirmed: holds?.confirmed, bundles, expiring, checkout, session, retried, refunds, unpaid, repeats, undecided, cleaned, alerts: alerts?.length };
   if (Object.values(summary).some((v) => v)) console.log("cron:", JSON.stringify(summary));
 }
 

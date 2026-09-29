@@ -479,9 +479,30 @@ export function seriesSkipped(p: SkipNote): Email {
   };
 }
 
+// A repeating session that clashes with Avery's calendar or a day off: held
+// until she keeps or moves it (or sent anyway 2 days before).
+export function adminSeriesClash(p: { name: string; serviceName: string; when: number; clash: "calendar" | "day_off"; wentAhead: boolean }): Email {
+  const tz = AVERY_TZ;
+  const at = `${day(p.when, tz)} at ${clock(p.when, tz)}`;
+  const why = p.clash === "day_off" ? "falls on one of your days off" : "clashes with something on your calendar";
+  const line = p.wentAhead
+    ? `${p.name}'s repeating session on ${at} ${why}. You hadn't kept or moved it, so 2 days before, it went ahead at the usual time and ${p.name} has been sent the invite.`
+    : `${p.name}'s next repeating session on ${at} ${why}. It's booked and the time is held, but ${p.name} hasn't been told yet. Keep it or move it to another time, and they'll get the invite then.`;
+  return {
+    to: "",
+    subject: p.wentAhead ? `Repeat went ahead: ${p.name}, ${shortDay(p.when, tz)} at ${clock(p.when, tz)}` : `Repeat clash: ${p.name}, ${shortDay(p.when, tz)} at ${clock(p.when, tz)}`,
+    html: layout({ preheader: line, tag: "Repeating session", title: "Needs attention", subtitle: p.name, body: [
+      warn(line, FIX_ADMIN),
+      button(FIX_ADMIN[1], p.wentAhead ? "Open Admin" : "Keep or move it"),
+      p.wentAhead ? "" : small("If you haven't decided 2 days before the session, it goes ahead at the usual time and they're sent the invite."),
+    ].join("\n") }),
+    text: [line, "", `Keep or move it: ${FIX_ADMIN[1]}`].join("\n"),
+  };
+}
+
 export function adminSeriesSkipped(p: SkipNote): Email {
   const tz = AVERY_TZ;
-  const why = p.reason === "day_off" ? "it's one of your days off" : "that time is taken or blocked on your calendar";
+  const why = "another session has been booked at that time";
   return {
     to: "",
     subject: `Repeat skipped: ${p.name}, ${shortDay(p.when, tz)} at ${clock(p.when, tz)}`,

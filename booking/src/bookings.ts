@@ -114,9 +114,10 @@ export async function isStillOpen(env: Env, service: Service, start: number, now
 }
 
 // The 15-minute blocks taken between two times: by confirmed bookings,
-// unexpired holds, and active group sessions. `ignoreBookingId` leaves out
-// one booking's own blocks (used when moving it).
-export async function claimedBlocks(env: Env, from: number, to: number, now: number, ignoreBookingId = ""): Promise<Set<string>> {
+// unexpired holds, active group sessions, and the future times reserved by
+// repeating sessions. `ignoreBookingId` leaves out one booking's own blocks
+// (used when moving it); `ignoreSeriesId` one series' reserved times.
+export async function claimedBlocks(env: Env, from: number, to: number, now: number, ignoreBookingId = "", ignoreSeriesId = ""): Promise<Set<string>> {
   const rows = await env.DB.prepare(
     `SELECT sc.slot_start FROM slot_claims sc
        LEFT JOIN bookings b ON b.id = sc.booking_id
@@ -124,7 +125,10 @@ export async function claimedBlocks(env: Env, from: number, to: number, now: num
      WHERE sc.slot_start >= ?1 AND sc.slot_start < ?2 AND (?4 = '' OR sc.booking_id IS NULL OR sc.booking_id <> ?4)
        AND (b.status = 'confirmed' OR (b.status = 'held' AND b.hold_expires_at > ?3) OR g.status = 'active')`,
   ).bind(iso(from), iso(to), iso(now), ignoreBookingId).all<{ slot_start: string }>();
-  return new Set(rows.results.map((r) => r.slot_start));
+  const taken = new Set(rows.results.map((r) => r.slot_start));
+  const reserved = await (await import("./series")).reservedBlocks(env, from, to, ignoreSeriesId);
+  for (const blk of reserved.keys()) taken.add(blk);
+  return taken;
 }
 
 /* ── Create ── */
@@ -257,6 +261,7 @@ export type BookingRow = {
   created_at: string; student_notes: string | null; series_id: string | null; series_every: number | null;
   group_id: string | null; created_by: string | null; price_cents: number | null; pay_by: string | null;
   paid_at: string | null; payment_reminder_sent_at: string | null; invite_message: string | null;
+  series_conflict: string | null; series_conflict_at: string | null;
 };
 
 // Still to pay on a session that's paid by link (booked by Avery, or a repeat
@@ -449,6 +454,8 @@ export function clientIcs(env: Env, row: BookingRow, v: T.BookingView, method: "
 export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   let row = await loadBooking(env, "id", bookingId);
   if (!row || row.status !== "confirmed") return;
+  // A repeating session held for Avery (it clashes with her calendar): nothing goes out yet.
+  if (row.series_conflict) return;
   if (row.series_id) await (await import("./series")).activateSeries(env, row.series_id);
   const service = findService(row.service_id)!;
   const start = Date.parse(row.start_utc);
@@ -607,6 +614,7 @@ export async function retryConfirmations(env: Env, now: number): Promise<number>
     `SELECT b.id FROM bookings b
      WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
        AND ((b.group_id IS NULL AND b.calendar_event_url IS NULL) OR b.client_email_sent_at IS NULL OR b.admin_email_sent_at IS NULL)
+       AND b.series_conflict IS NULL
        AND (SELECT COUNT(*) FROM email_log e WHERE e.booking_id = b.id AND e.status = 'failed') < 5
      LIMIT 20`,
   ).bind(iso(now), iso(now - 2 * MIN)).all<{ id: string }>();
@@ -753,7 +761,8 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
   const creditReturned = !row.package_id || !!(await env.DB.prepare(
     "SELECT 1 AS ok FROM credit_ledger WHERE booking_id = ?1 AND delta > 0 AND reason IN ('cancelled_in_time', 'avery_cancelled')",
   ).bind(row.id).first());
-  if (opts.notifyClient) await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl, refund, creditReturned));
+  // A held repeat was never sent to the student, so there's nothing to tell them.
+  if (opts.notifyClient && !row.series_conflict && row.client_email_sent_at) await sendEmail(env, "client_cancelled", row.id, T.clientCancelled(v, clientIcs(env, row, v, "CANCEL"), againUrl, refund, creditReturned));
   if (opts.notifyAvery) {
     await sendEmail(env, "admin_cancelled", row.id, {
       ...T.adminCancelled(v, stripePaymentUrl(env, row.stripe_payment_intent_id), { refund, ...removed }), to: env.ADMIN_EMAIL,
@@ -888,7 +897,7 @@ export async function sendSessionReminders(env: Env, now: number): Promise<numbe
   // last 2 hours, since they just got their confirmation email.
   const rows = await env.DB.prepare(
     `SELECT b.id FROM bookings b
-     WHERE b.status = 'confirmed' AND b.session_reminder_sent_at IS NULL
+     WHERE b.status = 'confirmed' AND b.session_reminder_sent_at IS NULL AND b.series_conflict IS NULL
        AND b.start_utc > ?1 AND b.start_utc <= ?2 AND b.confirmed_at <= ?3
        AND (SELECT COUNT(*) FROM email_log e WHERE e.booking_id = b.id AND e.kind = 'session_reminder') < 3
      LIMIT 25`,
@@ -936,7 +945,7 @@ export async function checkAlerts(env: Env, now: number): Promise<T.Problem[]> {
   const stuck = await env.DB.prepare(
     `SELECT b.start_utc, ${CLIENT_COLUMNS("b")}, (b.group_id IS NULL AND b.calendar_event_url IS NULL) AS no_cal, b.client_email_sent_at IS NULL AS no_email
      FROM bookings b JOIN customers c ON c.id = b.customer_id
-     WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2
+     WHERE b.status = 'confirmed' AND b.end_utc > ?1 AND b.confirmed_at <= ?2 AND b.series_conflict IS NULL
        AND ((b.group_id IS NULL AND b.calendar_event_url IS NULL) OR b.client_email_sent_at IS NULL)
      LIMIT 10`,
   ).bind(iso(now), iso(now - 15 * MIN)).all<{ start_utc: string; name: string; no_cal: number; no_email: number }>();

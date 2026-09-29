@@ -1348,7 +1348,9 @@ test("book a student: a free session has no pay link; overlapping another bookin
 
 test("book a student: pay-by deadline releases unpaid sessions automatically; a deadline that's too soon is refused", async () => {
   adminEnv();
-  const soon = await adminBook({ date: etDate(Date.now() + 3 * 3600000), time: "23:45", payBy: "before24", students: [student("A", "a@example.com")] });
+  const soonAt = Math.ceil((Date.now() + 5 * 3600000) / 900000) * 900000; // 5 hours from now, on a quarter hour
+  const soonTime = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(soonAt);
+  const soon = await adminBook({ date: etDate(soonAt), time: soonTime, payBy: "before24", students: [student("A", "a@example.com")] });
   assert.equal(soon.status, 400, "24 hours before a session that's sooner than that");
   const r = await adminBook({ payBy: "after24", students: [student("Late Payer", "late@example.com")] });
   assert.equal(r.status, 201);
@@ -1934,6 +1936,79 @@ test("repeating: a skipped week doesn't use up one of a set number of sessions",
   assert.equal(inSeries(sid).length, 1, "skipped");
   assert.equal(seriesOf(first).sessions_left, 1, "still one to come");
   assert.equal(seriesOf(first).status, "active");
+});
+
+test("repeating: future times are kept for the student; others can't book them, Avery is warned", async () => {
+  adminEnv();
+  const r = await adminBook({ time: "13:00", students: [student("Kept Time", "kept@example.com", { priceCents: 0 })], repeat: { everyWeeks: 1 } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const first = row(r.data.bookingId);
+  const nextWeek = Date.parse(first.start_utc) + 7 * DAY;
+  const nextIso = new Date(nextWeek).toISOString().replace(/\.000Z$/, "Z");
+  const dayOf = async () => (await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(nextWeek)}&days=1&fresh=${Math.random()}`)).data.slots as string[];
+  const slots = await dayOf();
+  assert.ok(slots.length > 0, "other times that day are offered");
+  assert.ok(!slots.includes(nextIso), "next week's time isn't offered on the site");
+  const check = await api.call("POST", "/api/admin/check-time", { headers: asAdmin(), body: { serviceId: "coaching-60", date: etDate(nextWeek), time: "13:00" } });
+  assert.deepEqual(check.data.reservedFor, ["Kept Time"]);
+  assert.equal(check.data.overlapsBooking, false, "a warning, not a block");
+  await api.call("POST", `/api/admin/series/${first.series_id}/stop`, { headers: asAdmin(), body: { notifyClient: false } });
+  assert.ok((await dayOf()).includes(nextIso), "offered again once the repeats stop");
+});
+
+test("repeating: a week that clashes with Avery's calendar is held until she keeps or moves it", async () => {
+  adminEnv();
+  const r = await adminBook({ time: "15:00", students: [student("Held Up", "held@example.com", { priceCents: 5000 })], payBy: "before24", repeat: { everyWeeks: 1 } });
+  const first = r.data.bookingId;
+  const sid = seriesOf(first).id;
+  const past = endSession(first);
+  const next = past + 7 * DAY;
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  world.state.busy.push({ calendar: "Personal", ics: `BEGIN:VEVENT\r\nUID:dentist\r\nDTSTART:${stamp(next)}\r\nDTEND:${stamp(next + 3600000)}\r\nEND:VEVENT` });
+  world.state.emails.length = 0;
+  await api.cron();
+  const held = inSeries(sid)[1];
+  assert.equal(held.status, "confirmed", "booked, so the time stays kept");
+  assert.equal(held.series_conflict, "calendar");
+  assert.ok(!world.state.emails.some((e) => e.to[0] === "held@example.com"), "the student hasn't been told");
+  assert.ok(world.state.emails.some((e) => /^Repeat clash: Held Up/.test(e.subject)));
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(overview.data.problems.held.length, 1);
+
+  // Retries and reminders leave it alone.
+  db.prepare("UPDATE bookings SET confirmed_at = ?, pay_by = ? WHERE id = ?").run(new Date(Date.now() - DAY).toISOString(), new Date(Date.now() - 60000).toISOString(), held.id);
+  await api.cron();
+  assert.equal(row(held.id).status, "confirmed", "not released as unpaid while held");
+  assert.ok(!world.state.emails.some((e) => e.to[0] === "held@example.com"));
+
+  // Keep it: the invite goes out, with at least 12 hours to pay.
+  assert.equal((await api.call("POST", `/api/admin/bookings/${held.id}/keep`, { headers: asAdmin(), body: {} })).status, 200);
+  const kept = row(held.id);
+  assert.equal(kept.series_conflict, null);
+  assert.ok(Date.parse(kept.pay_by) >= Date.now() + 12 * 3600000 - 60000, "never less than 12 hours to pay");
+  assert.ok(world.state.emails.some((e) => e.to[0] === "held@example.com" && /payment due/.test(e.subject)));
+  assert.equal((await api.call("POST", `/api/admin/bookings/${held.id}/keep`, { headers: asAdmin(), body: {} })).status, 409);
+});
+
+test("repeating: a held week Avery never decides goes ahead 2 days before", async () => {
+  adminEnv();
+  const r = await adminBook({ time: "17:00", students: [student("No Word", "noword@example.com", { priceCents: 0 })], repeat: { everyWeeks: 1 } });
+  const first = r.data.bookingId;
+  const sid = seriesOf(first).id;
+  const past = endSession(first);
+  const next = past + 7 * DAY;
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  world.state.busy.push({ calendar: "Professional", ics: `BEGIN:VEVENT\r\nUID:meeting\r\nDTSTART:${stamp(next)}\r\nDTEND:${stamp(next + 3600000)}\r\nEND:VEVENT` });
+  await api.cron();
+  const held = inSeries(sid)[1];
+  assert.equal(held.series_conflict, "calendar");
+  const soon = Date.now() + DAY;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(soon).toISOString(), new Date(soon + 3600000).toISOString(), held.id);
+  world.state.emails.length = 0;
+  await api.cron();
+  assert.equal(row(held.id).series_conflict, null);
+  assert.ok(world.state.emails.some((e) => e.to[0] === "noword@example.com"), "the student gets the invite");
+  assert.ok(world.state.emails.some((e) => /^Repeat went ahead: No Word/.test(e.subject)));
 });
 
 test("repeating: a first session that's never paid drops the series", async () => {

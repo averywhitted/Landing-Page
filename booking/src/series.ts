@@ -3,10 +3,16 @@
 //
 // The first session is booked the normal way. Once a session has ended, the
 // next one is booked automatically at the same weekday and time (Avery's
-// time zone), with an invite and a link to pay. If that time isn't free, that
-// week is skipped and both people are told; the series carries on. Two unpaid
-// sessions in a row stop the series. Either person can stop it at any time;
-// sessions already booked stay booked.
+// time zone), with an invite and a link to pay. Two unpaid sessions in a row
+// stop the series. Either person can stop it at any time; sessions already
+// booked stay booked.
+//
+// Reserved: an active series' future times are blocked for everyone else
+// booking on the site (Avery is warned, and can book over one if she chooses).
+// If a future week clashes with Avery's own calendar or a day off, that
+// session is booked but held: the student isn't told until Avery keeps it or
+// moves it. If she hasn't decided 2 days before, it goes ahead as usual.
+// Only if the time was taken outright (Avery booked over it) is the week skipped.
 
 import type { Env } from "./env";
 import { findService, type Service } from "./services";
@@ -17,7 +23,8 @@ import { sendEmail } from "./email";
 import * as T from "./templates";
 import { scheduling } from "./config";
 import { validManageToken } from "./manage";
-import { BookingError, UNIQUE_CLAIM, afterConfirm, claimedBlocks, isStillOpen, loadBooking, serviceLabel } from "./bookings";
+import { calendarFor } from "./calendar";
+import { BookingError, UNIQUE_CLAIM, afterConfirm, claimedBlocks, loadBooking, serviceLabel } from "./bookings";
 
 const MIN = 60000;
 const DAY = 24 * 60 * MIN;
@@ -76,7 +83,7 @@ export async function activateSeries(env: Env, seriesId: string) {
 }
 
 // The same weekday and wall-clock time, n weeks later (daylight saving safe).
-function sameTimeWeeksLater(ms: number, weeks: number): number {
+export function sameTimeWeeksLater(ms: number, weeks: number): number {
   const [y, m, d] = zonedDate(ms, AVERY_TZ);
   const hm = new Intl.DateTimeFormat("en-US", { timeZone: AVERY_TZ, hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).format(ms).split(":").map(Number);
   const next = new Date(Date.UTC(y, m - 1, d + weeks * 7));
@@ -86,6 +93,46 @@ function sameTimeWeeksLater(ms: number, weeks: number): number {
 async function isDayOff(env: Env, start: number): Promise<boolean> {
   const [y, m, d] = zonedDate(start, AVERY_TZ);
   return !(await scheduling(env)).workDays.includes(new Date(Date.UTC(y, m - 1, d)).getUTCDay());
+}
+
+/* ── Reserved times ── */
+
+// The 15-minute blocks held by active series between two times: every future
+// occurrence after the latest one booked (up to the set number of sessions).
+// `ignoreSeriesId` leaves one series out (used when booking its own next session).
+export async function reservedBlocks(env: Env, from: number, to: number, ignoreSeriesId = ""): Promise<Map<string, string>> {
+  const rows = await env.DB.prepare(
+    "SELECT id, service_id, started_by, every_weeks, sessions_left, last_start, client_name FROM series WHERE status = 'active' AND id <> ?1",
+  ).bind(ignoreSeriesId).all<Pick<SeriesRow, "id" | "service_id" | "started_by" | "every_weeks" | "sessions_left" | "last_start" | "client_name">>();
+  const out = new Map<string, string>(); // block -> whose series
+  if (!rows.results.length) return out;
+  const cfg = await scheduling(env);
+  for (const s of rows.results) {
+    const service = findService(s.service_id);
+    if (!service) continue;
+    const buffer = s.started_by === "client" ? cfg.bufferMinutes : 0;
+    let t = sameTimeWeeksLater(Date.parse(s.last_start), s.every_weeks);
+    for (let n = 0; n < 120 && t < to && (s.sessions_left === null || n < s.sessions_left); n++) {
+      if (t + (service.durationMinutes + buffer) * MIN > from) {
+        for (const blk of blocksFor(t, service.durationMinutes, buffer)) out.set(blk, s.client_name ?? "a student");
+      }
+      t = sameTimeWeeksLater(t, s.every_weeks);
+    }
+  }
+  return out;
+}
+
+// Payment deadline for a session booked automatically: the series' rule, but
+// never less than 12 hours to pay. Too close for that: just "before the session".
+export function seriesPayBy(rule: string, start: number, now: number): number | null {
+  const at = rule === "before24" ? start - DAY
+    : rule === "after24" ? Math.min(start, now + DAY)
+    : rule === "after48" ? Math.min(start, now + 2 * DAY)
+    : null;
+  if (at === null) return null;
+  const floor = now + 12 * 60 * MIN;
+  if (at >= floor) return at;
+  return floor < start ? floor : null;
 }
 
 /* ── Cron: book the next session in each series ── */
@@ -112,7 +159,7 @@ export async function bookNextSessions(env: Env, now: number): Promise<number> {
       ).bind(iso(next), iso(now), s.id, s.last_start).run();
       if (!claim.meta.changes) continue;
       const result = await bookOne(env, s, service, next, now);
-      if (result === "booked") booked++;
+      if (result === "booked" || result === "held") booked++;
       else {
         // A skipped week doesn't count toward a set number of sessions.
         await env.DB.prepare("UPDATE series SET sessions_left = sessions_left + 1 WHERE id = ?1 AND sessions_left IS NOT NULL").bind(s.id).run();
@@ -127,37 +174,37 @@ export async function bookNextSessions(env: Env, now: number): Promise<number> {
   return booked;
 }
 
-type Outcome = "booked" | "day_off" | "taken";
+type Outcome = "booked" | "held" | "taken";
+type Clash = "calendar" | "day_off";
 
 async function bookOne(env: Env, s: SeriesRow, service: Service, start: number, now: number): Promise<Outcome> {
-  if (await isDayOff(env, start)) return "day_off";
-  // A student's own series follows the same rules as booking on the site
-  // (open hours, calendar, notice). Avery's only needs the time to be free.
-  if (s.started_by === "client") {
-    if (!(await isStillOpen(env, service, start, now))) return "taken";
-  } else {
-    const blocks = blocksFor(start, service.durationMinutes, 0);
-    const taken = await claimedBlocks(env, start - 60 * MIN, start + service.durationMinutes * MIN + 60 * MIN, now);
-    if (blocks.some((b) => taken.has(b))) return "taken";
+  const end = start + service.durationMinutes * MIN;
+  // Taken outright by another booking (only possible if Avery booked over the reservation).
+  const blocks = blocksFor(start, service.durationMinutes, 0);
+  const taken = await claimedBlocks(env, start - 60 * MIN, end + 60 * MIN, now, "", s.id);
+  if (blocks.some((b) => taken.has(b))) return "taken";
+  // A clash with Avery's own calendar or a day off: book it, but hold it for her.
+  let clash: Clash | null = (await isDayOff(env, start)) ? "day_off" : null;
+  const cfg = await scheduling(env);
+  const buffer = s.started_by === "client" ? cfg.bufferMinutes : 0;
+  if (!clash) {
+    try {
+      const busy = await calendarFor(env, cfg).getBusy(start - buffer * MIN, end + buffer * MIN);
+      if (busy.some((e) => e.start < end + buffer * MIN && e.end > start - buffer * MIN)) clash = "calendar";
+    } catch { /* calendar unreachable: book as usual (Avery is alerted about iCloud separately) */ }
   }
   const id = crypto.randomUUID();
-  const end = start + service.durationMinutes * MIN;
-  const owes = s.price_cents > 0;
-  const payBy = !owes ? null
-    : s.pay_by_rule === "before24" ? start - DAY
-    : s.pay_by_rule === "after24" ? Math.min(start, now + DAY)
-    : s.pay_by_rule === "after48" ? Math.min(start, now + 2 * DAY)
-    : null;
-  const buffer = s.started_by === "client" ? (await scheduling(env)).bufferMinutes : 0;
+  const payBy = s.price_cents > 0 ? seriesPayBy(s.pay_by_rule, start, now) : null;
   try {
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO bookings (id, customer_id, service_id, start_utc, end_utc, status, amount_cents, price_cents, pay_by, created_by,
-           series_id, ics_uid, client_time_zone, confirmed_at, client_name, client_pronouns, invite_message, admin_email_sent_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+           series_id, ics_uid, client_time_zone, confirmed_at, client_name, client_pronouns, invite_message, admin_email_sent_at,
+           series_conflict, series_conflict_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
       ).bind(id, s.customer_id, s.service_id, iso(start), iso(end), s.price_cents, payBy ? iso(payBy) : null,
         "series", s.id, `${id}@averywhitted.com`, s.client_time_zone || AVERY_TZ, iso(now),
-        s.client_name, s.client_pronouns, s.message, iso(now)),
+        s.client_name, s.client_pronouns, s.message, iso(now), clash, clash ? iso(now) : null),
       ...blocksFor(start, service.durationMinutes, buffer).map((blk) =>
         env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
     ]);
@@ -165,11 +212,62 @@ async function bookOne(env: Env, s: SeriesRow, service: Service, start: number, 
     if (UNIQUE_CLAIM.test((err as Error).message)) return "taken";
     throw err;
   }
+  if (clash) {
+    await tellAveryAboutClash(env, id, clash, false);
+    return "held";
+  }
   await afterConfirm(env, id);
   return "booked";
 }
 
-async function skipped(env: Env, s: SeriesRow, when: number, why: Exclude<Outcome, "booked">) {
+async function tellAveryAboutClash(env: Env, bookingId: string, clash: Clash, wentAhead: boolean) {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row) return;
+  await sendEmail(env, wentAhead ? "admin_series_clash_sent" : "admin_series_clash", row.id, {
+    ...T.adminSeriesClash({ name: row.name, serviceName: serviceLabel(findService(row.service_id)!), when: Date.parse(row.start_utc), clash, wentAhead }),
+    to: env.ADMIN_EMAIL,
+  });
+}
+
+/* ── Held sessions: Avery keeps or moves them ── */
+
+// Sends the held session to the student as a normal invite (after Avery
+// keeps it, moves it, or 2 days before if she hasn't decided).
+export async function releaseHeld(env: Env, bookingId: string, now: number): Promise<boolean> {
+  const row = await loadBooking(env, "id", bookingId);
+  if (!row || row.status !== "confirmed" || !row.series_conflict) return false;
+  const s = row.series_id ? await env.DB.prepare("SELECT pay_by_rule FROM series WHERE id = ?1").bind(row.series_id).first<{ pay_by_rule: string }>() : null;
+  const start = Date.parse(row.start_utc);
+  const payBy = (row.price_cents ?? 0) > 0 && !row.paid_at ? seriesPayBy(s?.pay_by_rule ?? "none", start, now) : null;
+  const res = await env.DB.prepare(
+    "UPDATE bookings SET series_conflict = NULL, pay_by = ?1, confirmed_at = ?2, updated_at = ?2 WHERE id = ?3 AND series_conflict IS NOT NULL AND status = 'confirmed'",
+  ).bind(payBy ? iso(payBy) : null, iso(now), row.id).run();
+  if (!res.meta.changes) return false;
+  await afterConfirm(env, row.id);
+  return true;
+}
+
+export async function adminKeepHeld(env: Env, bookingId: string, now: number) {
+  if (!(await releaseHeld(env, bookingId, now))) throw new BookingError(409, "This session isn't waiting for you anymore.");
+  return { ok: true };
+}
+
+// Cron: anything still held 2 days before goes ahead at the usual time.
+export async function releaseUndecided(env: Env, now: number): Promise<number> {
+  const rows = await env.DB.prepare(
+    "SELECT id, series_conflict FROM bookings WHERE status = 'confirmed' AND series_conflict IS NOT NULL AND start_utc <= ?1 LIMIT 20",
+  ).bind(iso(now + 2 * DAY)).all<{ id: string; series_conflict: Clash }>();
+  let n = 0;
+  for (const r of rows.results) {
+    if (await releaseHeld(env, r.id, now)) {
+      await tellAveryAboutClash(env, r.id, r.series_conflict, true);
+      n++;
+    }
+  }
+  return n;
+}
+
+async function skipped(env: Env, s: SeriesRow, when: number, why: "taken") {
   const service = findService(s.service_id)!;
   const c = await env.DB.prepare("SELECT email FROM customers WHERE id = ?1").bind(s.customer_id).first<{ email: string }>();
   if (!c) return;

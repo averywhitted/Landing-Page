@@ -87,7 +87,7 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
             b.group_id, b.created_by, b.price_cents, b.paid_at, b.pay_by, b.invite_message,
             b.client_email_sent_at IS NOT NULL AS emailed, b.stripe_payment_intent_id, b.refunded_at, b.intake_json,
             b.refund_requested_at, b.refund_error, b.cleanup_error, b.refunded_cents, b.attendance, b.payment_reminders_sent,
-            b.last_payment_reminder_at, b.payment_reminder_sent_at, b.created_at, b.series_id,
+            b.last_payment_reminder_at, b.payment_reminder_sent_at, b.created_at, b.series_id, b.series_conflict,
             (SELECT every_weeks FROM series s WHERE s.id = b.series_id AND s.status IN ('pending', 'active')) AS series_every, b.zoom_meeting_id IS NOT NULL AS zoom_left, c.id AS customer_id,
             ${CLIENT_COLUMNS("b")}
      FROM bookings b JOIN customers c ON c.id = b.customer_id LEFT JOIN groups g ON g.id = b.group_id
@@ -120,6 +120,8 @@ async function sessionsBetween(env: Env, from: number, to: number, now: number) 
       studentNotes: b.student_notes,
       seriesId: b.series_id,
       repeatEvery: b.series_every,
+      // A repeat held for Avery: "calendar" or "day_off" clash; the student hasn't been told yet.
+      held: b.series_conflict,
       unpaidReleased: b.cancel_reason === "unpaid",
       promoCode: b.promo_code,
       zoomUrl: b.zoom_join_url,
@@ -199,7 +201,10 @@ export async function adminOverview(env: Env, now: number) {
     })),
     problems: {
       failedEmails: failedEmails.results.map((e) => ({ kind: e.kind, error: e.error, at: e.created_at })),
-      stuck: bookings.results.filter((b) => b.status === "confirmed" && Date.parse(b.end_utc) > now && (!b.in_calendar || !b.emailed))
+      // Repeating sessions that clash with your calendar or a day off: keep or move.
+      held: bookings.results.filter((b) => b.status === "confirmed" && b.series_conflict && Date.parse(b.end_utc) > now)
+        .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, clash: b.series_conflict })),
+      stuck: bookings.results.filter((b) => b.status === "confirmed" && !b.series_conflict && Date.parse(b.end_utc) > now && (!b.in_calendar || !b.emailed))
         .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, inCalendar: !!b.in_calendar, emailed: !!b.emailed })),
       // Cancelled but still on the Coaching calendar (removal keeps retrying).
       leftOnCalendar: bookings.results.filter((b) => b.status === "cancelled" && b.own_calendar && Date.parse(b.end_utc) > now)
