@@ -71,6 +71,24 @@ export async function createPackagePurchase(env: Env, body: unknown, ctx: { ip: 
     throw new BookingError(403, "We couldn't confirm you're a real person. Please refresh the page and try again.");
   }
   const ipHash = await sha256(`${env.HASH_SALT ?? "averywhitted-booking"}|${ctx.ip}`);
+  // Trying again: this person's earlier unfinished checkouts from the same
+  // connection are closed first (and confirmed instead, if one was just paid).
+  const mine = await env.DB.prepare(
+    `SELECT p.id, p.stripe_checkout_session_id FROM packages p JOIN customers c ON c.id = p.customer_id
+     WHERE p.status = 'pending' AND p.created_at > ?1 AND c.email = ?2 AND p.ip_hash = ?3`,
+  ).bind(iso(ctx.now - RULES.holdMinutes * MIN), intake.email, ipHash).all<{ id: string; stripe_checkout_session_id: string | null }>();
+  for (const p of mine.results) {
+    if (p.stripe_checkout_session_id) {
+      const s = await stripe.expireCheckoutSession(env, p.stripe_checkout_session_id);
+      if (s.status === "complete" && stripe.isPaid(s)) {
+        const done = await confirmPackage(env, s, ctx.now);
+        if (done) await afterPackage(env, done);
+        continue;
+      }
+    }
+    await env.DB.prepare("UPDATE packages SET status = 'cancelled', cancel_reason = 'checkout_expired', updated_at = ?1 WHERE id = ?2 AND status = 'pending'")
+      .bind(iso(ctx.now), p.id).run();
+  }
   const pendingCount = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM packages p JOIN customers c ON c.id = p.customer_id
      WHERE p.status = 'pending' AND p.created_at > ?1 AND (c.email = ?2 OR p.ip_hash = ?3)`,

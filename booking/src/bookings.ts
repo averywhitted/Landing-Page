@@ -149,6 +149,16 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
   const now = ctx.now;
   const ipHash = await sha256(`${env.HASH_SALT ?? "averywhitted-booking"}|${ctx.ip}`);
 
+  // Booking again (back from Stripe, "Start over", a different time): this
+  // person's earlier unpaid holds from the same connection are let go first,
+  // so their own old hold can't block them. Matching both the email and the
+  // connection means nobody can cancel someone else's checkout.
+  const mine = await env.DB.prepare(
+    `SELECT b.id FROM bookings b JOIN customers c ON c.id = b.customer_id
+     WHERE b.status = 'held' AND b.hold_expires_at > ?1 AND c.email = ?2 AND b.ip_hash = ?3`,
+  ).bind(iso(now), intake.email, ipHash).all<{ id: string }>();
+  for (const h of mine.results) await releaseAbandonedHold(env, h.id, now);
+
   // Limit unpaid holds per person and per network, so nobody can tie up the calendar.
   const holds = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM bookings b JOIN customers c ON c.id = b.customer_id
@@ -231,7 +241,8 @@ export async function createBooking(env: Env, body: unknown, ctx: { ip: string; 
       amountCents: service.priceCents,
       expiresAt: holdUntil,
       successUrl: `${env.SITE_URL}/book/confirmed/?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${env.SITE_URL}/book/?service=${service.id}&checkout=cancelled`,
+      // Back from Stripe without paying: the page lets this hold go straight away.
+      cancelUrl: `${env.SITE_URL}/book/?service=${service.id}&checkout=cancelled&hold=${id}`,
       promotionCodeId: (await stripe.lookupPromotionCode(env, b.promo)) ?? undefined,
     });
   } catch (err) {
@@ -541,6 +552,26 @@ async function releaseHold(env: Env, id: string, now: number): Promise<void> {
     ).bind(iso(now), id),
     env.DB.prepare("DELETE FROM slot_claims WHERE booking_id = ?1").bind(id),
   ]);
+}
+
+// Lets go of an unpaid hold that was abandoned (back from Stripe, "Start over",
+// or booking again). Stripe's page is closed first, so it can't be paid after;
+// if it was paid at that very moment, the booking is confirmed instead.
+// The booking id is only ever given to the browser that made the hold.
+export async function releaseAbandonedHold(env: Env, id: string, now: number): Promise<"released" | "confirmed" | "none"> {
+  const row = await env.DB.prepare("SELECT status, stripe_checkout_session_id FROM bookings WHERE id = ?1").bind(id)
+    .first<{ status: string; stripe_checkout_session_id: string | null }>();
+  if (!row || row.status !== "held") return "none";
+  if (row.stripe_checkout_session_id) {
+    const s = await stripe.expireCheckoutSession(env, row.stripe_checkout_session_id);
+    if (s.status === "complete" && stripe.isPaid(s)) {
+      const confirmed = await confirmPaid(env, s, now);
+      if (confirmed) await afterConfirm(env, confirmed);
+      return "confirmed";
+    }
+  }
+  await releaseHold(env, id, now);
+  return "released";
 }
 
 // Called when Stripe reports a checkout expired.

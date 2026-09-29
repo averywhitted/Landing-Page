@@ -202,13 +202,43 @@ test("form validation", async () => {
   assert.equal(world.state.stripeSessions.size, 0);
 });
 
-test("one person can't hold more than two unpaid times", async () => {
+test("one connection can't hold more than two unpaid times (even with different emails)", async () => {
   const slots = await openSlots("coaching-30");
   const spaced = slots.filter((_, i) => i % 3 === 0);
-  assert.equal((await book("coaching-30", spaced[0])).status, 201);
-  assert.equal((await book("coaching-30", spaced[1])).status, 201);
-  const third = await book("coaching-30", spaced[2]);
+  assert.equal((await book("coaching-30", spaced[0], { email: "one@example.com" })).status, 201);
+  assert.equal((await book("coaching-30", spaced[1], { email: "two@example.com" })).status, 201);
+  const third = await book("coaching-30", spaced[2], { email: "three@example.com" });
   assert.equal(third.status, 429);
+});
+
+test("an abandoned hold is let go at once: back from Stripe, Start over, or booking again", async () => {
+  const [slot] = await openSlots();
+  const first = await book("coaching-60", slot);
+  assert.equal(first.status, 201);
+  const cancelUrl = sessionFor(first.data.bookingId)._form.cancel_url as string;
+  assert.match(cancelUrl, new RegExp(`checkout=cancelled&hold=${first.data.bookingId}`), "the way back says which hold to let go");
+  assert.ok(!(await openSlots()).includes(slot), "held while they pay");
+
+  // Back from Stripe: the page lets it go, and the time is theirs to pick again.
+  const rel = await api.call("POST", "/api/bookings/release", { body: { id: first.data.bookingId } });
+  assert.equal(rel.data.result, "released");
+  assert.equal(row(first.data.bookingId).status, "cancelled");
+  assert.equal(sessionFor(first.data.bookingId).status, "expired", "Stripe's page is closed, so it can't be paid after");
+  assert.ok((await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.now() + 3 * DAY)}&days=2&fresh=1`)).data.slots.includes(slot));
+  assert.equal((await api.call("POST", "/api/bookings/release", { body: { id: "not-an-id" } })).status, 400);
+
+  // Booking again (same person, same connection) lets the earlier hold go first,
+  // so trying a few times never hits the two-holds limit.
+  for (let i = 0; i < 3; i++) assert.equal((await book("coaching-60", slot)).status, 201, `attempt ${i + 1}`);
+  const held = db.prepare("SELECT COUNT(*) AS n FROM bookings WHERE status = 'held'").get() as any;
+  assert.equal(held.n, 1, "only the latest hold remains");
+
+  // Paid at that very moment: confirmed, not released.
+  const last = (db.prepare("SELECT id FROM bookings WHERE status = 'held'").get() as any).id;
+  world.state.stripeSessions.set(row(last).stripe_checkout_session_id, paid(sessionFor(last)));
+  const late = await api.call("POST", "/api/bookings/release", { body: { id: last } });
+  assert.equal(late.data.result, "confirmed");
+  assert.equal(row(last).status, "confirmed");
 });
 
 test("if Stripe is down, the hold is released and the client sees a friendly error", async () => {
