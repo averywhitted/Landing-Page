@@ -46,3 +46,11 @@ REMINDERS_ENABLED = "1"
 # Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
 [triggers]
 crons = ["*/5 * * * *"]
+
+# Workers Logs: keeps a few days of request and error logs in Cloudflare
+# (Workers & Pages > averywhitted-booking > Logs), so problems can be looked
+# into after the fact. Private to this Cloudflare account; disclosed in the
+# privacy policy. Personal details aren't written to the logs on purpose.
+[observability]
+enabled = true
+head_sampling_rate = 1

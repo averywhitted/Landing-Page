@@ -2185,6 +2185,31 @@ test("iCloud password from the admin page: checked with iCloud, stored encrypted
   forgetStoredPassword();
 });
 
+test("backups restore cleanly into a fresh database, with every row and link intact", async () => {
+  adminEnv();
+  await confirmedBooking();
+  const bundle = await paidBundle("bundle-2");
+  await api.call("POST", "/api/packages/cancel", { body: { p: bundle.p, t: bundle.t } });
+  await adminBook({ time: "12:00", students: [student("Re Store", "restore@example.com", { priceCents: 5000 })], repeat: { everyWeeks: 2 } });
+  await adminBook({ time: "18:00", students: [student("G One", "g1@example.com"), student("G Two", "g2@example.com")] });
+  const backup = await api.call("GET", "/api/admin/backup", { headers: asAdmin() });
+  assert.equal(backup.status, 200);
+  const { checkBackup } = await import("../scripts/check-backup");
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const dir = new URL("../migrations/", import.meta.url);
+  const migrations = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort().map((f) => readFileSync(new URL(f, dir), "utf8"));
+  const r = checkBackup(JSON.stringify(backup.data), migrations);
+  assert.deepEqual(r.problems, []);
+  assert.ok(r.counts.bookings.restored >= 4 && r.counts.series.restored === 1 && r.counts.groups.restored === 1);
+  assert.ok(!("stored_secrets" in r.counts), "the encrypted password is never in a backup");
+  assert.match(r.sql, /INSERT INTO bookings/);
+
+  // A damaged backup is caught.
+  const broken = JSON.parse(JSON.stringify(backup.data));
+  broken.tables.customers = [];
+  assert.ok(checkBackup(JSON.stringify(broken), migrations).problems.some((p: string) => /missing customers row/.test(p)));
+});
+
 test("clear test data: only in test mode, removes calendar events, keeps settings", async () => {
   adminEnv();
   const { id } = await confirmedBooking();

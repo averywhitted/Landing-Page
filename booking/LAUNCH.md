@@ -11,8 +11,14 @@ Terminal; nothing here is run automatically. Budget about an hour.
       ```
       cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run cf -- d1 migrations apply averywhitted-booking --remote && ./scripts/push-secrets.sh && npm run deploy -- --var SITE_URL:http://localhost:8743
       ```
-- [ ] Approve the wording for the policies page (repeating sessions, refund
-      requests, payment deadlines, payment requests). Claude then adds it.
+- [ ] **(Avery)** Check a backup restores: Admin > Settings > **Download a
+      backup**, then (it prints a table of rows and "Restores cleanly"):
+      ```
+      cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run check-backup -- ~/Downloads/"booking backup "*.json
+      ```
+      It also writes a `.restore.sql` file next to the backup. Both contain
+      students' details, so delete them from Downloads afterwards.
+- [x] Policies page wording approved and added.
 - [x] Bundle refund policy approved (student cancellations refund automatically).
 - [x] Zoom "Delete a meeting" permission added.
 
@@ -89,4 +95,14 @@ uncommitted edits. Avery reviews, then pushes; GitHub Pages publishes it.
 
 - The admin page's **Needs attention** tab lists anything stuck.
 - You'll be emailed if iCloud can't be reached, or emails keep failing.
-- Backups: Settings > Download a backup; nightly copies are kept 30 days.
+- Logs: Cloudflare > Workers & Pages > averywhitted-booking > **Logs** (the
+  last few days of requests and errors).
+- Backups: Settings > Download a backup; nightly copies are kept 30 days
+  (Cloudflare > R2 > averywhitted-booking-backups).
+- Restoring a backup (only if the database is lost or badly damaged; ask
+  Claude to walk through it with you first):
+  1. `npm run check-backup -- <backup file>` makes `<backup>.restore.sql`.
+  2. Create a new, empty D1 database, point `database_id` in wrangler.toml at
+     it, and run the migrations on it (`npm run cf -- d1 migrations apply averywhitted-booking --remote`).
+  3. `npm run cf -- d1 execute averywhitted-booking --remote --file <backup>.restore.sql`
+  4. Deploy. Stripe payments and refunds live in Stripe, so nothing there is lost.
