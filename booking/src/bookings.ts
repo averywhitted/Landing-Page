@@ -658,6 +658,13 @@ async function loadManaged(env: Env, bookingId: unknown, token: unknown): Promis
   return row;
 }
 
+// A paid session Avery cancelled without refunding: the student chooses a
+// new time at no charge or a full refund, from their session page. Either
+// choice closes the other (and a refund Avery gives by hand closes both).
+export const hasCancelOffer = (row: BookingRow) =>
+  row.status === "cancelled" && row.cancel_reason === "avery_cancelled" && !row.package_id && !row.group_id
+  && row.amount_cents > 0 && !!row.stripe_payment_intent_id && !row.refund_requested_at && !row.refunded_at && (row.refunded_cents ?? 0) === 0;
+
 const canChange = (row: BookingRow, now: number) =>
   row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN;
 
@@ -674,8 +681,10 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
     payment: dueCents(row) ? { dueCents: dueCents(row), payBy: row.pay_by, open: !row.pay_by || Date.parse(row.pay_by) > now } : null,
     paid: !!row.paid_at && invoiced(row),
     refundedCents: row.refunded_cents ?? 0,
+    // Avery cancelled a paid session: they pick a new time or a refund here.
+    cancelOffer: hasCancelOffer(row),
     // A refund can be asked for when it can't be done online (e.g. the session already happened).
-    canRequestRefund: !row.package_id && !!row.stripe_payment_intent_id && row.amount_cents - (row.refunded_cents ?? 0) > 0
+    canRequestRefund: !hasCancelOffer(row) && !row.package_id && !!row.stripe_payment_intent_id && row.amount_cents - (row.refunded_cents ?? 0) > 0
       && !(row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN)
       && !(row.status === "cancelled" && row.refund_requested_at),
     refundRequest: await (await import("./refunds")).refundRequestStatus(env, "booking", row.id),
@@ -757,7 +766,9 @@ export async function afterCancelShared(env: Env, bookingId: string, opts: { not
   const removed = await removeCancelled(env, row);
   const refund: T.RefundState = row.package_id || row.amount_cents <= 0 ? "none"
     : row.refunded_at ? "refunded" : row.refund_requested_at ? "pending" : "offer";
-  const againUrl = row.package_id ? await packageUrl(env, row.package_id) : `${env.SITE_URL}/book/`;
+  const againUrl = row.package_id ? await packageUrl(env, row.package_id)
+    : refund === "offer" && hasCancelOffer(row) ? await manageUrl(env, row.id)
+    : `${env.SITE_URL}/book/`;
   const creditReturned = !row.package_id || !!(await env.DB.prepare(
     "SELECT 1 AS ok FROM credit_ledger WHERE booking_id = ?1 AND delta > 0 AND reason IN ('cancelled_in_time', 'avery_cancelled')",
   ).bind(row.id).first());
@@ -865,6 +876,96 @@ export async function rescheduleBooking(env: Env, bookingId: unknown, token: unk
   if (!res.at(-1)!.meta.changes) throw new BookingError(409, "This session can't be rescheduled because it isn't active.");
   ctx.waitUntil(afterReschedule(env, row.id));
   return { ok: true, start: iso(newStart), end: iso(newEnd) };
+}
+
+/* ── After Avery cancels: the student's choice ── */
+
+// A new time at no charge: the same booking and payment, back on at the new time.
+export async function rebookCancelled(env: Env, bookingId: unknown, token: unknown, newStartRaw: unknown,
+  ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const row = await loadManaged(env, bookingId, token);
+  if (!hasCancelOffer(row)) throw new BookingError(409, "This session can't be rebooked online. Please email info@averywhitted.com.");
+  const service = findService(row.service_id)!;
+  const newStart = Date.parse(String(newStartRaw ?? ""));
+  if (!Number.isFinite(newStart)) throw new BookingError(400, "Please pick a new time.");
+  if (!(await isStillOpen(env, service, newStart, ctx.now, { bookingId: row.id, uid: row.ics_uid }))) {
+    throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
+  }
+  const newEnd = newStart + service.durationMinutes * MIN;
+  // Only while the offer still stands (not refunded, not already rebooked).
+  // Back on first (only active bookings may claim time), then the claims; a
+  // taken block rolls the whole thing back.
+  let res;
+  try {
+    res = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE bookings SET status = 'confirmed', cancel_reason = NULL, cancelled_at = NULL, previous_start_utc = start_utc,
+           start_utc = ?1, end_utc = ?2, ics_sequence = ics_sequence + 1, session_reminder_sent_at = NULL, confirmed_at = ?3,
+           client_email_sent_at = NULL, zoom_join_url = CASE WHEN zoom_meeting_id IS NULL THEN NULL ELSE zoom_join_url END, updated_at = ?3
+         WHERE id = ?4 AND status = 'cancelled' AND cancel_reason = 'avery_cancelled' AND refund_requested_at IS NULL
+           AND refunded_at IS NULL AND refunded_cents = 0`,
+      ).bind(iso(newStart), iso(newEnd), iso(ctx.now), row.id),
+      ...blocksFor(newStart, service.durationMinutes, (await scheduling(env)).bufferMinutes).map((blk) =>
+        env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, row.id)),
+    ]);
+  } catch (err) {
+    if (UNIQUE_CLAIM.test((err as Error).message)) throw new BookingError(409, "Sorry, that time was just taken. Please pick another.");
+    if (INACTIVE_CLAIM.test((err as Error).message)) throw new BookingError(409, "This session can't be rebooked online. Please email info@averywhitted.com.");
+    throw err;
+  }
+  if (!res[0].meta.changes) throw new BookingError(409, "This session can't be rebooked online. Please email info@averywhitted.com.");
+  ctx.waitUntil((async () => {
+    // If the old Zoom meeting was never deleted, move it rather than make another.
+    if (row.zoom_meeting_id) {
+      try { await updateMeeting(env, row.zoom_meeting_id, { start: newStart, durationMinutes: service.durationMinutes }); }
+      catch (err) { console.error("rebook: zoom update failed:", (err as Error).message); }
+    }
+    await afterConfirm(env, row.id); // Zoom, calendar, and their confirmation
+    const fresh = await loadBooking(env, "id", row.id);
+    if (fresh) {
+      await sendEmail(env, "admin_rebooked", row.id, {
+        ...T.adminNotification(view(fresh), {
+          zoomMissing: !fresh.zoom_join_url, calendarFailed: !fresh.calendar_event_url, title: "New booking",
+          notice: `${fresh.name} chose a new time instead of a refund for the session you cancelled. No new payment: it uses what they already paid.`,
+        }),
+        to: env.ADMIN_EMAIL,
+        subject: `Rebooked: ${fresh.name} chose a new time (no charge)`,
+      });
+    }
+  })());
+  return { ok: true, start: iso(newStart), end: iso(newEnd) };
+}
+
+// A full refund instead.
+export async function refundCancelled(env: Env, bookingId: unknown, token: unknown, ctx: { now: number; waitUntil: (p: Promise<unknown>) => void }) {
+  const row = await loadManaged(env, bookingId, token);
+  if (!hasCancelOffer(row)) throw new BookingError(409, "This session can't be refunded online. Please email info@averywhitted.com.");
+  const res = await env.DB.prepare(
+    `UPDATE bookings SET refund_requested_at = ?1, updated_at = ?1
+     WHERE id = ?2 AND status = 'cancelled' AND cancel_reason = 'avery_cancelled' AND refund_requested_at IS NULL
+       AND refunded_at IS NULL AND refunded_cents = 0`,
+  ).bind(iso(ctx.now), row.id).run();
+  if (!res.meta.changes) throw new BookingError(409, "This session can't be refunded online. Please email info@averywhitted.com.");
+  ctx.waitUntil((async () => {
+    const refunded = await issueRefund(env, row.id, ctx.now);
+    const tz = row.client_time_zone || AVERY_TZ;
+    const on = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long", month: "long", day: "numeric" }).format(Date.parse(row.start_utc));
+    await sendEmail(env, "refund_issued", row.id, T.refundIssued({
+      name: row.name, email: row.email, what: `your ${serviceLabel(findService(row.service_id)!).toLowerCase()} on ${on}`, amountCents: row.amount_cents,
+    }));
+    await sendEmail(env, "admin_refund_chosen", row.id, {
+      ...T.adminNotification(view(row), {
+        zoomMissing: false, calendarFailed: false, title: "Refund issued",
+        notice: refunded
+          ? `${row.name} chose a full refund for the session you cancelled. ${T.formatMoney(row.amount_cents)} was refunded automatically.`
+          : `${row.name} chose a full refund for the session you cancelled. Stripe hasn't accepted it yet; it will keep retrying.`,
+        noticeFix: refunded ? null : ["Resolve in Stripe", stripePaymentUrl(env, row.stripe_payment_intent_id) ?? T.FIX_ADMIN[1]],
+      }),
+      to: env.ADMIN_EMAIL,
+      subject: `Refund chosen: ${row.name}, ${T.formatMoney(row.amount_cents)}`,
+    });
+  })());
+  return { ok: true };
 }
 
 export async function afterReschedule(env: Env, bookingId: string, opts: { notifyAvery?: boolean } = {}): Promise<void> {

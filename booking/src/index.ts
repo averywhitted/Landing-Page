@@ -212,6 +212,23 @@ app.post("/api/manage/reschedule", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// After Avery cancels a paid session: the student picks a new time (no charge) or a refund.
+app.post("/api/manage/rebook", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    const { rebookCancelled } = await import("./bookings");
+    return c.json(await rebookCancelled(c.env, body.b, body.t, body.start, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/manage/refund", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    const { refundCancelled } = await import("./bookings");
+    return c.json(await refundCancelled(c.env, body.b, body.t, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // A student asking for a refund they can't get online (Avery decides).
 app.post("/api/refund-requests", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;

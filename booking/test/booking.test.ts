@@ -1152,6 +1152,45 @@ test("refund safety: when Avery cancels, the refund is Avery's choice and shows 
   assert.match(world.state.emails.find((e) => /^Cancelled: 30 minute/.test(e.subject))!.text, /full refund of \$75 is on its way/);
 });
 
+test("after Avery cancels a paid session, the student chooses a new time (no charge) or a full refund, once", async () => {
+  adminEnv();
+  const one = await confirmedBooking("coaching-60", 0);
+  const pi = row(one.id).stripe_payment_intent_id;
+  await api.call("POST", `/api/admin/bookings/${one.id}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: false } });
+  const email = world.state.emails.find((e) => /^Cancelled:/.test(e.subject))!;
+  assert.match(email.text, /Choose a new time or refund: .*book\/manage\/\?b=/, "the button goes to their session page");
+  let view = await api.call("GET", `/api/manage?b=${one.b}&t=${one.t}`);
+  assert.equal(view.data.cancelOffer, true);
+  assert.equal(view.data.canRequestRefund, false, "no separate request link while they can choose");
+
+  // A new time, no charge.
+  const newSlot = one.slots.at(-1)!;
+  world.state.emails.length = 0;
+  const rebook = await api.call("POST", "/api/manage/rebook", { body: { b: one.b, t: one.t, start: newSlot } });
+  assert.equal(rebook.status, 200, JSON.stringify(rebook.data));
+  const back = row(one.id);
+  assert.equal(back.status, "confirmed");
+  assert.equal(back.start_utc, newSlot.replace(/\.000Z$/, "Z"));
+  assert.equal(refundsFor(pi), 0);
+  assert.ok(!(await openSlots()).includes(newSlot), "the new time is taken");
+  assert.equal((await api.call("POST", "/api/manage/refund", { body: { b: one.b, t: one.t } })).status, 409, "no refund once rebooked");
+  assert.equal((await api.call("POST", "/api/manage/rebook", { body: { b: one.b, t: one.t, start: one.slots[1] } })).status, 409, "only once");
+
+  // Or a full refund.
+  world.state.emails.length = 0;
+  const two = await confirmedBooking("coaching-30", 6);
+  const pi2 = row(two.id).stripe_payment_intent_id;
+  await api.call("POST", `/api/admin/bookings/${two.id}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: false } });
+  const ref = await api.call("POST", "/api/manage/refund", { body: { b: two.b, t: two.t } });
+  assert.equal(ref.status, 200, JSON.stringify(ref.data));
+  assert.equal(refundsFor(pi2), 1);
+  assert.equal((await api.call("POST", "/api/manage/refund", { body: { b: two.b, t: two.t } })).status, 409, "only once");
+  assert.equal((await api.call("POST", "/api/manage/rebook", { body: { b: two.b, t: two.t, start: two.slots[2] } })).status, 409, "no new time once refunded");
+  assert.equal(refundsFor(pi2), 1);
+  view = await api.call("GET", `/api/manage?b=${two.b}&t=${two.t}`);
+  assert.equal(view.data.cancelOffer, false);
+});
+
 test("refund safety: paid after the hold ran out and the time was taken, refund fails first: retried, never lost", async () => {
   const [slot] = await openSlots();
   const late = await book("coaching-60", slot);

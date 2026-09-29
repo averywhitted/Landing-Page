@@ -46,6 +46,7 @@ const AVERY_TZ = "America/New_York";
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || "there";
 const money = (c: number) => (c % 100 ? `$${(c / 100).toFixed(2)}` : `$${c / 100}`);
+export const formatMoney = money;
 
 function day(ms: number, tz: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long", month: "long", day: "numeric" }).format(ms);
@@ -705,7 +706,7 @@ export type RefundState = "refunded" | "pending" | "offer" | "none";
 
 function refundLine(b: BookingView, refund: RefundState): string {
   if (refund === "refunded" || refund === "pending") return `Your full refund of ${money(b.amountCents)} is on its way. Refunds may take a few business days to appear.`;
-  if (refund === "offer") return "Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer. Please reply to this email and let me know.";
+  if (refund === "offer") return "Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer. You can choose using the button below.";
   return "";
 }
 
@@ -720,8 +721,8 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string, re
     para(`Hi ${esc(firstName(b.name))},`),
     para(`Your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> has been cancelled.`),
     money_ ? para(esc(money_)) : "",
-    para("The attached update removes it from your calendar. Whenever you're ready, you're welcome to book another time:"),
-    button(bookUrl, "Book another time"),
+    para(refund === "offer" && !b.bundleNote ? "The attached update removes it from your calendar." : "The attached update removes it from your calendar. Whenever you're ready, you're welcome to book another time:"),
+    button(bookUrl, refund === "offer" && !b.bundleNote ? "Choose a new time or refund" : "Book another time"),
     small(questionsLine),
     para("Take care,<br>Avery"),
   ].join("\n");
@@ -731,7 +732,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string, re
     html: layout({ preheader: `Your session on ${when} is cancelled.`, tag: tagFor(b), title: "Session cancelled", body }),
     text: [`Hi ${firstName(b.name)},`, "", `Your ${b.serviceName.toLowerCase()} on ${when} has been cancelled.`,
       ...(money_ ? ["", money_] : []),
-      "", `Book another time: ${bookUrl}`, "", questionsLine, "", "Take care,", "Avery"].join("\n"),
+      "", `${refund === "offer" && !b.bundleNote ? "Choose a new time or refund" : "Book another time"}: ${bookUrl}`, "", questionsLine, "", "Take care,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "CANCEL"),
   };
 }
@@ -807,7 +808,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
   const amount = money(b.amountCents);
   const refundNote = r.refund === "refunded" ? `Refunded ${amount} automatically. They cancelled at least 24 hours ahead.`
     : r.refund === "pending" ? `The automatic refund of ${amount} hasn't gone through yet. It will keep retrying, and you'll get an alert if it still doesn't go through.`
-    : r.refund === "offer" ? `Not refunded. They were offered a full refund or a new time, whichever they prefer.`
+    : r.refund === "offer" ? `Not refunded yet. They can choose a full refund or a new time at no charge from their session page, and you'll be emailed when they do.`
     : "";
   const tag = r.refund === "refunded" ? ` (refunded ${amount})` : r.refund === "pending" ? ` (refund pending ${amount})` : "";
   const leftovers: [string, Fix][] = [

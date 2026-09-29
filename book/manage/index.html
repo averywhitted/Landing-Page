@@ -180,7 +180,7 @@
           if (!p.open) return `<p class="mg-note" style="margin:0 0 16px">The payment deadline has passed. Please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
           const by = p.payBy ? Date.parse(p.payBy) : null;
           const due = by
-            ? `Please pay by ${esc(f(by, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(f(by, { hour: "numeric", minute: "2-digit" }))} ${esc(zone(by))}. If it isn't paid by then, the session is released.`
+            ? `Please pay by ${esc(f(by, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(f(by, { hour: "numeric", minute: "2-digit" }))} ${esc(zone(by))}. Paying by then confirms your ${booking.group ? "spot" : "session"}; after that, ${booking.group ? "your spot" : "the time"} will be opened up to other students.`
             : "Please pay before your session.";
           return `<div class="mg-pay"><p>${due}</p><div class="mg-actions"><button type="button" class="btn primary" id="mg-pay">Pay ${money(p.dueCents)}</button></div></div>`;
         }
@@ -202,7 +202,16 @@
           if (booking.status === "cancelled") {
             if (booking.cancelReason === "unpaid") {
               return show("Cancelled", "This session was released", detailsHtml()
-                + `<p class="mg-note" style="margin:0 0 16px">It wasn't paid by the deadline, so it was released. If you'd still like a session, email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`);
+                + `<p class="mg-note" style="margin:0 0 16px">Payment didn't come through by the deadline, so the time was opened up to other students. If you'd still like a session, email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`);
+            }
+            if (booking.cancelOffer) {
+              show("Cancelled", "Your session was cancelled", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">Sorry for the change of plans. Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer.</p>
+                   <div class="mg-actions" id="mg-actions"><button type="button" class="btn primary" id="mg-rebook">Pick a new time (no charge)</button><button type="button" class="btn" id="mg-refund-full">Get a full refund (${money(booking.amountCents)})</button></div>
+                   <div id="mg-extra"></div>`);
+              document.getElementById("mg-rebook").addEventListener("click", () => openPicker(true));
+              document.getElementById("mg-refund-full").addEventListener("click", askRefund);
+              return;
             }
             if (booking.cancelReason === "bundle_cancelled") {
               return show("Cancelled", "This session is cancelled", detailsHtml()
@@ -333,7 +342,31 @@
           });
         }
 
-        function openPicker() {
+        function askRefund() {
+          document.getElementById("mg-actions").hidden = true;
+          document.getElementById("mg-extra").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-f-title">
+              <h2 id="mg-f-title">Get a full refund?</h2>
+              <p>You'll be refunded ${money(booking.amountCents)} to the card you paid with. Refunds may take a few business days to appear.</p>
+              <div class="mg-actions">
+                <button type="button" class="btn primary" id="mg-f-yes">Yes, refund me</button>
+                <button type="button" class="btn" id="mg-f-no">Go back</button>
+              </div>
+            </div>`;
+          document.getElementById("mg-f-no").addEventListener("click", renderBooking);
+          const yes = document.getElementById("mg-f-yes");
+          yes.focus();
+          yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Refunding';
+            try {
+              await api("POST", "/api/manage/refund", { b, t });
+              flash = { kind: "ok", html: "Done. Your refund is on its way, and a confirmation email will follow." };
+            } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+            await load();
+          });
+        }
+
+        function openPicker(rebook) {
           document.getElementById("mg-actions").hidden = true;
           const holder = document.getElementById("mg-extra");
           const useBy = booking.bundleExpiresAt ? `${f(Date.parse(booking.bundleExpiresAt), { weekday: "long", month: "long", day: "numeric" })}` : "";
@@ -346,8 +379,10 @@
             timeZone: booking.timeZone,
             onCancel: renderBooking,
             async onConfirm(slot) {
-              await api("POST", "/api/manage/reschedule", { b, t, start: new Date(slot).toISOString() });
-              flash = { kind: "ok", html: "Done. Your session has been moved, and an updated calendar invite is on its way." };
+              await api("POST", rebook === true ? "/api/manage/rebook" : "/api/manage/reschedule", { b, t, start: new Date(slot).toISOString() });
+              flash = { kind: "ok", html: rebook === true
+                ? "You're booked. A confirmation with your calendar invite is on its way."
+                : "Done. Your session has been moved, and an updated calendar invite is on its way." };
               await load();
               window.scrollTo({ top: 0, behavior: "smooth" });
             },
