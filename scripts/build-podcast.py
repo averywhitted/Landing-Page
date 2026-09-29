@@ -19,7 +19,7 @@ SITE = "https://averywhitted.com"
 DATA = json.loads((ROOT / "podcast" / "episodes.json").read_text(encoding="utf-8"))
 SHOW = DATA["show"]
 EPS = sorted(DATA["episodes"], key=lambda ep: ep["published"])  # oldest -> newest
-BOOK = "https://cal.com/averywhitted"
+BOOK = "/book/"  # opens the booking pop-up (falls back to the /book/ page)
 SHOW_URL = f"{SITE}/podcast/"
 HOST = {"@type": "Person", "name": "Avery Whitted", "url": f"{SITE}/"}
 COVER_ALT = "90% of the Job podcast cover art: Surviving Auditions as a Working Actor, hosted by Avery Whitted"
@@ -144,8 +144,10 @@ def head(title, description, canonical, jsonld, og_type="website"):
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/podcast/podcast.css" />
+    <link rel="stylesheet" href="/book/booking.css?v=a7813547" />
     <script>document.documentElement.classList.add("js");</script>
     <script src="/podcast/podcast.js" defer></script>
+    <script src="/book/booking.js?v=7d0525f1" defer></script>
     {jsonld}
   </head>
 """
@@ -163,7 +165,7 @@ def header(hub_current):
         <nav aria-label="Site">
           <a class="pill" href="/">Home</a>
           <a class="pill is-active" href="/podcast/"{cur}>Podcast</a>
-          <a class="pill pill-cta" href="{BOOK}" target="_blank" rel="noopener noreferrer">Book a Session</a>
+          <a class="pill pill-cta" href="{BOOK}">Book a Session</a>
         </nav>
       </header>
 """
@@ -380,7 +382,7 @@ def episode_page(i, ep):
               <h2 class="cta-title" id="cta-title">Private coaching</h2>
               <p>If you're interested in audition coaching, scene work, or guidance in navigating the industry, one-on-one sessions are available on Zoom or in person.</p>
               <div class="cta-actions">
-                <a class="btn lime" href="{BOOK}" target="_blank" rel="noopener noreferrer">Book a Session</a>
+                <a class="btn lime" href="{BOOK}">Book a Session</a>
               </div>
             </section>
           </article>

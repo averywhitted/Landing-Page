@@ -55,6 +55,11 @@
       rel="stylesheet"
     />
 
+    <!-- Booking pop-up (opens from any "Book a Session" link) -->
+    <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
+    <link rel="stylesheet" href="/book/booking.css?v=93e91e1a" />
+    <script src="/book/booking.js?v=c9df43d7" defer></script>
+
     <style>
       /* Horizon — self-hosted display face (from the flyer branding) */
       @font-face {
@@ -1769,7 +1774,7 @@
               {
                 "@type": "ServiceChannel",
                 "name": "Online via Zoom",
-                "serviceUrl": "https://cal.com/averywhitted",
+                "serviceUrl": "https://averywhitted.com/book/",
                 "availableLanguage": "English"
               },
               {
@@ -1792,9 +1797,9 @@
               "@type": "OfferCatalog",
               "name": "Private coaching sessions",
               "itemListElement": [
-                { "@type": "Offer", "name": "Private coaching: 30 minutes", "price": "75", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" },
-                { "@type": "Offer", "name": "Private coaching: 1 hour", "price": "130", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" },
-                { "@type": "Offer", "name": "Private coaching: 90 minutes", "price": "195", "priceCurrency": "USD", "url": "https://cal.com/averywhitted" }
+                { "@type": "Offer", "name": "Private coaching: 30 minutes", "price": "75", "priceCurrency": "USD", "url": "https://averywhitted.com/book/?service=coaching-30" },
+                { "@type": "Offer", "name": "Private coaching: 1 hour", "price": "130", "priceCurrency": "USD", "url": "https://averywhitted.com/book/?service=coaching-60" },
+                { "@type": "Offer", "name": "Private coaching: 90 minutes", "price": "195", "priceCurrency": "USD", "url": "https://averywhitted.com/book/?service=coaching-90" }
               ]
             }
           },
@@ -1866,7 +1871,7 @@
                 "name": "What if I need to cancel or reschedule?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "You can reschedule through Cal.com or cancel with a full refund up to 24 hours before your session. Cancellations made less than 24 hours before a session are not eligible for a refund."
+                  "text": "You can reschedule or cancel with a full refund up to 24 hours before your session, using the link in your confirmation email. Cancellations made less than 24 hours before a session are not eligible for a refund."
                 }
               },
               {
@@ -1894,14 +1899,14 @@
           </div>
         </div>
 
-        <a class="btn primary header-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+        <a class="btn primary header-cta" href="/book/">Book a Session</a>
         <button class="hamburger" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="main-nav">
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
           <span class="hamburger-line"></span>
         </button>
         <nav id="main-nav">
-          <a class="pill pill-cta nav-cta" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+          <a class="pill pill-cta nav-cta" href="/book/">Book a Session</a>
           <a class="pill" href="#coaching">Coaching</a>
           <a class="pill" href="#workshops">Workshops</a>
           <a class="pill" href="#about">About</a>
@@ -1974,11 +1979,11 @@
                 </ul>
               </details>
               <div class="price-note" aria-label="Private coaching pricing">
-                <span><strong>30 min</strong> $75</span>
-                <span><strong>1 hour</strong> $130</span>
-                <span><strong>90 min</strong> $195</span>
+                <span><a class="price-link" href="/book/?service=coaching-30"><strong>30 min</strong> $75</a></span>
+                <span><a class="price-link" href="/book/?service=coaching-60"><strong>1 hour</strong> $130</a></span>
+                <span><a class="price-link" href="/book/?service=coaching-90"><strong>90 min</strong> $195</a></span>
               </div>
-              <a class="btn primary book-session-btn" style="margin-top:16px" href="https://cal.com/averywhitted" target="_blank" rel="noopener noreferrer">Book a Session</a>
+              <a class="btn primary book-session-btn" style="margin-top:16px" href="/book/">Book a Session</a>
             </div>
           </section>
 
@@ -2146,7 +2151,7 @@
               </div>
               <div class="faq-item">
                 <dt class="faq-q">What if I need to cancel or reschedule?</dt>
-                <dd class="faq-a">You can reschedule through Cal.com or cancel with a full refund up to 24 hours before your session. Cancellations made less than 24 hours before a session are not eligible for a refund.</dd>
+                <dd class="faq-a">You can reschedule or cancel with a full refund up to 24 hours before your session, using the link in your confirmation email. Cancellations made less than 24 hours before a session are not eligible for a refund.</dd>
               </div>
               <div class="faq-item">
                 <dt class="faq-q">How do I hear about upcoming workshop dates?</dt>

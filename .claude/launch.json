@@ -4,9 +4,21 @@
     {
       "name": "static-site",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "exec python3 -m http.server \"${PORT:-8743}\""],
+      "runtimeArgs": [
+        "-c",
+        "exec python3 -m http.server \"${PORT:-8743}\""
+      ],
       "port": 8743,
       "autoPort": true
+    },
+    {
+      "name": "fake-stripe",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "booking/scripts/fake-stripe.py"
+      ],
+      "port": 8799,
+      "autoPort": false
     }
   ]
 }

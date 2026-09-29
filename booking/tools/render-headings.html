@@ -1,0 +1,99 @@
+<!doctype html>
+<!--
+  Draws each fixed email heading in Horizon as a PNG (3x resolution, white
+  background to match the email card).
+
+  To regenerate after changing a heading:
+    1. Run the site locally (python3 -m http.server 8743 from the repo root)
+    2. Open http://localhost:8743/booking/tools/render-headings.html
+    3. Download each image into booking/assets/headings/ and copy the
+       manifest shown on the page into src/email-headings.ts
+  Keep TITLES in sync with HEADING_TITLES in src/templates.ts.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Email heading renderer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet">
+  <style>
+    body { font: 14px system-ui, sans-serif; background: #f6f7f9; margin: 32px; }
+    .row { display: flex; align-items: center; gap: 16px; margin: 0 0 14px; }
+    .row img { background: #fff; border: 1px dashed #ccd; }
+    pre { background: #fff; padding: 14px; border: 1px solid #dde; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Email headings</h1>
+  <div id="out"></div>
+  <h2>Header lockup (assets/email-wordmark.png)</h2>
+  <div id="lockup"></div>
+  <h2>Manifest (for src/email-headings.ts)</h2>
+  <pre id="manifest"></pre>
+  <script>
+    const TITLES = [
+      "You're booked", "Session rescheduled", "Session cancelled", "Finish your booking", "That time was taken",
+      "New booking", "Booking rescheduled", "Booking cancelled", "Auto-refunded",
+      "See you soon", "Needs attention",
+      "Bundle confirmed", "Bundle purchased", "Sessions expiring", "Bundle cancelled",
+      "Payment due", "Payment received", "Bundle updated", "Refund issued",
+      "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved", "Password updated",
+    ];
+    const SIZE = 26, SCALE = 3, BG = "#ffffff", INK = "#0e1116";
+    const slug = (t) => t.toLowerCase().replace(/'/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+    (async () => {
+      const face = new FontFace("HorizonR", "url(/fonts/horizon.otf)");
+      await face.load();
+      document.fonts.add(face);
+      const results = [];
+      for (const title of TITLES) {
+        const text = title.toUpperCase();
+        const c = document.createElement("canvas");
+        let x = c.getContext("2d");
+        const setFont = () => { x.font = `${SIZE * SCALE}px HorizonR`; if ("letterSpacing" in x) x.letterSpacing = `${0.005 * SIZE * SCALE}px`; };
+        setFont();
+        const m = x.measureText(text);
+        const pad = 2 * SCALE;
+        c.width = Math.ceil(m.width) + 4;
+        c.height = Math.ceil(m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) + pad * 2;
+        x = c.getContext("2d");
+        x.fillStyle = BG; x.fillRect(0, 0, c.width, c.height);
+        setFont(); x.fillStyle = INK;
+        x.fillText(text, 2, pad + m.actualBoundingBoxAscent);
+        const file = `${slug(title)}.png`;
+        const dataUrl = c.toDataURL("image/png");
+        results.push({ title, file, w: Math.round(c.width / SCALE), h: Math.round(c.height / SCALE), dataUrl });
+        const row = document.createElement("div");
+        row.className = "row";
+        row.innerHTML = `<img src="${dataUrl}" width="${Math.round(c.width / SCALE)}"><a download="${file}" href="${dataUrl}">${file}</a>`;
+        document.getElementById("out").appendChild(row);
+      }
+      window.__headings = results;
+
+      // The email header: AVERY WHITTED over ACTING WORKSHOPS + PRIVATE COACHING,
+      // like the site header. Background matches the email's outer gray.
+      await document.fonts.load("600 30px Inter");
+      {
+        const NAME = 26 * SCALE, SUB = 10 * SCALE, GAP = 7 * SCALE, PAD = 2 * SCALE;
+        const c = document.createElement("canvas");
+        let x = c.getContext("2d");
+        const nameFont = () => { x.font = `${NAME}px HorizonR`; if ("letterSpacing" in x) x.letterSpacing = `${0.005 * NAME}px`; };
+        const subFont = () => { x.font = `600 ${SUB}px Inter`; if ("letterSpacing" in x) x.letterSpacing = `${0.14 * SUB}px`; };
+        nameFont(); const n = x.measureText("AVERY WHITTED");
+        subFont(); const sb = x.measureText("ACTING WORKSHOPS + PRIVATE COACHING");
+        const nameH = n.actualBoundingBoxAscent + n.actualBoundingBoxDescent;
+        const subH = sb.actualBoundingBoxAscent + sb.actualBoundingBoxDescent;
+        c.width = Math.ceil(Math.max(n.width, sb.width)) + 4;
+        c.height = Math.ceil(PAD + nameH + GAP + subH + PAD);
+        x = c.getContext("2d");
+        x.fillStyle = "#f6f7f9"; x.fillRect(0, 0, c.width, c.height);
+        nameFont(); x.fillStyle = INK; x.fillText("AVERY WHITTED", 2, PAD + n.actualBoundingBoxAscent);
+        subFont(); x.fillStyle = "#6b727b"; x.fillText("ACTING WORKSHOPS + PRIVATE COACHING", 2, PAD + nameH + GAP + sb.actualBoundingBoxAscent);
+        window.__wordmark = { dataUrl: c.toDataURL("image/png"), w: Math.round(c.width / SCALE), h: Math.round(c.height / SCALE) };
+        document.getElementById("lockup").innerHTML = `<img src="${window.__wordmark.dataUrl}" width="${window.__wordmark.w}" style="background:#f6f7f9"> <a download="email-wordmark.png" href="${window.__wordmark.dataUrl}">email-wordmark.png</a> (${window.__wordmark.w}x${window.__wordmark.h})`;
+      }
+      document.getElementById("manifest").textContent = JSON.stringify(results.map(({ title, file, w, h }) => ({ title, file, w, h })), null, 2);
+    })();
+  </script>
+</body>
+</html>

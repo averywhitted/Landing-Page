@@ -1,0 +1,56 @@
+name = "averywhitted-booking"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+account_id = "18e63841cd4225ae1fb0438032557fa2"
+
+# Serve the booking service at book.averywhitted.com only.
+routes = [{ pattern = "book.averywhitted.com", custom_domain = true }]
+# Don't also publish it on a *.workers.dev address or per-version preview URLs.
+workers_dev = false
+preview_urls = false
+
+# The appointment book. The code reaches it as env.DB.
+[[d1_databases]]
+binding = "DB"
+database_name = "averywhitted-booking"
+database_id = "6055038c-44cb-4682-824e-751176c5f923"
+migrations_dir = "migrations"
+
+# Nightly backups of the database, kept 30 days. Private (never public).
+# Create it once before deploying: npm run cf -- r2 bucket create averywhitted-booking-backups
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "averywhitted-booking-backups"
+
+# Bundle images (the email wordmark) into the service as raw bytes.
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true
+
+# Not secret. The app-specific password is stored separately with:
+#   npm run cf -- secret put ICLOUD_APP_PASSWORD
+[vars]
+ICLOUD_APPLE_ID = "averywhitted@me.com"
+SITE_URL = "https://averywhitted.com"
+EMAIL_FROM = "Avery Whitted <info@averywhitted.com>"
+EMAIL_REPLY_TO = "info@averywhitted.com"
+ADMIN_EMAIL = "avery@averywhitted.com"
+ZOOM_USER = "whitted.avery@protonmail.com"
+# Admin lock (Cloudflare Access). Admin stays off until both are set.
+ACCESS_TEAM_DOMAIN = "averywhitted.cloudflareaccess.com"
+ACCESS_AUD = "2e605afcb962e49629318c40356177d5bdf30e0ff7b7c423bc9c5ba7ad0db79c"
+# "Finish your booking" emails after an unpaid checkout (max one per person per week).
+REMINDERS_ENABLED = "1"
+
+# Every 5 minutes: release unpaid holds, send reminders, retry failed follow-ups.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Workers Logs: keeps a few days of request and error logs in Cloudflare
+# (Workers & Pages > averywhitted-booking > Logs), so problems can be looked
+# into after the fact. Private to this Cloudflare account; disclosed in the
+# privacy policy. Personal details aren't written to the logs on purpose.
+[observability]
+enabled = true
+head_sampling_rate = 1

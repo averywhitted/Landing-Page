@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Your Booking | Avery Whitted</title>
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/podcast/podcast.css" />
+    <link rel="stylesheet" href="/book/booking.css?v=93e91e1a" />
+    <style>
+      .mg { margin: 32px auto 0; padding: 40px 44px; max-width: 760px; }
+      .mg-back { display: inline-flex; margin: 0 0 18px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--a); }
+      .mg-back:hover { text-decoration: underline; text-underline-offset: 3px; }
+      .mg .show-title { margin-bottom: 12px; }
+      .mg-details {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px 18px;
+        margin: 22px 0 24px;
+        padding: 18px 20px;
+        border-radius: 14px;
+        background: var(--bg1);
+      }
+      .mg-details dt { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
+      .mg-details dd { margin: 0; font-family: var(--mono); letter-spacing: -0.02em; font-size: 0.9375rem; }
+      .mg-details a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      .mg-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .mg-actions[hidden] { display: none; }
+      .mg-note { margin: 18px 0 0; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.8125rem; line-height: 1.6; color: var(--faint); }
+      .mg-note a, .mg-msg a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      .linkish { padding: 0; border: 0; background: none; font: inherit; color: var(--a); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+      .mg-pay { margin: 0 0 22px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+      .mg-pay p { margin: 0 0 12px; font-size: 0.9375rem; line-height: 1.55; }
+      .mg-pay .mg-actions { margin: 0; }
+      .mg-msg { margin: 0 0 20px; padding: 14px 16px; border-radius: 12px; font-size: 0.9062rem; line-height: 1.5; }
+      .mg-msg.ok { background: var(--lime); color: var(--lime-ink); font-weight: 600; }
+      .mg-msg.err { background: #fdecea; color: #8a1c12; }
+      .mg-confirm { margin-top: 22px; padding: 20px; border: 1.5px solid var(--text); border-radius: 16px; }
+      .mg-confirm h2 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; text-transform: uppercase; font-size: 1.25rem; line-height: 1.05; }
+      .mg-confirm p { margin: 0 0 16px; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+      .btn.danger { border-color: #b42318; background: #b42318; color: #fff; }
+      .btn.danger:hover { background: #8a1c12; border-color: #8a1c12; }
+      .mg-picker { margin-top: 22px; }
+      .mg-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
+      .mg-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
+      @media (max-width: 640px) {
+        .mg { padding: 26px 20px; margin: 22px auto 0; }
+        .mg-actions .btn { flex: 1 1 100%; }
+      }
+    </style>
+    <script>document.documentElement.classList.add("js");</script>
+    <script src="/book/booking.js?v=c9df43d7" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <a href="/">
+            <span class="brand-name">Avery Whitted</span>
+            <span class="brand-sub">Acting Workshops + Private Coaching</span>
+          </a>
+        </div>
+        <nav aria-label="Site">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/podcast/">Podcast</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="panel mg" id="mg" aria-live="polite">
+          <p class="tag">Your booking</p>
+          <h1 class="show-title">One moment</h1>
+          <p class="mg-wait"><span class="bk-spin" aria-hidden="true"></span>Loading your booking...</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div>&copy; <span id="year"></span> Avery Whitted &middot; <a class="footer-link" href="/">Home</a> &middot; <a class="footer-link" href="/policies.html">Policies</a></div>
+      </footer>
+    </div>
+
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+      window.addEventListener("DOMContentLoaded", () => {
+        const API = (window.AWBooking && window.AWBooking.api) || "https://book.averywhitted.com";
+        const CONTACT = "info@averywhitted.com";
+        const q = new URLSearchParams(location.search);
+        const b = q.get("b") || "";
+        const t = q.get("t") || "";
+        const $ = document.getElementById("mg");
+        const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const money = (c) => (c % 100 ? `$${(c / 100).toFixed(2)}` : `$${c / 100}`);
+        let booking = null;
+        let flash = null; // { kind: "ok" | "err", html }
+
+        const tz = () => { try { return localStorage.getItem("bk-tz") || booking.timeZone; } catch { return booking.timeZone; } };
+        const f = (ms, o) => new Intl.DateTimeFormat("en-US", { timeZone: tz(), ...o }).format(ms);
+        const zone = (ms) => new Intl.DateTimeFormat("en-US", { timeZone: tz(), timeZoneName: "short" }).formatToParts(ms).find((p) => p.type === "timeZoneName")?.value || "";
+        const when = (bk) => {
+          const s = Date.parse(bk.start), e = Date.parse(bk.end);
+          return { date: f(s, { weekday: "long", month: "long", day: "numeric" }), time: `${f(s, { hour: "numeric", minute: "2-digit" })} to ${f(e, { hour: "numeric", minute: "2-digit" })} ${zone(s)}` };
+        };
+
+        const backLink = () => (booking && booking.bundleUrl ? `<a class="mg-back" href="${esc(booking.bundleUrl)}">&larr; Back to your bundle</a>` : "");
+        function show(tag, title, html) {
+          $.innerHTML = backLink() + `<p class="tag">${esc(tag)}</p><h1 class="show-title">${esc(title)}</h1>`
+            + (flash ? `<p class="mg-msg ${flash.kind}" role="${flash.kind === "err" ? "alert" : "status"}">${flash.html}</p>` : "") + html;
+          flash = null; // show each message once
+        }
+
+        async function api(method, path, body) {
+          const r = await fetch(`${API}${path}`, {
+            method,
+            headers: body ? { "Content-Type": "application/json" } : undefined,
+            body: body ? JSON.stringify(body) : undefined,
+            cache: "no-store",
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) { const err = new Error(data.error || "Something went wrong. Please try again."); err.status = r.status; throw err; }
+          return data;
+        }
+
+        // Back from paying (?paid=1): Stripe's confirmation can take a few seconds.
+        let paidChecks = q.get("paid") === "1" ? 6 : 0;
+        // From the "Pay" button in an invite (?pay=1): go straight to checkout, once.
+        let autoPay = q.get("pay") === "1";
+        // From a payment request email (?payreq=<id>): straight to checkout for it, once.
+        let autoPayRequest = q.get("payreq") || "";
+        if (paidChecks || autoPay || autoPayRequest) history.replaceState(null, "", `${location.pathname}?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
+
+        async function load() {
+          try {
+            booking = await api("GET", `/api/manage?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
+            if (paidChecks) {
+              if (booking.payment || (booking.paymentRequests || []).some((r) => r.status === "open")) {
+                paidChecks--;
+                flash = { kind: "ok", html: "Thanks! Your payment is being confirmed. This page will update in a moment." };
+                if (paidChecks) setTimeout(load, 2500);
+                else flash = { kind: "ok", html: "Thanks! Your payment is still being confirmed. You'll get an email as soon as it's through." };
+              } else {
+                paidChecks = 0;
+                flash = { kind: "ok", html: "Thanks, your payment went through. A receipt is on its way." };
+              }
+            }
+            renderBooking();
+            if (autoPay && ["confirmed", "past"].includes(booking.status) && booking.payment && booking.payment.open) { autoPay = false; startPay(); }
+            if (autoPayRequest) {
+              const id = autoPayRequest; autoPayRequest = "";
+              if ((booking.paymentRequests || []).some((r) => r.id === id && r.status === "open")) startRequestPay(id);
+            }
+          } catch (err) {
+            show("Your booking", "Link not recognized",
+              `<div class="prose"><p>${esc(err.status === 404 ? err.message : "We couldn't load your booking right now. Please try again in a moment.")}</p>
+               <p>Need help? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>.</p></div>`);
+          }
+        }
+
+        function detailsHtml() {
+          const w = when(booking);
+          return `<dl class="mg-details">
+            <dt>Session</dt><dd>${esc(booking.service)}</dd>
+            <dt>Date</dt><dd>${esc(w.date)}</dd>
+            <dt>Time</dt><dd>${esc(w.time)}</dd>
+            <dt>Where</dt><dd>${booking.zoomUrl ? `<a href="${esc(booking.zoomUrl)}" target="_blank" rel="noopener">Join on Zoom</a>` : "Zoom"}</dd>
+            ${booking.payment ? `<dt>Price</dt><dd>${money(booking.payment.dueCents)}, not paid yet</dd>` : booking.paid ? `<dt>Paid</dt><dd>${money(booking.amountCents)}</dd>` : ""}
+          </dl>` + requestsHtml();
+        }
+
+        // Payment requests from Avery for this session.
+        function requestsHtml() {
+          return (booking.paymentRequests || []).map((r) => r.status === "paid"
+            ? `<p class="mg-note" style="margin:0 0 16px">Payment request of ${money(r.amountCents)}: paid. Thank you!</p>`
+            : `<div class="mg-pay"><p><strong>Payment request: ${money(r.amountCents)}</strong></p>${r.note ? `<p><strong>Note:</strong> ${esc(r.note)}</p>` : ""}
+                 <div class="mg-actions"><button type="button" class="btn primary" data-payreq="${esc(r.id)}">Pay ${money(r.amountCents)}</button></div></div>`).join("");
+        }
+        $.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-payreq]");
+          if (btn) startRequestPay(btn.dataset.payreq);
+        });
+        async function startRequestPay(id) {
+          const btn = document.querySelector(`[data-payreq="${CSS.escape(id)}"]`);
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Opening payment'; }
+          try {
+            const r = await api("POST", "/api/pay-request", { b, t, r: id });
+            location.href = r.checkoutUrl;
+          } catch (err) {
+            flash = { kind: "err", html: esc(err.message) };
+            await load();
+          }
+        }
+
+        // What's owed on a session Avery booked, with the Pay button.
+        function paymentHtml() {
+          const p = booking.payment;
+          if (!p || !["confirmed", "past"].includes(booking.status)) return "";
+          if (!p.open) return `<p class="mg-note" style="margin:0 0 16px">The payment deadline has passed. Please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
+          const by = p.payBy ? Date.parse(p.payBy) : null;
+          const due = by
+            ? `Please pay by ${esc(f(by, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(f(by, { hour: "numeric", minute: "2-digit" }))} ${esc(zone(by))}. Paying by then confirms your ${booking.group ? "spot" : "session"}; after that, ${booking.group ? "your spot" : "the time"} will be opened up to other students.`
+            : booking.status === "past" ? "This session hasn't been paid for yet." : "Please pay before your session.";
+          return `<div class="mg-pay"><p>${due}</p><div class="mg-actions"><button type="button" class="btn primary" id="mg-pay">Pay ${money(p.dueCents)}</button></div></div>`;
+        }
+
+        async function startPay() {
+          const btn = document.getElementById("mg-pay");
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Opening payment'; }
+          try {
+            const r = await api("POST", "/api/pay", { b, t });
+            location.href = r.checkoutUrl;
+          } catch (err) {
+            flash = { kind: "err", html: esc(err.message) };
+            await load();
+          }
+        }
+
+        function renderBooking() {
+          const name = booking.firstName ? `, ${booking.firstName}` : "";
+          if (booking.status === "cancelled") {
+            if (booking.cancelReason === "unpaid") {
+              return show("Cancelled", "This session was released", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">Payment didn't come through by the deadline, so the time was opened up to other students. If you'd still like a session, email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`);
+            }
+            if (booking.cancelOffer) {
+              show("Cancelled", "Your session was cancelled", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">Sorry for the change of plans. Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer.</p>
+                   <div class="mg-actions" id="mg-actions"><button type="button" class="btn primary" id="mg-rebook">Pick a new time (no charge)</button><button type="button" class="btn" id="mg-refund-full">Get a full refund (${money(booking.amountCents)})</button></div>
+                   <div id="mg-extra"></div>`);
+              document.getElementById("mg-rebook").addEventListener("click", () => openPicker(true));
+              document.getElementById("mg-refund-full").addEventListener("click", askRefund);
+              return;
+            }
+            if (booking.cancelReason === "bundle_cancelled") {
+              return show("Cancelled", "This session is cancelled", detailsHtml()
+                + `<p class="mg-note" style="margin:0 0 16px">It was cancelled along with your bundle.</p><div class="mg-actions"><a class="btn primary" href="/book/">Book a session</a></div>`);
+            }
+            show("Cancelled", "This session is cancelled", detailsHtml()
+              + (booking.bundleUrl
+                ? `<p class="mg-note" style="margin:0 0 16px">The session went back into your bundle.</p><div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl)}">Book another time from your bundle</a></div>`
+                : `<div class="mg-actions"><a class="btn primary" href="/book/">Book another time</a><a class="btn" href="/">Home</a></div>`) + refundAskHtml());
+            return wireRefundAsk();
+          }
+          if (booking.status === "past") {
+            show("Your booking", "This session has passed", detailsHtml() + paymentHtml()
+              + `<div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl || "/book/")}">${booking.bundleUrl ? "Back to your bundle" : "Book another session"}</a></div>` + refundAskHtml());
+            document.getElementById("mg-pay")?.addEventListener("click", startPay);
+            return wireRefundAsk();
+          }
+          if (booking.status !== "confirmed") {
+            return show("Your booking", "Almost there", `<div class="prose"><p>This booking isn't confirmed yet. If you just paid, give it a minute and refresh. Questions? Email <a href="mailto:${CONTACT}" style="color:var(--a)">${CONTACT}</a>.</p></div>`);
+          }
+          const cutoff = Date.parse(booking.start) - booking.cutoffHours * 3600000;
+          const cutoffText = `${f(cutoff, { weekday: "short", month: "short", day: "numeric" })} at ${f(cutoff, { hour: "numeric", minute: "2-digit" })} ${zone(cutoff)}`;
+          let actions;
+          if (!booking.canChange) {
+            actions = `<p class="mg-note">It's less than ${booking.cutoffHours} hours before your session, so it can't be changed online. If something's come up, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>` + refundAskHtml();
+          } else if (booking.group) {
+            actions = `<div class="mg-actions" id="mg-actions">
+                <button type="button" class="btn" id="mg-cancel">Cancel my spot</button>
+              </div>
+              <p class="mg-note">This is a group session. You can cancel your spot until ${esc(cutoffText)}. To change the time, please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>
+              <div id="mg-extra"></div>`;
+          } else {
+            actions = `<div class="mg-actions" id="mg-actions">
+                ${booking.canReschedule ? '<button type="button" class="btn primary" id="mg-move">Reschedule</button>' : ""}
+                <button type="button" class="btn" id="mg-cancel">Cancel session</button>
+              </div>
+              <p class="mg-note">You can reschedule or cancel until ${esc(cutoffText)}${booking.canReschedule ? "" : `. This session has already been moved a few times, so to change the time again please email <a href="mailto:${CONTACT}">${CONTACT}</a>`}.</p>
+              <div id="mg-extra"></div>`;
+          }
+          show("Your booking", `You're booked${name}`, detailsHtml() + paymentHtml() + repeatHtml() + actions);
+          wireRefundAsk();
+          wireRepeat();
+          document.getElementById("mg-pay")?.addEventListener("click", startPay);
+          document.getElementById("mg-move")?.addEventListener("click", openPicker);
+          document.getElementById("mg-cancel")?.addEventListener("click", askCancel);
+        }
+
+        // "Request a refund" (only where a refund can't be had online), and its status.
+        function refundAskHtml() {
+          if (booking.refundRequest === "open") return `<p class="mg-note" style="margin:16px 0 0">Your refund request has been sent. Avery will get back to you by email.</p>`;
+          if (!booking.canRequestRefund) return "";
+          return `<div id="mg-refund"><p class="mg-note" style="margin:16px 0 0">${booking.refundRequest === "declined" ? "Your last refund request wasn't approved. " : ""}Something went wrong with this session? <button type="button" class="linkish" id="mg-refund-ask">Request a refund</button></p></div>`;
+        }
+        function wireRefundAsk() {
+          document.getElementById("mg-refund-ask")?.addEventListener("click", () => {
+            document.getElementById("mg-refund").innerHTML = `<div class="mg-confirm" role="dialog" aria-labelledby="mg-r-title">
+                <h2 id="mg-r-title">Request a refund</h2>
+                <p>Tell Avery what happened (optional). You'll hear back by email.</p>
+                <textarea id="mg-r-msg" maxlength="1000" rows="4" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit"></textarea>
+                <div class="mg-actions" style="margin-top:12px"><button type="button" class="btn primary" id="mg-r-send">Send request</button><button type="button" class="btn" id="mg-r-no">Never mind</button></div>
+              </div>`;
+            document.getElementById("mg-r-msg").focus();
+            document.getElementById("mg-r-no").addEventListener("click", renderBooking);
+            document.getElementById("mg-r-send").addEventListener("click", async (e) => {
+              e.target.disabled = true;
+              try {
+                await api("POST", "/api/refund-requests", { kind: "booking", b, t, message: document.getElementById("mg-r-msg").value });
+                flash = { kind: "ok", html: "Your request has been sent. Avery will get back to you by email." };
+              } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+              await load();
+            });
+          });
+        }
+
+        // Repeating sessions: what repeats, and a quiet way to stop it.
+        function repeatHtml() {
+          const sr = booking.series;
+          if (!sr || !["active", "pending"].includes(sr.status)) return "";
+          const every = sr.everyWeeks === 1 ? "every week" : `every ${sr.everyWeeks} weeks`;
+          return `<div id="mg-series"><p class="mg-note" style="margin:0 0 16px">This session repeats ${every}${sr.sessionsLeft !== null ? ` (${sr.sessionsLeft} more to come)` : ""}. The next one is booked automatically after this one ends. <button type="button" class="linkish" id="mg-stop-series">Stop repeating</button></p></div>`;
+        }
+        function wireRepeat() {
+          document.getElementById("mg-stop-series")?.addEventListener("click", () => {
+            document.getElementById("mg-series").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-s-title" style="margin:0 0 16px">
+                <h2 id="mg-s-title">Stop repeating?</h2>
+                <p>No more sessions will be booked automatically. Sessions already booked, including this one, stay booked.</p>
+                <div class="mg-actions"><button type="button" class="btn danger" id="mg-s-yes">Stop repeating</button><button type="button" class="btn" id="mg-s-no">Keep repeating</button></div>
+              </div>`;
+            document.getElementById("mg-s-no").addEventListener("click", renderBooking);
+            document.getElementById("mg-s-yes").addEventListener("click", async (e) => {
+              e.target.disabled = true;
+              try {
+                await api("POST", "/api/series/stop", { b, t });
+                flash = { kind: "ok", html: "Done. Your sessions won't repeat anymore. Anything already booked is still on." };
+              } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+              await load();
+            });
+          });
+        }
+
+        function askCancel() {
+          const w = when(booking);
+          const refund = booking.bundleUrl
+            ? "<p>It goes back into your bundle, so you can book another time whenever you like.</p>"
+            : booking.amountCents > 0
+              ? `<p>You'll be refunded in full (${money(booking.amountCents)}). Refunds may take a few business days to appear.</p>` : "";
+          document.getElementById("mg-actions").hidden = true;
+          document.getElementById("mg-extra").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-c-title">
+              <h2 id="mg-c-title">${booking.group ? "Cancel your spot?" : "Cancel this session?"}</h2>
+              <p>${esc(booking.service)} on ${esc(w.date)}, ${esc(w.time)}.</p>${refund}
+              <div class="mg-actions">
+                <button type="button" class="btn danger" id="mg-c-yes">Yes, cancel it</button>
+                <button type="button" class="btn" id="mg-c-no">Keep my session</button>
+              </div>
+            </div>`;
+          document.getElementById("mg-c-no").addEventListener("click", renderBooking);
+          const yes = document.getElementById("mg-c-yes");
+          yes.focus();
+          yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Cancelling';
+            try {
+              await api("POST", "/api/manage/cancel", { b, t });
+              flash = { kind: "ok", html: booking.bundleUrl ? "Your session is cancelled and back in your bundle. A confirmation email is on its way." : "Your session is cancelled. A confirmation email is on its way." };
+            } catch (err) {
+              flash = { kind: "err", html: esc(err.message) };
+            }
+            await load();
+          });
+        }
+
+        function askRefund() {
+          document.getElementById("mg-actions").hidden = true;
+          document.getElementById("mg-extra").innerHTML = `<div class="mg-confirm" role="alertdialog" aria-labelledby="mg-f-title">
+              <h2 id="mg-f-title">Get a full refund?</h2>
+              <p>You'll be refunded ${money(booking.amountCents)} to the card you paid with. Refunds may take a few business days to appear.</p>
+              <div class="mg-actions">
+                <button type="button" class="btn primary" id="mg-f-yes">Yes, refund me</button>
+                <button type="button" class="btn" id="mg-f-no">Go back</button>
+              </div>
+            </div>`;
+          document.getElementById("mg-f-no").addEventListener("click", renderBooking);
+          const yes = document.getElementById("mg-f-yes");
+          yes.focus();
+          yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Refunding';
+            try {
+              await api("POST", "/api/manage/refund", { b, t });
+              flash = { kind: "ok", html: "Done. Your refund is on its way, and a confirmation email will follow." };
+            } catch (err) { flash = { kind: "err", html: esc(err.message) }; }
+            await load();
+          });
+        }
+
+        function openPicker(rebook) {
+          document.getElementById("mg-actions").hidden = true;
+          const holder = document.getElementById("mg-extra");
+          const useBy = booking.bundleExpiresAt ? `${f(Date.parse(booking.bundleExpiresAt), { weekday: "long", month: "long", day: "numeric" })}` : "";
+          holder.innerHTML = (useBy ? `<p class="mg-note" style="margin:18px 0 0">Bundle sessions need to be before your bundle's use-by date, ${esc(useBy)}.</p>` : "")
+            + '<div class="mg-picker" id="mg-picker"></div>';
+          window.AWBooking.mountReschedule(document.getElementById("mg-picker"), {
+            serviceId: booking.serviceId,
+            b, t,
+            currentStart: Date.parse(booking.start),
+            timeZone: booking.timeZone,
+            onCancel: renderBooking,
+            async onConfirm(slot) {
+              await api("POST", rebook === true ? "/api/manage/rebook" : "/api/manage/reschedule", { b, t, start: new Date(slot).toISOString() });
+              flash = { kind: "ok", html: rebook === true
+                ? "You're booked. A confirmation with your calendar invite is on its way."
+                : "Done. Your session has been moved, and an updated calendar invite is on its way." };
+              await load();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            },
+          });
+          holder.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        load();
+      });
+    </script>
+  </body>
+</html>

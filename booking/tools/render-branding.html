@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Stripe branding renderer</title>
+  <!--
+    Draws the images for Stripe's branding settings (Settings > Branding):
+      stripe-icon.png        square icon: the site favicon (lime, Horizon "A"), 512x512
+      stripe-logo-dark.png   AVERY WHITTED in Horizon, ink, transparent background
+      stripe-logo-light.png  the same in white, for a dark or colored background
+    Open from the local site server (so /fonts/horizon.otf loads):
+      http://localhost:8743/booking/tools/render-branding.html
+    and use the download links.
+  -->
+  <style>
+    body { font: 14px system-ui; margin: 24px; background: #f6f7f9; }
+    .row { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+    img { border: 1px dashed #bbb; max-width: 520px; }
+    .dark img { background: #1f47f5; }
+  </style>
+</head>
+<body>
+  <h1>Stripe branding</h1>
+  <div id="out"></div>
+  <script>
+    const INK = "#0e1116", LIME = "#e3f24d";
+    // The favicon's "A" (favicon.svg), in its 32x32 frame.
+    const A_PATH = "M2410 0H1800L1665 235H760L625 0H15L933 1434H1492ZM1462 590 1213 1025 963 590Z";
+
+    function icon(size) {
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const x = c.getContext("2d");
+      x.fillStyle = LIME;
+      x.fillRect(0, 0, size, size);
+      // Centered and smaller than in the favicon, so it still fits when Stripe
+      // shows the icon cropped to a circle. The "A" spans x 15..2410, y 0..1434.
+      const s = (0.52 * size) / 2395;
+      x.translate((size - 2395 * s) / 2 - 15 * s, (size + 1434 * s) / 2);
+      x.scale(s, -s);
+      x.fillStyle = INK;
+      x.fill(new Path2D(A_PATH));
+      return c.toDataURL("image/png");
+    }
+
+    function wordmark(color, fontPx) {
+      const c = document.createElement("canvas");
+      let x = c.getContext("2d");
+      const font = () => { x.font = `${fontPx}px HorizonR`; if ("letterSpacing" in x) x.letterSpacing = `${0.005 * fontPx}px`; };
+      font();
+      const m = x.measureText("AVERY WHITTED");
+      const pad = Math.round(fontPx * 0.35);
+      c.width = Math.ceil(m.width) + pad * 2;
+      c.height = Math.ceil(m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) + pad * 2;
+      x = c.getContext("2d");
+      font();
+      x.fillStyle = color;
+      x.fillText("AVERY WHITTED", pad, pad + m.actualBoundingBoxAscent);
+      return { dataUrl: c.toDataURL("image/png"), w: c.width, h: c.height };
+    }
+
+    (async () => {
+      const face = new FontFace("HorizonR", "url(/fonts/horizon.otf)");
+      await face.load();
+      document.fonts.add(face);
+      const dark = wordmark(INK, 160), light = wordmark("#ffffff", 160);
+      window.__branding = {
+        "stripe-icon.png": icon(512),
+        "stripe-logo-dark.png": dark.dataUrl,
+        "stripe-logo-light.png": light.dataUrl,
+      };
+      document.getElementById("out").innerHTML = Object.entries(window.__branding).map(([name, url]) =>
+        `<div class="row${name.includes("light") ? " dark" : ""}"><img src="${url}" alt=""><a download="${name}" href="${url}">${name}</a></div>`).join("")
+        + `<p>Logo size: ${dark.w} x ${dark.h}px</p>`;
+    })();
+  </script>
+</body>
+</html>
