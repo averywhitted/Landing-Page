@@ -11,14 +11,10 @@ Terminal; nothing here is run automatically. Budget about an hour.
       ```
       cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run cf -- d1 migrations apply averywhitted-booking --remote && ./scripts/push-secrets.sh && npm run deploy -- --var SITE_URL:http://localhost:8743
       ```
-- [ ] Approve (or change) the bundle refund policy for student cancellations,
-      so those refunds can be automatic like single sessions.
 - [ ] Approve the wording for the policies page (repeating sessions, refund
-      requests, payment deadlines, payment requests).
-- [ ] **(Avery)** Zoom: add the "Delete a meeting" permission
-      (`meeting:delete:meeting:admin`) to the Server-to-Server app.
-- [ ] **(Avery)** Stripe (live mode): Settings > Emails > turn on
-      "Successful payments" receipts.
+      requests, payment deadlines, payment requests). Claude then adds it.
+- [x] Bundle refund policy approved (student cancellations refund automatically).
+- [x] Zoom "Delete a meeting" permission added.
 
 ## 1. Stripe live mode (Avery)
 
@@ -40,8 +36,11 @@ Terminal; nothing here is run automatically. Budget about an hour.
    security add-generic-password -a "$USER" -s stripe-live-webhook-secret -w
    ```
 6. **Settings > Branding**: logo, colors (brand #1f47f5, accent #e3f24d).
-7. **Settings > Payment methods** (live): make sure Apple Pay and Google Pay are on.
-8. Create a 100%-off promo code (Products > Coupons) for the first real test.
+7. **Settings > Customer emails** (live mode): turn on **Successful payments**
+   (receipts) and **Refunds**. Stripe never emails receipts for test payments,
+   so this only matters once you're live.
+8. **Settings > Payment methods** (live): make sure Apple Pay and Google Pay are on.
+9. Create a 100%-off promo code (Products > Coupons) for the first real test.
 
 ## 2. Clear the test data (Avery)
 
