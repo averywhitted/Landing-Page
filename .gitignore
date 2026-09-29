@@ -1,1 +1,7 @@
 __pycache__/
+
+# macOS folder settings
+.DS_Store
+
+# Private planning notes (never published or committed)
+sidetrack-*.md
