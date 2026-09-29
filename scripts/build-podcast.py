@@ -8,6 +8,7 @@ per episode), and refreshes the podcast block in sitemap.xml. Normally run by
 scripts/sync-podcast.py, which also pulls new episodes from the RSS feed.
 Standard library only.
 """
+import hashlib
 import html
 import json
 import pathlib
@@ -15,6 +16,12 @@ import re
 from datetime import datetime, timezone
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def asset_version(path):
+    """Fingerprint of a booking file, so pages always load its latest copy
+    (the same tag booking/scripts/stamp-assets.py writes)."""
+    return hashlib.sha256((ROOT / path).read_bytes()).hexdigest()[:8]
 SITE = "https://averywhitted.com"
 DATA = json.loads((ROOT / "podcast" / "episodes.json").read_text(encoding="utf-8"))
 SHOW = DATA["show"]
@@ -144,10 +151,10 @@ def head(title, description, canonical, jsonld, og_type="website"):
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/podcast/podcast.css" />
-    <link rel="stylesheet" href="/book/booking.css?v=a7813547" />
+    <link rel="stylesheet" href="/book/booking.css?v={asset_version("book/booking.css")}" />
     <script>document.documentElement.classList.add("js");</script>
     <script src="/podcast/podcast.js" defer></script>
-    <script src="/book/booking.js?v=7d0525f1" defer></script>
+    <script src="/book/booking.js?v={asset_version("book/booking.js")}" defer></script>
     {jsonld}
   </head>
 """
