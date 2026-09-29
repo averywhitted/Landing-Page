@@ -5,10 +5,16 @@ Terminal; nothing here is run automatically. Budget about an hour.
 
 ## Before launch day
 
+- [ ] **(Avery)** Bring the test setup up to date (new database table, the
+      key for the admin-page iCloud password, and the latest code), then try
+      the new pieces in test mode:
+      ```
+      cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run cf -- d1 migrations apply averywhitted-booking --remote && ./scripts/push-secrets.sh && npm run deploy -- --var SITE_URL:http://localhost:8743
+      ```
 - [ ] Approve (or change) the bundle refund policy for student cancellations,
       so those refunds can be automatic like single sessions.
 - [ ] Approve the wording for the policies page (repeating sessions, refund
-      requests, payment deadlines).
+      requests, payment deadlines, payment requests).
 - [ ] **(Avery)** Zoom: add the "Delete a meeting" permission
       (`meeting:delete:meeting:admin`) to the Server-to-Server app.
 - [ ] **(Avery)** Stripe (live mode): Settings > Emails > turn on
