@@ -59,7 +59,8 @@ export function createCheckoutSession(env: Env, p: {
   bookingId: string;            // the booking's id, or the bundle's id when kind is "package"
   // booking: a client booking a time; package: buying a bundle;
   // payment: paying for a session Avery booked for them
-  kind?: "booking" | "package" | "payment";
+  kind?: "booking" | "package" | "payment" | "request";
+  requestId?: string;           // kind "request": the payment request being paid
   idempotencyKey?: string;
   email: string;
   productName: string;
@@ -89,8 +90,9 @@ export function createCheckoutSession(env: Env, p: {
   }, p.idempotencyKey ?? `checkout-${p.bookingId}`);
 }
 
-const metadataFor = (p: { kind?: string; bookingId: string }) =>
+const metadataFor = (p: { kind?: string; bookingId: string; requestId?: string }) =>
   p.kind === "package" ? { package_id: p.bookingId }
+  : p.kind === "request" ? { booking_id: p.bookingId, request_id: p.requestId ?? "", purpose: "request" }
   : p.kind === "payment" ? { booking_id: p.bookingId, purpose: "payment" }
   : { booking_id: p.bookingId };
 

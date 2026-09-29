@@ -245,6 +245,15 @@ app.post("/api/series/stop", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// Paying a payment request Avery sent (the "Pay" link in that email).
+app.post("/api/pay-request", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try {
+    const { startRequestPayment } = await import("./requests");
+    return c.json(await startRequestPayment(c.env, body.b, body.t, body.r, Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 // Paying for a session Avery booked (the "Pay" link in the invite).
 app.post("/api/pay", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -339,6 +348,21 @@ for (const kind of ["bookings", "packages"] as const) {
 // A repeating session held because it clashes with Avery's calendar: keep it (sends the invite).
 app.post("/api/admin/bookings/:id/keep", async (c) => {
   try { const { adminKeepHeld } = await import("./series"); return c.json(await adminKeepHeld(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+// Payment requests for a session (send, remind, withdraw).
+app.post("/api/admin/payment-requests", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminCreateRequest } = await import("./requests"); return c.json(await adminCreateRequest(c.env, body, Date.now()), 201); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/payment-requests/:id/remind", async (c) => {
+  try { const { adminRemindRequest } = await import("./requests"); return c.json(await adminRemindRequest(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/payment-requests/:id/cancel", async (c) => {
+  try { const { adminCancelRequest } = await import("./requests"); return c.json(await adminCancelRequest(c.env, c.req.param("id"), Date.now())); }
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
@@ -499,6 +523,8 @@ app.post("/api/stripe/webhook", async (c) => {
         const promo = await promoCodeUsed(c.env, s.id);
         if (s.metadata?.purpose === "payment") {
           await recordPayment(c.env, s, now, promo);
+        } else if (s.metadata?.purpose === "request") {
+          await (await import("./requests")).recordRequestPayment(c.env, s, now);
         } else if (s.metadata?.package_id) {
           const id = await confirmPackage(c.env, s, now, promo);
           if (id) c.executionCtx.waitUntil(afterPackage(c.env, id));

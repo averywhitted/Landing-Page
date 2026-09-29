@@ -1191,6 +1191,55 @@ test("after Avery cancels a paid session, the student chooses a new time (no cha
   assert.equal(view.data.cancelOffer, false);
 });
 
+test("payment requests: Avery asks for payment for a session; it can be paid once, and a withdrawn one is refunded", async () => {
+  adminEnv();
+  const r = await adminBook({ time: "10:00", students: [student("Owes Me", "owes@example.com", { priceCents: 9000 })] });
+  const id = r.data.bookingId;
+  endSession(id); // it happened, unpaid, with no deadline
+  const invite = linkIn(world.state.emails.find((e) => e.to[0] === "owes@example.com")!.text);
+
+  // Unpaid with no deadline: still payable after the session.
+  const late = await api.call("POST", "/api/pay", { body: invite });
+  assert.equal(late.status, 200, JSON.stringify(late.data));
+
+  world.state.emails.length = 0;
+  const bad = await api.call("POST", "/api/admin/payment-requests", { headers: asAdmin(), body: { bookingId: id, amountCents: 10 } });
+  assert.equal(bad.status, 400, "at least $0.50");
+  const made = await api.call("POST", "/api/admin/payment-requests", { headers: asAdmin(), body: { bookingId: id, amountCents: 4000, note: "For the extra half hour." } });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  assert.equal((await api.call("POST", "/api/admin/payment-requests", { headers: asAdmin(), body: { bookingId: id, amountCents: 4000 } })).status, 409, "one open request per session");
+  const email = world.state.emails.find((e) => /^Payment request: \$40/.test(e.subject))!;
+  assert.match(email.text, /Note:\nFor the extra half hour\./);
+  assert.match(email.text, /payreq=/);
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(overview.data.problems.paymentRequests.length, 1);
+
+  const view = await api.call("GET", `/api/manage?b=${invite.b}&t=${invite.t}`);
+  assert.equal(view.data.paymentRequests[0].status, "open");
+  const reqId = view.data.paymentRequests[0].id;
+  assert.equal((await api.call("POST", "/api/pay-request", { body: { ...invite, r: "nope" } })).status, 404);
+  const pay = await api.call("POST", "/api/pay-request", { body: { ...invite, r: reqId } });
+  assert.equal(pay.status, 200);
+  const cs = [...world.state.stripeSessions.values()].find((x: any) => x.metadata.request_id === reqId)!;
+  await api.webhook("checkout.session.completed", paid(cs));
+  assert.equal((db.prepare("SELECT status, paid_cents FROM payment_requests WHERE id = ?").get(reqId) as any).status, "paid");
+  assert.ok(world.state.emails.some((e) => e.subject === "Payment received: $40" && e.to[0] === "owes@example.com"));
+  // A second completed checkout for the same request is refunded.
+  await api.webhook("checkout.session.completed", { ...paid(cs), payment_intent: "pi_second" }, { id: "evt_second_request" });
+  assert.equal(refundsFor("pi_second"), 1);
+  assert.equal((await api.call("POST", "/api/pay-request", { body: { ...invite, r: reqId } })).status, 409, "already paid");
+
+  // Withdrawn, then paid anyway through an old page: refunded.
+  const again = await api.call("POST", "/api/admin/payment-requests", { headers: asAdmin(), body: { bookingId: id, amountCents: 2500 } });
+  const payAgain = await api.call("POST", "/api/pay-request", { body: { ...invite, r: again.data.id } });
+  assert.equal(payAgain.status, 200);
+  const cs2 = [...world.state.stripeSessions.values()].find((x: any) => x.metadata.request_id === again.data.id)!;
+  assert.equal((await api.call("POST", `/api/admin/payment-requests/${again.data.id}/cancel`, { headers: asAdmin() })).status, 200);
+  await api.webhook("checkout.session.completed", paid(cs2), { id: "evt_withdrawn" });
+  assert.equal(refundsFor(`pi_${cs2.id}`), 1);
+  assert.equal((db.prepare("SELECT status FROM payment_requests WHERE id = ?").get(again.data.id) as any).status, "cancelled");
+});
+
 test("refund safety: paid after the hold ran out and the time was taken, refund fails first: retried, never lost", async () => {
   const [slot] = await openSlots();
   const late = await book("coaching-60", slot);

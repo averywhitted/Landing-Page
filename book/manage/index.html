@@ -137,13 +137,15 @@
         let paidChecks = q.get("paid") === "1" ? 6 : 0;
         // From the "Pay" button in an invite (?pay=1): go straight to checkout, once.
         let autoPay = q.get("pay") === "1";
-        if (paidChecks || autoPay) history.replaceState(null, "", `${location.pathname}?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
+        // From a payment request email (?payreq=<id>): straight to checkout for it, once.
+        let autoPayRequest = q.get("payreq") || "";
+        if (paidChecks || autoPay || autoPayRequest) history.replaceState(null, "", `${location.pathname}?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
 
         async function load() {
           try {
             booking = await api("GET", `/api/manage?b=${encodeURIComponent(b)}&t=${encodeURIComponent(t)}`);
             if (paidChecks) {
-              if (booking.payment) {
+              if (booking.payment || (booking.paymentRequests || []).some((r) => r.status === "open")) {
                 paidChecks--;
                 flash = { kind: "ok", html: "Thanks! Your payment is being confirmed. This page will update in a moment." };
                 if (paidChecks) setTimeout(load, 2500);
@@ -154,7 +156,11 @@
               }
             }
             renderBooking();
-            if (autoPay && booking.status === "confirmed" && booking.payment && booking.payment.open) { autoPay = false; startPay(); }
+            if (autoPay && ["confirmed", "past"].includes(booking.status) && booking.payment && booking.payment.open) { autoPay = false; startPay(); }
+            if (autoPayRequest) {
+              const id = autoPayRequest; autoPayRequest = "";
+              if ((booking.paymentRequests || []).some((r) => r.id === id && r.status === "open")) startRequestPay(id);
+            }
           } catch (err) {
             show("Your booking", "Link not recognized",
               `<div class="prose"><p>${esc(err.status === 404 ? err.message : "We couldn't load your booking right now. Please try again in a moment.")}</p>
@@ -170,13 +176,36 @@
             <dt>Time</dt><dd>${esc(w.time)}</dd>
             <dt>Where</dt><dd>${booking.zoomUrl ? `<a href="${esc(booking.zoomUrl)}" target="_blank" rel="noopener">Join on Zoom</a>` : "Zoom"}</dd>
             ${booking.payment ? `<dt>Price</dt><dd>${money(booking.payment.dueCents)}, not paid yet</dd>` : booking.paid ? `<dt>Paid</dt><dd>${money(booking.amountCents)}</dd>` : ""}
-          </dl>`;
+          </dl>` + requestsHtml();
+        }
+
+        // Payment requests from Avery for this session.
+        function requestsHtml() {
+          return (booking.paymentRequests || []).map((r) => r.status === "paid"
+            ? `<p class="mg-note" style="margin:0 0 16px">Payment request of ${money(r.amountCents)}: paid. Thank you!</p>`
+            : `<div class="mg-pay"><p><strong>Payment request: ${money(r.amountCents)}</strong></p>${r.note ? `<p><strong>Note:</strong> ${esc(r.note)}</p>` : ""}
+                 <div class="mg-actions"><button type="button" class="btn primary" data-payreq="${esc(r.id)}">Pay ${money(r.amountCents)}</button></div></div>`).join("");
+        }
+        $.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-payreq]");
+          if (btn) startRequestPay(btn.dataset.payreq);
+        });
+        async function startRequestPay(id) {
+          const btn = document.querySelector(`[data-payreq="${CSS.escape(id)}"]`);
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Opening payment'; }
+          try {
+            const r = await api("POST", "/api/pay-request", { b, t, r: id });
+            location.href = r.checkoutUrl;
+          } catch (err) {
+            flash = { kind: "err", html: esc(err.message) };
+            await load();
+          }
         }
 
         // What's owed on a session Avery booked, with the Pay button.
         function paymentHtml() {
           const p = booking.payment;
-          if (!p || booking.status !== "confirmed") return "";
+          if (!p || !["confirmed", "past"].includes(booking.status)) return "";
           if (!p.open) return `<p class="mg-note" style="margin:0 0 16px">The payment deadline has passed. Please email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>`;
           const by = p.payBy ? Date.parse(p.payBy) : null;
           const due = by
@@ -224,8 +253,9 @@
             return wireRefundAsk();
           }
           if (booking.status === "past") {
-            show("Your booking", "This session has passed", detailsHtml()
+            show("Your booking", "This session has passed", detailsHtml() + paymentHtml()
               + `<div class="mg-actions"><a class="btn primary" href="${esc(booking.bundleUrl || "/book/")}">${booking.bundleUrl ? "Back to your bundle" : "Book another session"}</a></div>` + refundAskHtml());
+            document.getElementById("mg-pay")?.addEventListener("click", startPay);
             return wireRefundAsk();
           }
           if (booking.status !== "confirmed") {

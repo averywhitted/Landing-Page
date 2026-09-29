@@ -297,6 +297,44 @@ export function paymentReminder(b: BookingView, payUrl: string, manageUrl?: stri
   };
 }
 
+// A payment request Avery sends for one of their sessions.
+export function paymentRequest(b: BookingView, r: { amountCents: number; note: string | null; reminder: boolean }, payUrl: string): Email {
+  const tz = b.clientTimeZone;
+  const line = r.reminder
+    ? `A quick reminder about the payment of ${money(r.amountCents)} for your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)}.`
+    : `This is a request for payment of ${money(r.amountCents)} for your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)}.`;
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(esc(line)),
+    noteBlock(r.note),
+    details([["Session", esc(b.serviceName)], ["Date", esc(day(b.start, tz))], ["Amount", esc(money(r.amountCents))]]),
+    button(payUrl, `Pay ${money(r.amountCents)}`),
+    small("Already paid? Thank you, you can ignore this email. If you have any questions, please reply to this email."),
+    para("Thanks,<br>Avery"),
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: `${r.reminder ? "Reminder: payment" : "Payment"} request: ${money(r.amountCents)} for your session on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: line, tag: tagFor(b), title: "Payment due", body }),
+    text: [`Hi ${firstName(b.name)},`, "", line, ...(r.note ? ["", "Note:", r.note] : []), "", `Pay here: ${payUrl}`, "",
+      "If you have any questions, please reply to this email.", "", "Thanks,", "Avery"].join("\n"),
+  };
+}
+
+export function requestPaid(b: BookingView, paidCents: number, manageUrl: string): Email {
+  const tz = b.clientTimeZone;
+  const line = `Thanks, your payment of ${money(paidCents)} for your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)} went through.`;
+  return {
+    to: b.email,
+    subject: `Payment received: ${money(paidCents)}`,
+    html: layout({ preheader: line, tag: tagFor(b), title: "Payment received", body: [
+      para(`Hi ${esc(firstName(b.name))},`), para(esc(line)), small(`You can see your session any time on <a href="${esc(manageUrl)}" style="color:#6b727b;">your session page</a>.`),
+      para("Thanks,<br>Avery"),
+    ].join("\n") }),
+    text: [`Hi ${firstName(b.name)},`, "", line, "", "Thanks,", "Avery"].join("\n"),
+  };
+}
+
 export function unpaidReleased(b: BookingView, ics: string): Email {
   const tz = b.clientTimeZone;
   const when = `${day(b.start, tz)}, ${timeRange(b, tz)}`;

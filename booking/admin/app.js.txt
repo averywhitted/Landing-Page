@@ -117,7 +117,7 @@
     const p = data.problems;
     const dueNow = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past).length;
     return p.failedEmails.length + p.stuck.length + refundsDue().length + stuckRefunds().length + p.leftOnCalendar.length + p.zoomLeft.length + dueNow
-      + (p.refundRequests || []).length + (p.held || []).length + (p.icloud ? 1 : 0);
+      + (p.refundRequests || []).length + (p.held || []).length + (p.paymentRequests || []).length + (p.icloud ? 1 : 0);
   }
 
   function renderTabs() {
@@ -200,6 +200,7 @@
       b.repeatEvery && b.seriesId ? btn("Stop repeating", `data-stop-series="${esc(b.seriesId)}"`, "Stop booking the next session automatically. Sessions already booked stay booked.") : "",
       refundBtn(b),
       noShowBtn(b),
+      !b.groupId ? btn("Request payment", `data-request="${esc(b.id)}"`, "Email them a request to pay an amount for this session, with a Pay button") : "",
       live ? btn("Cancel session", `data-cancel="${esc(b.id)}"`, "Cancel this session. You'll choose whether to refund and whether to email the student.", "danger") : "",
     ].filter(Boolean).join("");
     return `<div class="card${live ? "" : " muted"}">
@@ -496,12 +497,49 @@
       </div>`;
   }
 
+  let studentSessions = [];
+  const requestRow = (r) => `<div class="seat">
+      <div class="who-line"><strong>${nameTag(r.name, r.pronouns, r.customerId)}</strong>
+        <small>${money(r.amountCents)} for ${esc(r.session.toLowerCase())} on ${esc(fmt(r.start, { weekday: "short", month: "short", day: "numeric" }))} &middot; sent ${esc(whenShort(r.createdAt))}${r.remindersSent ? ` &middot; reminded ${r.remindersSent}&times;` : ""}</small>
+        ${r.note ? `<span class="quote">${esc(r.note)}</span>` : ""}</div>
+      <span class="seat-actions">${btn("Remind", `data-request-remind="${esc(r.id)}"`, "Email the request again (at most every 12 hours)", "sm")}${btn("Withdraw", `data-request-cancel="${esc(r.id)}"`, "Cancel the request; the Pay button stops working", "sm danger")}</span>
+    </div>`;
+
+  // Ask a student to pay an amount for one of their sessions.
+  function openRequest(bookingId) {
+    const b = bookingId ? known.get(bookingId) : null;
+    const choices = bookingId ? [] : studentSessions.filter((x) => !x.group);
+    if (!bookingId && !choices.length) { toast("They don't have any sessions to request payment for.", true); return; }
+    const label = (x) => `${fmt(x.start, { weekday: "short", month: "short", day: "numeric" })}, ${clock(x.start)} (${x.service}${x.status === "cancelled" ? ", cancelled" : ""})`;
+    const defaultCents = b ? (b.dueCents || b.priceCents || 0) : 0;
+    const form = formDialog(`
+      <h2 id="dlg-title">Request payment</h2>
+      ${b ? `<p>${nameTag(b.name, b.pronouns)} &middot; ${esc(label(b))}</p>` : `<label>Session<select name="session" required>${choices.map((x) => `<option value="${esc(x.id)}">${esc(label(x))}</option>`).join("")}</select></label>`}
+      <div class="fgrid"><label>Amount ($)<input type="number" name="amount" min="0.50" max="5000" step="0.01" value="${defaultCents ? (defaultCents / 100).toFixed(2) : ""}" required></label></div>
+      <label>Note to them (optional)<textarea name="note" maxlength="1000" rows="3" placeholder="e.g. For our session on Tuesday, which we didn't get to settle up before."></textarea></label>
+      <p class="hint">They get an email with a Pay button. It shows in Needs attention until it's paid.</p>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Send request</button></div>`,
+    async (f) => {
+      const amountCents = Math.round(Number(f.amount.value) * 100);
+      if (!(amountCents >= 50 && amountCents <= 500000)) throw new Error("Enter an amount between $0.50 and $5,000.");
+      const r = await api("POST", "/api/admin/payment-requests", { bookingId: bookingId || f.session.value, amountCents, note: f.note.value });
+      await afterAction(r.message || "Payment request sent.");
+    });
+  }
+
+  async function requestAction(path, okText, b) {
+    b.disabled = true;
+    try { await api("POST", path); toast(okText); await load(); }
+    catch (err) { toast(err.message, true); b.disabled = false; }
+  }
+
   async function openStudent(id) {
     studentOpen = id;
     let s;
     try { s = await api("GET", `/api/admin/students/${encodeURIComponent(id)}`); }
     catch (err) { toast(err.message, true); return; }
     if (studentOpen !== id) return;
+    studentSessions = s.sessions;
     for (const x of s.sessions) known.set(x.id, { ...x, name: s.name, email: s.email, pronouns: s.pronouns, customerId: s.id, past: x.status === "past", status: x.status === "cancelled" ? "cancelled" : "confirmed", unpaidReleased: x.cancelReason === "unpaid" });
     const upcoming = s.sessions.filter((x) => x.status === "upcoming").reverse();
     const past = s.sessions.filter((x) => x.status !== "upcoming");
@@ -512,7 +550,7 @@
         <div class="who-line"><strong>${esc(fmt(x.start, { weekday: "short", month: "short", day: "numeric" }))}, ${esc(clock(x.start))}</strong>
           <small>${esc(x.service)}${x.group ? " (group)" : ""}${x.byAvery ? ", booked by you" : ""}</small></div>
         <span class="seat-chips">${payChip(x)}${statusChip(k)}${x.refunded ? '<span class="chip ok">Refunded</span>' : x.refundedCents ? `<span class="chip ok">${money(x.refundedCents)} refunded</span>` : ""}${x.noShow ? '<span class="chip bad">No-show</span>' : ""}${reminderChips(k)}</span>
-        ${x.status !== "upcoming" ? `<span class="seat-actions">${refundBtn(k, true)}${noShowBtn(k, true)}</span>` : ""}
+        ${x.status !== "upcoming" ? `<span class="seat-actions">${refundBtn(k, true)}${noShowBtn(k, true)}${!x.group ? btn("Request payment", `data-request="${esc(x.id)}"`, "Email them a request to pay for this session", "sm") : ""}</span>` : ""}
         ${x.status === "upcoming" ? `<span class="seat-actions">
           ${remindBtn(k, true)}
           ${btn("Change time", `data-move="${esc(x.id)}"`, x.group ? "Move the whole group session" : "Move this session. They get an updated invite.", "sm")}
@@ -544,8 +582,9 @@
       <div class="sd-head">
         <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</h2>
           <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
-        ${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}
+        <span class="seat-actions">${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
       </div>
+      ${(s.paymentRequests || []).length ? `<h3>Payment requests</h3>${s.paymentRequests.map(requestRow).join("")}` : ""}
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
       <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
@@ -673,6 +712,8 @@
         <span class="seat-actions">${btn("Refund&hellip;", `data-grant="${esc(r.id)}"`, "Refund all or part of it; they're emailed", "sm")}${btn("Decline", `data-decline="${esc(r.id)}"`, "Say no, with an optional note; they're emailed", "sm danger")}</span>
       </div>`).join("")));
     }
+    const reqs = data.problems.paymentRequests || [];
+    if (reqs.length) parts.push(panel("Payment requests", reqs.map(requestRow).join("")));
     const due2 = data.bookings.filter((b) => b.dueCents && b.status === "confirmed" && !b.past);
     if (due2.length) {
       parts.push(panel("Payments due", due2.map((b) => `<div class="seat">
@@ -1351,6 +1392,10 @@
     else if (d.cancelBundle) openCancelBundle(d.cancelBundle);
     else if (d.resend) resend(d.resend, t);
     else if (d.keep) keepHeld(d.keep, t);
+    else if (d.request) openRequest(d.request);
+    else if (d.requestStudent) openRequest(null);
+    else if (d.requestRemind) requestAction(`/api/admin/payment-requests/${encodeURIComponent(d.requestRemind)}/remind`, "Reminder sent.", t);
+    else if (d.requestCancel) { if (confirm("Withdraw this payment request? Their Pay button will stop working.")) requestAction(`/api/admin/payment-requests/${encodeURIComponent(d.requestCancel)}/cancel`, "Request withdrawn.", t); }
   });
 
   document.addEventListener("submit", (e) => {

@@ -80,6 +80,17 @@ export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
       dollars(paid), dollars(refunded), dollars(paid - refunded), method, b.promo_code ?? "", b.attendance === "no_show" ? "No-show" : "",
     ]);
   }
+  const requests = await env.DB.prepare(
+    `SELECT r.*, b.service_id, ${CLIENT_COLUMNS("b")} FROM payment_requests r JOIN bookings b ON b.id = r.booking_id JOIN customers c ON c.id = r.customer_id
+     WHERE r.status = 'paid' AND r.paid_at >= ?1 AND r.paid_at < ?2 ORDER BY r.paid_at`,
+  ).bind(iso(from), iso(to)).all<Record<string, any>>();
+  for (const r of requests.results) {
+    const at = Date.parse(r.paid_at);
+    rows.push([
+      "Payment request", day(at), time(at), r.name, r.email, serviceLabel(findService(r.service_id)!), "Paid", "Avery",
+      dollars(r.amount_cents), dollars(r.paid_cents ?? 0), "0.00", dollars(r.paid_cents ?? 0), "Card", "", "",
+    ]);
+  }
   for (const p of bundles.results) {
     const at = Date.parse(p.created_at);
     rows.push([
@@ -131,7 +142,8 @@ export async function calendarHealth(env: Env) {
 
 /* ── Backups ── */
 
-const BACKUP_TABLES = ["customers", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "settings", "alerts_sent"];
+// Not included: stored_secrets (the encrypted iCloud password stays out of every copy).
+const BACKUP_TABLES = ["customers", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "payment_requests", "settings", "alerts_sent"];
 
 export async function backupJson(env: Env, now: number): Promise<string> {
   const out: Record<string, unknown> = { made: iso(now), tables: {} };
@@ -180,7 +192,7 @@ export async function clearTestData(env: Env, confirm: unknown) {
     if (l.cal) await cal.deleteEvent(l.cal).catch(() => { problems++; });
     if (l.zoom) await deleteMeeting(env, l.zoom).catch(() => { problems++; });
   }
-  const tables = ["slot_claims", "credit_ledger", "refund_requests", "bookings", "groups", "series", "packages", "customers", "email_log", "processed_webhooks", "alerts_sent"];
+  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "bookings", "groups", "series", "packages", "customers", "email_log", "processed_webhooks", "alerts_sent"];
   await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
   return {
     ok: true,

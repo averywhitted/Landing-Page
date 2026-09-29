@@ -214,6 +214,7 @@ export async function adminOverview(env: Env, now: number) {
         .map((b) => ({ id: b.id, name: b.name, pronouns: b.pronouns, start: b.start_utc, error: b.cleanup_error })),
       activeHolds: holds?.n ?? 0,
       refundRequests: await (await import("./refunds")).openRefundRequests(env),
+      paymentRequests: await (await import("./requests")).openRequests(env),
       icloud: await (await import("./extras")).calendarHealth(env),
     },
     backups: { on: !!env.BACKUPS, last: await (await import("./extras")).lastBackup(env) },

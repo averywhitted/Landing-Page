@@ -525,6 +525,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
         held: b.series_conflict,
       };
     }),
+    paymentRequests: await (await import("./requests")).openRequests(env, customerId),
     series: (await env.DB.prepare(
       "SELECT id, service_id, every_weeks, sessions_left, last_start, price_cents, started_by FROM series WHERE customer_id = ?1 AND status IN ('pending', 'active')",
     ).bind(customerId).all<Record<string, any>>()).results.map((x) => ({
@@ -601,7 +602,7 @@ export async function startPayment(env: Env, bookingId: unknown, token: unknown,
   const due = dueCents(row);
   if (!due) throw new BookingError(409, row.status === "cancelled" ? "This session has been cancelled." : "There's nothing to pay for this session.");
   if (row.pay_by && Date.parse(row.pay_by) <= now) throw new BookingError(409, "The payment deadline has passed. Please reply to your invite email.");
-  if (Date.parse(row.end_utc) <= now) throw new BookingError(409, "This session has already taken place. Please reply to your invite email.");
+  // No deadline: it can still be paid after the session has happened.
 
   // Reuse a checkout that's still open, so two clicks don't make two payments.
   if (row.stripe_checkout_session_id) {

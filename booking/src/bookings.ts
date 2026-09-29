@@ -688,6 +688,7 @@ export async function manageView(env: Env, bookingId: unknown, token: unknown, n
       && !(row.status === "confirmed" && Date.parse(row.start_utc) - now >= CHANGE_CUTOFF_HOURS * 60 * MIN)
       && !(row.status === "cancelled" && row.refund_requested_at),
     refundRequest: await (await import("./refunds")).refundRequestStatus(env, "booking", row.id),
+    paymentRequests: await (await import("./requests")).requestsForBooking(env, row.id),
     series: await (await import("./series")).seriesSummary(env, row.series_id),
     cutoffHours: CHANGE_CUTOFF_HOURS,
     serviceId: row.service_id,
