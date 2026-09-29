@@ -64,6 +64,9 @@ const groups: [string, Entry[]][] = [
     { who: "Student", title: "Payment reminder", when: "Automatic (once) or sent by you.", email: T.paymentReminder(booked, pay, manage) },
     { who: "Student", title: "Payment received", when: "They pay; includes the Zoom link.", email: T.paymentReceived({ ...sample, amountCents: 9000 }, manage, ics) },
     { who: "Student", title: "Released, not paid in time", when: "The pay-by deadline passes unpaid.", email: T.unpaidReleased({ ...booked }, ics) },
+    { who: "Student", title: "Payment request", when: "You request payment for one of their sessions.", email: T.paymentRequest(sample, { amountCents: 4000, note: "For the extra half hour we went over on Thursday.", reminder: false }, `${manage}&payreq=sample`) },
+    { who: "Student", title: "Payment request reminder", when: "You click Remind on an open request.", email: T.paymentRequest(sample, { amountCents: 4000, note: null, reminder: true }, `${manage}&payreq=sample`) },
+    { who: "Student", title: "Payment request paid", when: "They pay a payment request.", email: T.requestPaid(sample, 4000, manage) },
     { who: "Student", title: "Paid after it was cancelled", when: "A payment arrives after the session was cancelled; refunded automatically.", email: T.paidAfterCancel({ ...sample, amountCents: 9000 }) },
   ]],
   ["Repeating sessions", [
@@ -94,6 +97,8 @@ const groups: [string, Entry[]][] = [
     { who: "You", title: "Cancelled, refunded", when: "A student cancels in time.", email: T.adminCancelled(sample, stripe, { refund: "refunded", calendarRemoved: true, zoomRemoved: true }) },
     { who: "You", title: "Cancelled, refund pending", when: "Same, but Stripe hasn't accepted the refund yet.", email: T.adminCancelled(sample, stripe, { refund: "pending", calendarRemoved: true, zoomRemoved: true }) },
     { who: "You", title: "Cancelled, cleanup failed", when: "The calendar event or Zoom meeting couldn't be removed.", email: T.adminCancelled(intro, null, { refund: "none", calendarRemoved: false, zoomRemoved: false }) },
+    { who: "You", title: "They chose a new time", when: "After you cancelled a paid session, they picked a new time (no charge).", email: T.adminNotification(sample, { zoomMissing: false, calendarFailed: false, title: "New booking", notice: "Jamie Rivera chose a new time instead of a refund for the session you cancelled. No new payment: it uses what they already paid." }) },
+    { who: "You", title: "They chose a refund", when: "After you cancelled a paid session, they chose a full refund.", email: T.adminNotification(sample, { zoomMissing: false, calendarFailed: false, title: "Refund issued", notice: "Jamie Rivera chose a full refund for the session you cancelled. $130 was refunded automatically." }) },
     { who: "You", title: "Auto-refunded", when: "Someone paid after their time was taken.", email: T.adminNotification(sample, { zoomMissing: false, calendarFailed: false, title: "Auto-refunded", notice: "Not booked: this client paid after their hold ran out and someone else had taken the time. They were refunded in full automatically and asked to pick a new time. Nothing was added to your calendar." }) },
   ]],
   ["To you: payments, bundles, repeats", [
@@ -104,11 +109,14 @@ const groups: [string, Entry[]][] = [
     { who: "You", title: "Bundle cancelled", when: "A student cancels their bundle.", email: T.adminBundleCancelled(cancelView, stripe) },
     { who: "You", title: "Refund request", when: "A student asks for a refund.", email: T.adminRefundRequest({ name: "Jamie Rivera", email: "jamie@example.com", what: "1 hour session on Thursday, October 1", paidCents: 13000, leftCents: 13000, message: "Zoom kept dropping for me." }) },
     { who: "You", title: "Repeat skipped", when: "A repeating session's usual time wasn't free.", email: T.adminSeriesSkipped(skip) },
+    { who: "You", title: "Repeat clash", when: "A repeating session clashes with your calendar or a day off; held until you decide.", email: T.adminSeriesClash({ name: "Jamie Rivera", serviceName: "1 hour session", when: start + 7 * D, clash: "calendar", wentAhead: false }) },
+    { who: "You", title: "Repeat went ahead", when: "You didn't decide by 2 days before.", email: T.adminSeriesClash({ name: "Jamie Rivera", serviceName: "1 hour session", when: start + 7 * D, clash: "day_off", wentAhead: true }) },
     { who: "You", title: "Repeats stopped", when: "A student stopped, or two went unpaid.", email: T.adminSeriesStopped({ ...series, by: "unpaid" }) },
   ]],
   ["To you: system alerts", [
     { who: "You", title: "Something needs attention", when: "Failures that didn't fix themselves (at most hourly).", email: T.attentionAlert(["1 \"client confirmation\" email failed to send.", "Jamie Rivera's session on Thu, Oct 1, 11:00 AM isn't in your Coaching calendar.", { text: "The automatic refund of $130.00 to Jamie Rivera hasn't gone through. It will keep retrying; you can also refund it in Stripe.", fix: ["Resolve in Stripe", stripe] }]) },
     { who: "You", title: "Can't reach iCloud", when: "Your calendars have been unreachable for 15 minutes.", email: T.icloudStatus(false, "iCloud PROPFIND failed with status 401") },
+    { who: "You", title: "iCloud password changed", when: "The password is changed (or reset) from Settings.", email: T.icloudPasswordChanged({ by: "avery@averywhitted.com", at: start, reverted: false }) },
     { who: "You", title: "iCloud working again", when: "After the alert above, once it's fixed.", email: T.icloudStatus(true, "") },
   ]],
 ];

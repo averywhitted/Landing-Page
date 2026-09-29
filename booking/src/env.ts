@@ -29,6 +29,7 @@ export type Env = {
   HASH_SALT?: string;         // random string for hashing IP addresses
   MANAGE_LINK_SECRET?: string; // signs clients' reschedule/cancel links
   TURNSTILE_SECRET_KEY?: string; // Cloudflare Turnstile (bot check on the booking form)
+  SECRETS_KEY?: string;        // encrypts the iCloud password when it's changed from the admin page (see secrets.ts)
 
   // Private storage bucket for nightly backups (optional; see wrangler.toml).
   BACKUPS?: R2Bucket;

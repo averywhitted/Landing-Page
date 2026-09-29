@@ -586,8 +586,9 @@ export function icloudStatus(ok: boolean, error: string): Email {
     ? [para("Your booking page can read your iCloud calendars again. Clients can book as normal.")].join("\n")
     : [
       warn("Your booking page can't read your iCloud calendars, so clients can't see open times or book right now."),
-      para("The most common cause is the app-specific password being revoked, which can happen when your Apple ID password changes or you sign out of devices. To fix it, make a new app-specific password at account.apple.com and send it to the booking service."),
+      para("The most common cause is the app-specific password being revoked, which can happen when your Apple ID password changes or you sign out of devices. To fix it, make a new app-specific password at account.apple.com, then paste it into Admin, Settings, iCloud connection."),
       button("https://account.apple.com/account/manage", "Make a new password"),
+      ghostButton(`${ADMIN_URL}#settings`, "Paste it in Admin"),
       small(`What iCloud said: ${esc(error)}`),
       small("You'll get one more email when it's working again."),
     ].join("\n");
@@ -596,7 +597,25 @@ export function icloudStatus(ok: boolean, error: string): Email {
     subject: ok ? "Booking system: iCloud is working again" : "Booking system: can't reach your iCloud calendar",
     html: layout({ preheader: ok ? "iCloud is working again." : "Clients can't book until this is fixed.", tag: ok ? "Booking system" : "Error", title: ok ? "Issue resolved" : "Needs attention", body }),
     text: ok ? "Your booking page can read your iCloud calendars again."
-      : `Your booking page can't read your iCloud calendars, so clients can't book right now.\n\nMost likely the app-specific password was revoked. Make a new one at account.apple.com.\n\niCloud said: ${error}`,
+      : `Your booking page can't read your iCloud calendars, so clients can't book right now.\n\nMost likely the app-specific password was revoked. Make a new one at account.apple.com, then paste it into Admin, Settings, iCloud connection: ${ADMIN_URL}#settings\n\niCloud said: ${error}`,
+  };
+}
+
+// Security notice: the iCloud password was changed from the admin page.
+export function icloudPasswordChanged(p: { by: string; at: number; reverted: boolean }): Email {
+  const when = `${day(p.at, AVERY_TZ)} at ${clock(p.at, AVERY_TZ)}`;
+  const line = p.reverted
+    ? `The booking system went back to its original iCloud password on ${when}, signed in as ${p.by}.`
+    : `The booking system's iCloud app-specific password was changed on ${when}, signed in as ${p.by}. iCloud accepted it, and it's stored encrypted.`;
+  return {
+    to: "",
+    subject: "Booking system: iCloud password changed",
+    html: layout({ preheader: line, tag: "Security", title: "Password updated", body: [
+      para(esc(line)),
+      warn("If this wasn't you, revoke the password at account.apple.com straight away, and check who can sign in to your admin page in Cloudflare Access.",
+        ["Manage app-specific passwords", "https://account.apple.com/account/manage"]),
+    ].join("\n") }),
+    text: [line, "", "If this wasn't you, revoke the password at https://account.apple.com/account/manage straight away."].join("\n"),
   };
 }
 
@@ -995,5 +1014,5 @@ export const HEADING_TITLES = [
   "See you soon", "Needs attention",
   "Bundle confirmed", "Bundle purchased", "Sessions expiring", "Bundle cancelled",
   "Payment due", "Payment received", "Bundle updated", "Refund issued",
-  "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved",
+  "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved", "Password updated",
 ];

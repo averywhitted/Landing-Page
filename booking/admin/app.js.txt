@@ -186,7 +186,7 @@
       b.noShow ? '<span class="chip bad">No-show</span>' : "",
       b.repeatEvery ? `<span class="chip" title="The next one is booked automatically after this one ends">&#8635; Repeats ${everyText(b.repeatEvery)}</span>` : "",
       b.byAvery ? '<span class="chip">Booked by you</span>' : "",
-      live ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
+      live && !held ? `<span class="chip ${b.inCalendar ? "ok" : "bad"}">${b.inCalendar ? "In calendar" : "Not in calendar"}</span>` : "",
       live && !b.emailed && !held ? '<span class="chip bad">Not emailed</span>' : "",
     ].join("");
     const intake = b.intake ? Object.entries({ Goal: b.intake.goal, Material: b.intake.material, Link: b.intake.link, Notes: b.intake.notes })
@@ -514,9 +514,9 @@
     const defaultCents = b ? (b.dueCents || b.priceCents || 0) : 0;
     const form = formDialog(`
       <h2 id="dlg-title">Request payment</h2>
-      ${b ? `<p>${nameTag(b.name, b.pronouns)} &middot; ${esc(label(b))}</p>` : `<label>Session<select name="session" required>${choices.map((x) => `<option value="${esc(x.id)}">${esc(label(x))}</option>`).join("")}</select></label>`}
+      ${b ? `<p>${nameTag(b.name, b.pronouns)} &middot; ${esc(label(b))}</p>` : `<label class="field">Session<select name="session" required>${choices.map((x) => `<option value="${esc(x.id)}">${esc(label(x))}</option>`).join("")}</select></label>`}
       <div class="fgrid"><label>Amount ($)<input type="number" name="amount" min="0.50" max="5000" step="0.01" value="${defaultCents ? (defaultCents / 100).toFixed(2) : ""}" required></label></div>
-      <label>Note to them (optional)<textarea name="note" maxlength="1000" rows="3" placeholder="e.g. For our session on Tuesday, which we didn't get to settle up before."></textarea></label>
+      <label class="field">Note to them (optional)<textarea name="note" maxlength="1000" rows="3" placeholder="e.g. For our session on Tuesday, which we didn't get to settle up before."></textarea></label>
       <p class="hint">They get an email with a Pay button. It shows in Needs attention until it's paid.</p>
       <div class="row">${cancelButton()}<button type="submit" class="btn primary">Send request</button></div>`,
     async (f) => {
@@ -692,17 +692,18 @@
     const parts = [];
     const panel = (title, body) => `<div class="panel"><p class="day" style="margin-top:0">${title}</p>${body}</div>`;
     const { icloud, refundRequests } = data.problems;
+    if (icloud) {
+      parts.push(`<div class="panel alert-panel"><p class="day" style="margin-top:0">Can't reach your iCloud calendar</p>
+        <p>Since ${esc(whenShort(icloud.failingSince))}, the booking page can't read your calendars, so clients can't see open times or book. The usual cause is the app-specific password being revoked (for example after an Apple ID password change). Make a new one at <a href="https://account.apple.com/account/manage" target="_blank" rel="noopener">account.apple.com</a>, then paste it in Settings, iCloud connection.</p>
+        <p>${btn("Update iCloud password", 'data-tab="settings"', "Open Settings to paste a new app-specific password", "primary")}</p>
+        <p class="mono-hint">${esc(icloud.error || "")}</p></div>`);
+    }
     const held = data.problems.held || [];
     if (held.length) {
       parts.push(panel("Repeating sessions waiting for you", `<p class="mono-hint" style="margin-top:0">These clash with your calendar or a day off. The student hasn't been told yet; if you don't decide, each goes ahead at the usual time 2 days before.</p>` + held.map((h) => `<div class="seat">
         <div class="who-line"><strong>${nameTag(h.name, h.pronouns)}</strong><small>${esc(dayLabel(h.start))} at ${esc(clock(h.start))} &middot; ${clashText(h.clash)}</small></div>
         <span class="seat-actions">${heldButtons(h.id, true)}</span>
       </div>`).join("")));
-    }
-    if (icloud) {
-      parts.push(`<div class="panel alert-panel"><p class="day" style="margin-top:0">Can't reach your iCloud calendar</p>
-        <p>Since ${esc(whenShort(icloud.failingSince))}, the booking page can't read your calendars, so clients can't see open times or book. The usual cause is the app-specific password being revoked (for example after an Apple ID password change). Make a new one at account.apple.com and send it to the booking service.</p>
-        <p class="mono-hint">${esc(icloud.error || "")}</p></div>`);
     }
     if (refundRequests.length) {
       parts.push(panel("Refund requests", refundRequests.map((r) => `<div class="seat">
@@ -830,7 +831,42 @@
           <button type="submit" class="btn primary">Save settings</button>
         </div>
       </div>
+    </form>
+    ${icloudForm()}`;
+  }
+
+  // A new iCloud app-specific password: tried against iCloud, then stored encrypted. Never shown again.
+  function icloudForm() {
+    const p = settings.icloudPassword || {};
+    const state = p.fromAdmin
+      ? `Using the password you set here ${esc(whenShort(p.updatedAt))}${p.updatedBy ? ` (${esc(p.updatedBy)})` : ""}.`
+      : "Using the password from setup.";
+    return `<form class="panel settings" id="icloud-form" autocomplete="off">
+      <fieldset id="settings-icloud"><legend>iCloud connection</legend>
+        <p class="hint">${state} If booking stops working because Apple revoked the password (for example after you change your Apple ID password), make a new app-specific password at <a href="https://account.apple.com/account/manage" target="_blank" rel="noopener">account.apple.com</a> and paste it here. It's checked with iCloud before it's saved, stored encrypted, and never shown again. You'll get an email whenever it changes.</p>
+        ${p.canUpdate ? `<div class="row2">
+          <label>New app-specific password <input type="password" name="password" autocomplete="new-password" spellcheck="false" autocapitalize="off" placeholder="abcd-efgh-ijkl-mnop" required></label>
+        </div>
+        <div class="row" style="justify-content:flex-start;margin-top:8px">
+          <button type="submit" class="btn primary">Check and save</button>
+          ${p.fromAdmin ? '<button type="button" class="btn" id="icloud-reset">Go back to the setup password</button>' : ""}
+        </div>` : '<p class="hint">One-time setup needed before this works: run the push-secrets script, then deploy.</p>'}
+      </fieldset>
     </form>`;
+  }
+
+  async function saveIcloudPassword(form) {
+    const b = form.querySelector("[type=submit]");
+    const password = form.password.value;
+    form.password.value = ""; // never left in the page
+    b.disabled = true;
+    b.textContent = "Checking with iCloud...";
+    try {
+      const r = await api("POST", "/api/admin/icloud-password", { password });
+      if (r && r.values) settings = r;
+      toast("Saved. iCloud accepted the new password.");
+      await load();
+    } catch (err) { toast(err.message, true); b.disabled = false; b.textContent = "Check and save"; }
   }
 
   async function saveSettings(form) {
@@ -1339,7 +1375,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter]");
+    const t = e.target.closest("[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1400,6 +1436,14 @@
 
   document.addEventListener("submit", (e) => {
     if (e.target.id === "settings-form") { e.preventDefault(); saveSettings(e.target); }
+    if (e.target.id === "icloud-form") { e.preventDefault(); saveIcloudPassword(e.target); }
+  });
+  document.addEventListener("click", async (e) => {
+    if (e.target.id !== "icloud-reset") return;
+    if (!confirm("Go back to the iCloud password from setup? Only do this if that one still works.")) return;
+    e.target.disabled = true;
+    try { const r = await api("POST", "/api/admin/icloud-password/reset"); if (r && r.values) settings = r; toast("Done. Using the setup password."); render(); }
+    catch (err) { toast(err.message, true); e.target.disabled = false; }
   });
   document.addEventListener("click", async (e) => {
     if (e.target.id !== "settings-reset") return;

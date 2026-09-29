@@ -261,7 +261,35 @@ export async function adminGetSettings(env: Env) {
   const loaded = await loadScheduling(env);
   let calendars: string[] | null = null;
   try { calendars = await calendarFor(env).listNames(); } catch (err) { console.error("settings: calendar list failed:", (err as Error).message); }
-  return { ...loaded, defaults: defaults(env), timeZone: RULES.timeZone, calendars };
+  const icloudPassword = await (await import("./secrets")).icloudPasswordStatus(env);
+  return { ...loaded, defaults: defaults(env), timeZone: RULES.timeZone, calendars, icloudPassword };
+}
+
+/* ── The iCloud password (see secrets.ts) ── */
+
+export async function adminUpdateIcloudPassword(env: Env, raw: unknown, by: string, now: number) {
+  const secrets = await import("./secrets");
+  const icloud = await import("./icloud");
+  const { usingFakes } = await import("./env");
+  // Tried against iCloud first: listing the calendars needs a working password.
+  await secrets.adminSetIcloudPassword(env, raw, by, now, async (creds) => {
+    if (usingFakes(env)) return;
+    icloud.forgetCalendars();
+    const names = await icloud.findCalendars(creds, null);
+    if (!Object.keys(names).length) throw new Error("no calendars");
+  });
+  icloud.forgetCalendars();
+  await sendEmail(env, "icloud_password_changed", null, { ...T.icloudPasswordChanged({ by, at: now, reverted: false }), to: env.ADMIN_EMAIL });
+  // Clears the "can't reach iCloud" warning (and emails that it's working again).
+  await (await import("./extras")).checkCalendarHealth(env, now);
+  return adminGetSettings(env);
+}
+
+export async function adminResetIcloudPassword(env: Env, by: string, now: number) {
+  await (await import("./secrets")).adminClearIcloudPassword(env);
+  (await import("./icloud")).forgetCalendars();
+  await sendEmail(env, "icloud_password_changed", null, { ...T.icloudPasswordChanged({ by, at: now, reverted: true }), to: env.ADMIN_EMAIL });
+  return adminGetSettings(env);
 }
 
 export async function adminSaveSettings(env: Env, input: unknown, by: string) {

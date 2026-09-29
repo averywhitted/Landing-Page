@@ -490,6 +490,23 @@ app.post("/api/admin/settings", async (c) => {
 
 app.post("/api/admin/settings/reset", async (c) => c.json(await adminResetSettings(c.env)));
 
+// A new iCloud app-specific password (tested, then stored encrypted; see secrets.ts).
+app.post("/api/admin/icloud-password", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    const who = await requireAdmin(c.env, c.req.raw);
+    const { adminUpdateIcloudPassword } = await import("./admin");
+    return c.json(await adminUpdateIcloudPassword(c.env, body.password, who, Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/icloud-password/reset", async (c) => {
+  try {
+    const who = await requireAdmin(c.env, c.req.raw);
+    const { adminResetIcloudPassword } = await import("./admin");
+    return c.json(await adminResetIcloudPassword(c.env, who, Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/packages/:id/extend", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {

@@ -2109,6 +2109,51 @@ test("repeating: a first session that's never paid drops the series", async () =
   assert.equal((db.prepare("SELECT status FROM series WHERE id = ?").get(sid) as any).status, "stopped");
 });
 
+test("iCloud password from the admin page: checked with iCloud, stored encrypted, never shown or backed up", async () => {
+  adminEnv();
+  const { forgetStoredPassword } = await import("../src/secrets");
+  const save = (password: string, headers = asAdmin()) => api.call("POST", "/api/admin/icloud-password", { headers, body: { password } });
+  delete (env as any).SECRETS_KEY;
+  assert.equal((await save("abcd-efgh-ijkl-mnop")).status, 503, "needs the one-time key first");
+  (env as any).SECRETS_KEY = "a".repeat(64);
+  forgetStoredPassword();
+
+  assert.equal((await save("abcd-efgh-ijkl-mnop", {})).status, 403, "admin only");
+  assert.equal((await save("hunter2")).status, 400, "not an app-specific password");
+  const wrong = await save("wxyz-wxyz-wxyz-wxyz");
+  assert.equal(wrong.status, 400, "iCloud refused it");
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM stored_secrets").get() as any).n, 0, "nothing saved");
+
+  world.state.emails.length = 0;
+  const ok = await save("ABCD EFGH IJKL MNOP");
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.ok(!JSON.stringify(ok.data).includes("abcd"), "never sent back");
+  assert.equal(ok.data.icloudPassword.fromAdmin, true);
+  const stored = db.prepare("SELECT * FROM stored_secrets").get() as any;
+  assert.ok(!JSON.stringify(stored).includes("abcd"), "stored encrypted");
+  assert.ok(world.state.emails.some((e) => e.subject === "Booking system: iCloud password changed"));
+
+  // The old setup password stops working; the new one is used.
+  env.ICLOUD_APP_PASSWORD = "wrong";
+  const avail = await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.now() + 5 * DAY)}&days=1&v=${Math.random()}`);
+  assert.equal(avail.status, 200, "calendar works with the new password");
+  const backup = await api.call("GET", "/api/admin/backup", { headers: asAdmin() });
+  assert.ok(!JSON.stringify(backup.data).includes(stored.ciphertext), "not in backups");
+
+  // A different key can't read it: falls back to the setup password (here, broken).
+  (env as any).SECRETS_KEY = "b".repeat(64);
+  forgetStoredPassword();
+  const broken = await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(Date.now() + 6 * DAY)}&days=1&v=${Math.random()}`);
+  assert.equal(broken.status, 503);
+
+  (env as any).SECRETS_KEY = "a".repeat(64);
+  env.ICLOUD_APP_PASSWORD = "app-pass";
+  assert.equal((await api.call("POST", "/api/admin/icloud-password/reset", { headers: asAdmin() })).status, 200);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM stored_secrets").get() as any).n, 0);
+  delete (env as any).SECRETS_KEY;
+  forgetStoredPassword();
+});
+
 test("clear test data: only in test mode, removes calendar events, keeps settings", async () => {
   adminEnv();
   const { id } = await confirmedBooking();

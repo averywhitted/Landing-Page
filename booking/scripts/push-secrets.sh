@@ -55,8 +55,10 @@ push TURNSTILE_SECRET_KEY   turnstile-secret-key
 #   HASH_SALT           scrambles visitors' IP addresses before storing them
 #   MANAGE_LINK_SECRET  signs clients' reschedule/cancel links (changing it
 #                       would break every link already emailed)
+#   SECRETS_KEY         encrypts the iCloud password when it's changed from the
+#                       admin page (changing it just falls back to the setup password)
 existing=$(./scripts/wrangler.sh secret list 2>/dev/null)
-for name in HASH_SALT MANAGE_LINK_SECRET; do
+for name in HASH_SALT MANAGE_LINK_SECRET SECRETS_KEY; do
   if printf '%s' "$existing" | grep -q "\"$name\""; then
     echo "  kept    $name (already set)"
   elif openssl rand -hex 32 | ./scripts/wrangler.sh secret put "$name" >/dev/null 2>&1; then

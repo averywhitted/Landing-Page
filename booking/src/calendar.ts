@@ -5,6 +5,7 @@ import type { Env } from "./env";
 import { usingFakes } from "./env";
 import * as icloud from "./icloud";
 import type { Interval } from "./icloud";
+import { icloudCredentials } from "./secrets";
 
 export type CalendarProvider = {
   getBusy(from: number, to: number): Promise<Interval[]>;
@@ -16,11 +17,12 @@ export type CalendarProvider = {
 // `cals` comes from the admin settings; without it the code defaults are used.
 export function calendarFor(env: Env, cals?: { busyCalendars: string[]; bookingCalendar: string }): CalendarProvider {
   if (usingFakes(env)) return fakeCalendar;
+  // The password changed from the admin page, if there is one; otherwise the Cloudflare secret.
   return {
-    getBusy: (from, to) => icloud.getBusy(env, from, to, cals?.busyCalendars),
-    putEvent: (uid, ics, existingUrl) => icloud.putEvent(env, uid, ics, existingUrl, cals?.bookingCalendar),
-    deleteEvent: (url) => icloud.deleteEvent(env, url),
-    listNames: async () => Object.keys(await icloud.findCalendars(env, null)).sort(),
+    getBusy: async (from, to) => icloud.getBusy(await icloudCredentials(env), from, to, cals?.busyCalendars),
+    putEvent: async (uid, ics, existingUrl) => icloud.putEvent(await icloudCredentials(env), uid, ics, existingUrl, cals?.bookingCalendar),
+    deleteEvent: async (url) => icloud.deleteEvent(await icloudCredentials(env), url),
+    listNames: async () => Object.keys(await icloud.findCalendars(await icloudCredentials(env), null)).sort(),
   };
 }
 

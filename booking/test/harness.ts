@@ -190,7 +190,9 @@ export function makeWorld() {
 
     /* iCloud CalDAV */
     if (u.host.endsWith("caldav.icloud.com")) {
-      const ok = new Headers(init?.headers).get("Authorization") === "Basic " + btoa("avery@example.com:app-pass");
+      const auth = new Headers(init?.headers).get("Authorization");
+      // "app-pass" is the setup password; the other is a new one pasted in the admin page.
+      const ok = auth === "Basic " + btoa("avery@example.com:app-pass") || auth === "Basic " + btoa("avery@example.com:abcd-efgh-ijkl-mnop");
       if (!ok) return withUrl(new Response("", { status: 401 }), url);
       if (method === "PROPFIND" && u.pathname === "/") {
         return xml(`<d:multistatus xmlns:d="DAV:"><d:response><d:href>/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/123/principal/</d:href></d:current-user-principal></d:prop></d:propstat></d:response></d:multistatus>`, "https://caldav.icloud.com/");
