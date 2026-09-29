@@ -484,6 +484,7 @@
     const head = (key, label) => `<button type="button" class="sh${studentSort.key === key ? " on" : ""}" data-sort="${key}" title="Sort by ${label.toLowerCase()}">${label}${studentSort.key === key ? (studentSort.dir > 0 ? " &uarr;" : " &darr;") : ""}</button>`;
     return `<div class="toolbar">
         <input type="search" id="student-search" placeholder="Search by name or email" value="${esc(studentFilter)}" aria-label="Search students">
+        ${btn("Add student", "data-add-student", "Add someone to your students without booking a session", "primary")}
         ${dupes.length ? btn(`${dupes.length} possible duplicate${dupes.length === 1 ? "" : "s"}`, "data-dupes", "Review students who look like the same person: merge them or mark them as different people", "warnbtn") : ""}
         <div class="filters">${Object.entries(shows).map(([k, [label]]) => `<button type="button" class="fchip" data-sfilter="${k}" aria-pressed="${studentShow === k}">${label}</button>`).join("")}</div>
       </div>
@@ -616,6 +617,29 @@
       try { await api("POST", `/api/admin/students/${encodeURIComponent(s.id)}/notes`, { notes: notes.value }); saved = notes.value; status.textContent = "Saved."; }
       catch (err) { status.textContent = `Couldn't save: ${err.message}`; }
     });
+  }
+
+  // Add a student with no session.
+  function openAddStudent() {
+    formDialog(`
+      <h2 id="dlg-title">Add student</h2>
+      <div class="fgrid">
+        <label>Name<input type="text" name="name" maxlength="100" required autocomplete="off"></label>
+        <label>Pronouns (optional)<input type="text" name="pronouns" maxlength="40" autocomplete="off"></label>
+        <label style="grid-column:1/-1">Email<input type="email" name="email" maxlength="200" required autocomplete="off"></label>
+      </div>
+      <label class="field" style="margin-top:10px">Your notes (optional, private)<textarea name="notes" maxlength="5000" rows="3"></textarea></label>
+      <p class="hint">Nothing is sent to them and no session is booked. They appear in your Students list, and you can book them from their profile whenever you like.</p>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Add student</button></div>`,
+    async (f) => {
+      const r = await api("POST", "/api/admin/students", { name: f.name.value, email: f.email.value, pronouns: f.pronouns.value, notes: f.notes.value });
+      students = null;
+      $dlg.close();
+      toast("Student added.");
+      await load();
+      openStudent(r.id);
+    });
+    $dlg.querySelector("[name=name]").focus();
   }
 
   // Change a student's name, email or pronouns (also updated on their past bookings).
@@ -1624,7 +1648,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
+    const t = e.target.closest("[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1633,6 +1657,7 @@
     else if (d.connBackup !== undefined) connAction("/api/admin/status/backups/run", "Backup saved.", t, "backups");
     else if (d.connTestemail !== undefined) connAction("/api/admin/status/resend/test", "Test email sent. Check your inbox.", t, "resend");
     else if (d.connFilter) { connProblemsOnly = d.connFilter === "problems"; render(); }
+    else if (d.addStudent !== undefined) { studentOpen = null; openAddStudent(); }
     else if (d.dupes !== undefined) openDuplicates();
     else if (d.dupMerge !== undefined) dupAction("merge", Number(d.dupMerge), t);
     else if (d.dupIgnore !== undefined) dupAction("ignore", Number(d.dupIgnore), t);

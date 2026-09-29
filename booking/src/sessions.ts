@@ -485,7 +485,8 @@ export async function adminStudents(env: Env, now: number) {
        (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked,
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows
      FROM customers c
-     WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
+     WHERE c.added_manually = 1
+        OR EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
         OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status IN ('active', 'cancelled') AND p.cancel_reason IS NOT 'checkout_expired')
      ORDER BY COALESCE(next_start, '9999'), last_booked DESC LIMIT 1000`,
   ).bind(t).all<Record<string, any>>();

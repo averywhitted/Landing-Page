@@ -2435,3 +2435,26 @@ test("admin: export one student's records as CSV", async () => {
   assert.ok(!String(r.data).includes("Casey Lane"), "only this student");
   assert.equal((await api.call("GET", "/api/admin/students/nope/export", { headers: asAdmin() })).status, 404);
 });
+
+test("admin: add a student by hand; they're listed with no sessions, and duplicates of them are refused", async () => {
+  adminEnv();
+  assert.equal((await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "", email: "x@y.co" } })).status, 400);
+  const r = await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "Riley Park", email: "Riley@Example.com", pronouns: "she/her", notes: "Met at a workshop" } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const list = await api.call("GET", "/api/admin/students", { headers: asAdmin() });
+  const riley = list.data.find((s: any) => s.id === r.data.id);
+  assert.ok(riley, "listed even with no sessions");
+  assert.equal(riley.email, "riley@example.com");
+  assert.equal(riley.upcoming, 0);
+  const detail = await api.call("GET", `/api/admin/students/${r.data.id}`, { headers: asAdmin() });
+  assert.equal(detail.data.notes, "Met at a workshop");
+  assert.equal((await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "Other", email: "riley@example.com" } })).status, 409);
+  assert.equal(world.state.emails.length, 0, "nobody was emailed");
+  // When they later book with that email, it lands on the same student.
+  const slots = await openSlots("coaching-60", 4);
+  const b = await book("coaching-60", slots[0], { name: "Riley Park", email: "riley@example.com" });
+  assert.equal(row(b.data.bookingId).customer_id, r.data.id);
+  // And they can be deleted while they have nothing live.
+  const other = await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "Temp Person", email: "temp@example.com" } });
+  assert.equal((await api.call("POST", `/api/admin/students/${other.data.id}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } })).status, 200);
+});

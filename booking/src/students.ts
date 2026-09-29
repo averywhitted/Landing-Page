@@ -12,6 +12,36 @@ import { BookingError, clean, refreshCalendarEvent } from "./bookings";
 
 const MIN = 60000;
 
+/* ── Add (no session needed) ── */
+
+export async function adminAddStudent(env: Env, raw: Record<string, unknown>) {
+  const name = clean(raw.name, 100);
+  const email = clean(raw.email, 200).toLowerCase();
+  const pronouns = clean(raw.pronouns, 40);
+  const notes = clean(raw.notes, 5000, true);
+  if (!name) throw new BookingError(400, "Please enter a name.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new BookingError(400, "Please check the email address.");
+
+  const alias = await env.DB.prepare("SELECT c.name FROM customer_aliases a JOIN customers c ON c.id = a.customer_id WHERE a.email = ?1").bind(email).first<{ name: string }>();
+  if (alias) throw new BookingError(409, `${alias.name} already uses that email address.`);
+  const existing = await env.DB.prepare(
+    `SELECT c.id, c.name, c.added_manually,
+       EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
+       OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status IN ('active', 'cancelled')) AS listed
+     FROM customers c WHERE c.email = ?1`,
+  ).bind(email).first<{ id: string; name: string; added_manually: number; listed: number }>();
+  if (existing && (existing.listed || existing.added_manually)) throw new BookingError(409, `${existing.name} is already in your students with that email address.`);
+  // A leftover from an abandoned checkout: adopt it rather than fail.
+  if (existing) {
+    await env.DB.prepare("UPDATE customers SET name = ?1, pronouns = ?2, notes = ?3, added_manually = 1 WHERE id = ?4").bind(name, pronouns || null, notes || null, existing.id).run();
+    return { ok: true, id: existing.id };
+  }
+  const id = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO customers (id, name, email, pronouns, notes, added_manually) VALUES (?1, ?2, ?3, ?4, ?5, 1)")
+    .bind(id, name, email, pronouns || null, notes || null).run();
+  return { ok: true, id };
+}
+
 /* ── Edit ── */
 
 export async function adminEditStudent(env: Env, customerId: string, raw: Record<string, unknown>, now: number) {
@@ -153,7 +183,8 @@ export async function adminDuplicates(env: Env, now: number) {
        (SELECT COALESCE(SUM(b.amount_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.package_id IS NULL)
          + (SELECT COALESCE(SUM(p.amount_cents), 0) FROM packages p WHERE p.customer_id = c.id AND p.stripe_payment_intent_id IS NOT NULL) AS paid
      FROM customers c
-     WHERE EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
+     WHERE c.added_manually = 1
+        OR EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
         OR EXISTS (SELECT 1 FROM packages p WHERE p.customer_id = c.id AND p.status IN ('active', 'cancelled') AND p.cancel_reason IS NOT 'checkout_expired')`,
   ).bind(iso(now)).all<Person>()).results;
   const ignored = new Set((await env.DB.prepare("SELECT a_id, b_id FROM duplicate_ignores").all<{ a_id: string; b_id: string }>()).results.map((r) => `${r.a_id}|${r.b_id}`));

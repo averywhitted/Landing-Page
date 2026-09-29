@@ -463,6 +463,11 @@ app.post("/api/admin/students/:id/notes", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/students", async (c) => {
+  try { const { adminAddStudent } = await import("./students"); return c.json(await adminAddStudent(c.env, await jsonBody(c)), 201); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/students/:id/edit", async (c) => {
   try { const { adminEditStudent } = await import("./students"); return c.json(await adminEditStudent(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
   catch (err) { return bookingErrorResponse(c, err); }
