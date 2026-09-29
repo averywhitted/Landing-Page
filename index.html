@@ -47,13 +47,26 @@
     <link rel="icon" href="favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 
+    <!-- The first hero photo is a CSS background, so without this the browser
+         wouldn't request it until the stylesheet is parsed. Same for the display font. -->
+    <link rel="preload" as="image" href="pexels-cottonbro-6896196.webp" type="image/webp" fetchpriority="high" />
+    <link rel="preload" as="font" type="font/otf" href="fonts/horizon.otf" crossorigin />
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media = 'all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
 
     <!-- Booking pop-up (opens from any "Book a Session" link) -->
     <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
@@ -331,12 +344,12 @@
       }
       .hero-panel.first {
         border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-        background-image: url("pexels-cottonbro-6896196.jpg");
+        background-image: url("pexels-cottonbro-6896196.webp");
       }
-      .hero-panel.middle { background-image: url("pexels-cottonbro-6964951.jpg"); }
+      .hero-panel.middle { background-image: url("pexels-cottonbro-6964951.webp"); }
       .hero-panel.last {
         border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-        background-image: url("pexels-cottonbro-6877440.jpg");
+        background-image: url("pexels-cottonbro-6877440.webp");
       }
       .hero-panel.left { justify-content: center; }
       .hero-panel.right { justify-content: center; }
@@ -2311,7 +2324,8 @@
               <iframe
                 height="225"
                 width="100%"
-                title="Media player"
+                loading="lazy"
+                title="90% of the Job podcast player"
                 src="https://embed.podcasts.apple.com/us/podcast/90-of-the-job-surviving-auditions-as-a-working-actor/id6811251314?itscg=30200&amp;itsct=podcast_box_player&amp;ls=1&amp;mttnsubad=6811251314&amp;theme=auto&amp;size=large"
                 id="embedPlayer"
                 style="border: 0px; border-radius: 12px; width: 100%; height: 225px; max-width: 400px"
@@ -2449,7 +2463,7 @@
             href="https://www.broadwayworld.com/people/Avery-Whitted/"
             target="_blank"
             rel="noreferrer"
-            aria-label="BroadwayWorld"
+            aria-label="BroadwayWorld (BW)"
           >
             <svg
               width="22"
@@ -2580,7 +2594,7 @@
     </div>
 
     <!-- Credit detail modal -->
-    <div class="modal-overlay" id="credit-modal" role="dialog" aria-modal="true" aria-labelledby="credit-modal-title-el">
+    <div class="modal-overlay" id="credit-modal" role="dialog" aria-modal="true" aria-label="Credit details" aria-labelledby="credit-modal-title-el">
       <div class="modal modal-credit">
         <button class="modal-close" id="credit-modal-close" aria-label="Close">&times;</button>
         <div class="credit-modal-inner">
