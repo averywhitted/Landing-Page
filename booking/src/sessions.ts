@@ -173,7 +173,7 @@ export async function adminCreateSession(env: Env, body: unknown, ctx: { now: nu
   const payBy = parsePayBy(b, start, now, anyoneOwes);
   const message = clean(b.message, 1000, true) || null;
   await checkBundles(env, students, service, start, now);
-  const { parseRepeat, createSeries } = await import("./series");
+  const { parseRepeat, seriesStatement } = await import("./series");
   const repeat = parseRepeat(b.repeat, service);
   if (repeat && students.length > 1) throw new BookingError(400, "Repeating is for one student at a time.");
   if (repeat && students[0].packageId) throw new BookingError(400, "Repeating sessions are paid each time, so they can't use a bundle credit.");
@@ -197,14 +197,17 @@ export async function adminCreateSession(env: Env, body: unknown, ctx: { now: nu
 
   if (students.length === 1) {
     const id = crypto.randomUUID();
-    const seriesId = repeat ? await createSeries(env, {
+    // The repeat schedule is saved together with the booking, so if the time
+    // turns out to be taken, neither is kept.
+    const series = repeat ? seriesStatement(env, {
       customerId: customerIds[0], serviceId: service.id, startedBy: "admin", repeat, firstStart: start, priceCents: students[0].priceCents,
       payByRule: String(b.payBy ?? "none"), name: students[0].name, pronouns: students[0].pronouns || null, timeZone: AVERY_TZ, message, active: true,
     }) : null;
     try {
       await env.DB.batch([
+        ...(series ? [series.statement] : []),
         seat(students[0], customerIds[0], id, null),
-        ...(seriesId ? [env.DB.prepare("UPDATE bookings SET series_id = ?1 WHERE id = ?2").bind(seriesId, id)] : []),
+        ...(series ? [env.DB.prepare("UPDATE bookings SET series_id = ?1 WHERE id = ?2").bind(series.id, id)] : []),
         ...blocks.map((blk) => env.DB.prepare("INSERT INTO slot_claims (slot_start, booking_id) VALUES (?1, ?2)").bind(blk, id)),
         ...useCredit(students[0], id),
       ]);
@@ -449,7 +452,7 @@ export async function adminResendInvite(env: Env, bookingId: string) {
   const v = view(row);
   const manage = await manageUrl(env, row.id);
   const ics = clientIcs(env, row, v, "REQUEST");
-  const email = row.created_by === "admin" ? T.adminInvite(v, ics, manage, v.dueCents ? payUrl(manage) : null) : T.clientConfirmation(v, ics, manage);
+  const email = row.created_by === "admin" || row.created_by === "series" ? T.adminInvite(v, ics, manage, v.dueCents ? payUrl(manage) : null) : T.clientConfirmation(v, ics, manage);
   if (!(await sendEmail(env, "invite_resent", row.id, email))) throw new BookingError(502, "The email couldn't be sent. Please try again.");
   return { ok: true };
 }
@@ -685,7 +688,7 @@ export async function recordPayment(env: Env, s: stripe.CheckoutSession, now: nu
   await sendEmail(env, "admin_paid_after_cancel", row.id, {
     ...T.adminNotification(v, {
       zoomMissing: false, calendarFailed: false, title: "Auto-refunded",
-      notice: `${row.name} paid ${money(paid)} after this session had been cancelled. ${refunded ? "They were refunded in full automatically." : "The automatic refund hasn't gone through yet; it keeps retrying."}`,
+      notice: `${row.name} paid ${money(paid)} after this session had been cancelled. ${refunded ? "They were refunded in full automatically." : "The automatic refund hasn't gone through yet. It will keep retrying, and you'll get an alert if it still doesn't go through."}`,
     }),
     to: env.ADMIN_EMAIL,
     subject: `Auto-refunded: ${row.name} paid after their session was cancelled`,
@@ -723,8 +726,8 @@ export async function releaseUnpaid(env: Env, now: number): Promise<number> {
       const after = (await loadBooking(env, "id", id))!;
       let groupContinues = false;
       if (after.group_id) groupContinues = (await refreshGroup(env, after.group_id, now)) === "active";
+      await removeCancelled(env, after);
       if (after.series_id) await (await import("./series")).seriesMissedPayment(env, after.series_id, now);
-      else await removeCancelled(env, after);
       const v = view(after);
       await sendEmail(env, "unpaid_released", id, T.unpaidReleased({ ...v, dueCents: after.price_cents ?? 0 }, clientIcs(env, after, v, "CANCEL")));
       await sendEmail(env, "admin_unpaid_released", id, { ...T.adminUnpaidReleased({ ...v, dueCents: after.price_cents ?? 0 }, groupContinues), to: env.ADMIN_EMAIL });

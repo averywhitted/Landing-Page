@@ -25,6 +25,7 @@ import aboutYourRequest from "../assets/headings/about-your-request.png";
 import refundRequest from "../assets/headings/refund-request.png";
 import sessionSkipped from "../assets/headings/session-skipped.png";
 import repeatsStopped from "../assets/headings/repeats-stopped.png";
+import issueResolved from "../assets/headings/issue-resolved.png";
 
 export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number }> = {
   "You're booked": { file: "youre-booked.png", w: 316, h: 23 },
@@ -50,6 +51,7 @@ export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number
   "Refund request": { file: "refund-request.png", w: 350, h: 24 },
   "Session skipped": { file: "session-skipped.png", w: 355, h: 23 },
   "Repeats stopped": { file: "repeats-stopped.png", w: 374, h: 23 },
+  "Issue resolved": { file: "issue-resolved.png", w: 326, h: 23 },
 };
 
 // Image bytes by file name, served at /email/h/<file>.
@@ -77,4 +79,5 @@ export const HEADING_BYTES: Record<string, ArrayBuffer> = {
   "refund-request.png": refundRequest,
   "session-skipped.png": sessionSkipped,
   "repeats-stopped.png": repeatsStopped,
+  "issue-resolved.png": issueResolved,
 };

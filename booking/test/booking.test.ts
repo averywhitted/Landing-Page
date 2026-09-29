@@ -672,7 +672,7 @@ test("bundle: booking with a credit needs no payment and counts down", async () 
   assert.equal(claims(b.id), 5);
   assert.deepEqual(ledger(id).map((l) => l.delta), [4, -1]);
   const conf = world.state.emails.find((e) => /You're booked/.test(e.subject))!;
-  assert.match(conf.html, /Bundle session \(3 of 4 left\)/);
+  assert.match(conf.html, /Bundle session \(3 sessions left\)/);
   assert.ok(world.state.calendarEvents.has(b.calendar_event_url));
   assert.equal((await api.call("GET", `/api/packages?p=${p}&t=${t}`)).data.sessions.length, 1);
 });
@@ -1134,7 +1134,7 @@ test("refund safety: when Avery cancels, the refund is Avery's choice and shows 
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(refundsFor(pi), 0, "not refunded without Avery choosing to");
   const client = world.state.emails.find((e) => /^Cancelled:/.test(e.subject))!;
-  assert.match(client.text, /full refund or a new time at no charge/);
+  assert.match(client.text, /either have a full refund or schedule a new time at no charge/);
   let overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
   assert.equal(overview.data.bookings.find((x: any) => x.id === id).refundOwed, "choice");
   const refund = await api.call("POST", `/api/admin/bookings/${id}/refund`, { headers: asAdmin() });
@@ -1326,7 +1326,7 @@ test("book a student: time reserved, invite has a pay link, paying marks it paid
   assert.equal(after.amount_cents, 9000);
   assert.equal(after.status, "confirmed");
   assert.ok(world.state.emails.some((e) => e.subject.startsWith("Payment received: 1 hour session") && e.to[0] === "riley@example.com"));
-  assert.ok(world.state.emails.some((e) => e.subject.startsWith("Paid: Riley Park, $90")));
+  assert.ok(world.state.emails.some((e) => e.subject.startsWith("Payment received: Riley Park, $90")));
   assert.match(world.state.calendarEvents.get(after.calendar_event_url)!, /Paid 90\.00 USD/);
   assert.equal((await api.call("POST", "/api/pay", { body: { b, t } })).status, 409, "nothing left to pay");
   assert.equal((await api.call("GET", `/api/manage?b=${b}&t=${t}`)).data.payment, null);
@@ -1355,7 +1355,7 @@ test("book a student: pay-by deadline releases unpaid sessions automatically; a 
   const id = r.data.bookingId;
   const eventUrl = row(id).calendar_event_url;
   assert.ok(row(id).pay_by);
-  assert.match(inviteFor("late@example.com").text, /If it isn't paid by then, the session is released/);
+  assert.match(inviteFor("late@example.com").text, /Paying by then confirms your session; after that, the time will be opened up to other students/);
   await api.call("POST", "/api/pay", { body: linkIn(inviteFor("late@example.com").text) });
   db.prepare("UPDATE bookings SET pay_by = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), id);
   await api.cron();
@@ -1365,7 +1365,7 @@ test("book a student: pay-by deadline releases unpaid sessions automatically; a 
   assert.equal(claims(id), 0, "time freed");
   assert.ok(!world.state.calendarEvents.has(eventUrl), "off the calendar");
   assert.equal(world.state.stripeSessions.get(after.stripe_checkout_session_id)!.status, "expired", "payment page closed");
-  assert.ok(world.state.emails.some((e) => e.to[0] === "late@example.com" && /^Released: /.test(e.subject)));
+  assert.ok(world.state.emails.some((e) => e.to[0] === "late@example.com" && /^Cancelled: /.test(e.subject)));
   assert.ok(world.state.emails.some((e) => /^Released \(unpaid\): Late Payer/.test(e.subject)));
 });
 
@@ -1439,7 +1439,7 @@ test("group session: an unpaid student is released at the deadline; the session 
   assert.equal(row(payer.b).status, "confirmed", "paid: kept");
   assert.equal(bookingByEmail("nopay@example.com").status, "cancelled");
   assert.equal((db.prepare("SELECT status FROM groups WHERE id = ?").get(r.data.groupId) as any).status, "active");
-  assert.match(world.state.emails.find((e) => /^Released \(unpaid\): No Pay/.test(e.subject))!.text, /goes ahead for everyone else/);
+  assert.match(world.state.emails.find((e) => /^Released \(unpaid\): No Pay/.test(e.subject))!.text, /will go ahead for everyone else/);
 });
 
 test("group session: Avery moves it (everyone gets the new time) and cancels it (paid students refunded once)", async () => {
@@ -1662,7 +1662,7 @@ test("bundle changes can email the student, with Avery's note", async () => {
   await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: 1, note: "private", notifyClient: true, message: "A makeup for Tuesday." } });
   const added = world.state.emails.find((e) => /^Your bundle: a session added/.test(e.subject))!;
   assert.match(added.text, /A makeup for Tuesday\./);
-  assert.match(added.text, /5 of 5/);
+  assert.match(added.text, /Sessions left: 5/);
   assert.doesNotMatch(added.text, /private/, "the record-keeping note stays private");
   await api.call("POST", `/api/admin/packages/${id}/credits`, { headers: asAdmin(), body: { delta: -1, note: "" } });
   assert.ok(!world.state.emails.some((e) => /a session removed/.test(e.subject)), "no email unless asked");
@@ -1910,6 +1910,30 @@ test("repeating: a set number of sessions ends by itself; groups and bundle cred
   assert.equal(group.status, 400);
   assert.equal((await book("intro-15", (await openSlots("intro-15"))[0], { material: "" }, { repeat: { everyWeeks: 1 } })).status, 400, "intro chats can't repeat");
   assert.equal((await api.call("POST", `/api/admin/series/${sid}/stop`, { headers: asAdmin(), body: {} })).status, 409, "already ended");
+});
+
+test("repeating: a repeat whose first time is taken leaves no schedule behind", async () => {
+  adminEnv();
+  assert.equal((await adminBook({ time: "11:00", students: [student("First In", "first@example.com")] })).status, 201);
+  const r = await adminBook({ time: "11:00", students: [student("Too Late", "late2@example.com")], repeat: { everyWeeks: 1 } });
+  assert.equal(r.status, 409);
+  const left = db.prepare("SELECT COUNT(*) AS n FROM series s JOIN customers c ON c.id = s.customer_id WHERE c.email = 'late2@example.com'").get() as any;
+  assert.equal(left.n, 0, "no repeat schedule without its first booking");
+});
+
+test("repeating: a skipped week doesn't use up one of a set number of sessions", async () => {
+  adminEnv();
+  const r = await adminBook({ time: "16:00", students: [student("Count Me", "count@example.com", { priceCents: 0 })], repeat: { everyWeeks: 1, total: 2 } });
+  const first = r.data.bookingId;
+  const sid = seriesOf(first).id;
+  assert.equal(seriesOf(first).sessions_left, 1);
+  const past = endSession(first);
+  const nextTime = new Date(past + 7 * DAY);
+  await adminBook({ date: etDate(nextTime.getTime()), time: new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(nextTime), students: [student("Other Two", "other2@example.com")] });
+  await api.cron();
+  assert.equal(inSeries(sid).length, 1, "skipped");
+  assert.equal(seriesOf(first).sessions_left, 1, "still one to come");
+  assert.equal(seriesOf(first).status, "active");
 });
 
 test("repeating: a first session that's never paid drops the series", async () => {

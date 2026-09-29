@@ -76,7 +76,7 @@ export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
     rows.push([
       b.group_id ? "Group session" : "Session", day(start), time(start), b.name, b.email, serviceLabel(findService(b.service_id)!),
       b.status === "confirmed" ? (start < Date.now() ? "Happened" : "Upcoming") : `Cancelled (${String(b.cancel_reason ?? "").replace(/_/g, " ")})`,
-      b.created_by === "admin" ? "Avery" : "Student", b.price_cents !== null && b.price_cents !== undefined ? dollars(b.price_cents) : dollars(paid),
+      b.created_by === "admin" ? "Avery" : b.created_by === "series" ? "Repeat (automatic)" : "Student", b.price_cents !== null && b.price_cents !== undefined ? dollars(b.price_cents) : dollars(paid),
       dollars(paid), dollars(refunded), dollars(paid - refunded), method, b.promo_code ?? "", b.attendance === "no_show" ? "No-show" : "",
     ]);
   }
@@ -131,7 +131,7 @@ export async function calendarHealth(env: Env) {
 
 /* ── Backups ── */
 
-const BACKUP_TABLES = ["customers", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "settings", "alerts_sent"];
+const BACKUP_TABLES = ["customers", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "settings", "alerts_sent"];
 
 export async function backupJson(env: Env, now: number): Promise<string> {
   const out: Record<string, unknown> = { made: iso(now), tables: {} };

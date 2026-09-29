@@ -340,7 +340,8 @@ async function cancelQuote(env: Env, pkg: PackageRow, now: number) {
   const paidSessions = findService(pkg.service_id)?.credits ?? pkg.credits_total;
   // Extra sessions Avery added for free are never refunded or charged for.
   const charged = Math.min(used, paidSessions) * sessionService().priceCents;
-  const refundCents = Math.max(0, pkg.amount_cents - charged);
+  // Anything already refunded by hand comes off what's still owed.
+  const refundCents = Math.max(0, pkg.amount_cents - (pkg.refunded_cents ?? 0) - charged);
   const expired = !!pkg.expires_at && Date.parse(pkg.expires_at) <= now;
   return {
     canCancel: pkg.status === "active" && !expired,
@@ -449,7 +450,8 @@ export async function adminPackageCancelPreview(env: Env, id: string, now: numbe
   const upcoming = await upcomingFromBundle(env, pkg.id, now);
   return {
     name: pkg.name, pronouns: pkg.pronouns, bundleName: bundleName(findService(pkg.service_id)!), paidCents: pkg.amount_cents,
-    canRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents > 0,
+    leftCents: pkg.amount_cents - (pkg.refunded_cents ?? 0),
+    canRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents - (pkg.refunded_cents ?? 0) > 0,
     policyRefundCents: q.refundCents, used: pkg.credits_used - upcoming.length,
     upcoming: upcoming.map((b) => b.start_utc),
   };
@@ -460,8 +462,9 @@ export async function adminCancelPackage(env: Env, id: string, opts: { refundCen
   const pkg = await loadPackage(env, "id", id);
   if (!pkg || pkg.status !== "active") throw new BookingError(409, "This bundle isn't active.");
   const refund = Math.round(opts.refundCents);
-  if (!Number.isInteger(refund) || refund < 0 || refund > pkg.amount_cents) {
-    throw new BookingError(400, `The refund has to be between $0 and what they paid (${(pkg.amount_cents / 100).toFixed(2)}).`);
+  const left = pkg.amount_cents - (pkg.refunded_cents ?? 0);
+  if (!Number.isInteger(refund) || refund < 0 || refund > left) {
+    throw new BookingError(400, `The refund has to be between $0 and what's left of their payment ($${(left / 100).toFixed(2)}).`);
   }
   if (refund > 0 && !pkg.stripe_payment_intent_id) throw new BookingError(400, "There's no Stripe payment to refund for this bundle.");
   const now = ctx.now;
@@ -495,7 +498,7 @@ export async function adminCancelPackage(env: Env, id: string, opts: { refundCen
   let refunded = refund === 0;
   if (refund > 0) {
     try {
-      await stripe.refundPayment(env, pkg.stripe_payment_intent_id!, pkg.id, refund);
+      await stripe.refundPayment(env, pkg.stripe_payment_intent_id!, pkg.id, refund, `refund-${pkg.stripe_payment_intent_id}-${pkg.refunded_cents ?? 0}-${refund}`);
       await env.DB.prepare("UPDATE packages SET refunded_at = ?1, refund_error = NULL WHERE id = ?2").bind(iso(now), pkg.id).run();
       refunded = true;
     } catch (err) {

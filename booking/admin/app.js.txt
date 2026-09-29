@@ -1089,14 +1089,14 @@
     let q;
     try { q = await api("GET", `/api/admin/packages/${encodeURIComponent(id)}/cancel`); }
     catch (err) { toast(err.message, true); return; }
-    const full = q.paidCents;
+    const full = q.leftCents ?? q.paidCents;
     const form = formDialog(`
       <h2 id="dlg-title">Cancel ${esc(q.name.split(" ")[0])}'s bundle?</h2>
-      <p>${nameTag(q.name, q.pronouns)} &middot; ${esc(q.bundleName)}, paid ${money(full)}. ${q.used} session${q.used === 1 ? "" : "s"} used.${q.upcoming.length
+      <p>${nameTag(q.name, q.pronouns)} &middot; ${esc(q.bundleName)}, paid ${money(q.paidCents)}${full !== q.paidCents ? ` (${money(q.paidCents - full)} already refunded)` : ""}. ${q.used} session${q.used === 1 ? "" : "s"} used.${q.upcoming.length
         ? ` These booked sessions will be cancelled too: ${q.upcoming.map((s) => `${esc(fmt(s, { weekday: "short", month: "short", day: "numeric" }))} at ${esc(clock(s))}`).join("; ")}.` : ""}</p>
       ${q.canRefund ? `<fieldset class="choices"><legend>Refund</legend>
         <label><input type="radio" name="refund" value="${q.policyRefundCents}" checked> ${money(q.policyRefundCents)} (your policy: used sessions charged at the single-session price)</label>
-        ${full !== q.policyRefundCents ? `<label><input type="radio" name="refund" value="${full}"> ${money(full)} (everything they paid)</label>` : ""}
+        ${full !== q.policyRefundCents ? `<label><input type="radio" name="refund" value="${full}"> ${money(full)} (${full === q.paidCents ? "everything they paid" : "everything not yet refunded"})</label>` : ""}
         ${q.policyRefundCents ? '<label><input type="radio" name="refund" value="0"> No refund</label>' : ""}
         <label><input type="radio" name="refund" value="custom"> Another amount: $<input type="number" name="custom" min="0" max="${full / 100}" step="0.01" style="width:110px"></label>
       </fieldset>

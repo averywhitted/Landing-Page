@@ -46,19 +46,28 @@ export function parseRepeat(raw: unknown, service: Service): Repeat | null {
 
 export const repeatText = (every: number) => (every === 1 ? "every week" : `every ${every} weeks`);
 
-export async function createSeries(env: Env, p: {
+type SeriesInput = {
   customerId: string; serviceId: string; startedBy: "admin" | "client"; repeat: Repeat; firstStart: number;
   priceCents: number; payByRule: string; name: string; pronouns: string | null; timeZone: string; message: string | null;
   active: boolean;
-}): Promise<string> {
+};
+
+export async function createSeries(env: Env, p: SeriesInput): Promise<string> {
+  const { id, statement } = seriesStatement(env, p);
+  await statement.run();
+  return id;
+}
+
+// The insert on its own, to run in the same batch as the first booking.
+export function seriesStatement(env: Env, p: SeriesInput): { id: string; statement: D1PreparedStatement } {
   const id = crypto.randomUUID();
-  await env.DB.prepare(
+  const statement = env.DB.prepare(
     `INSERT INTO series (id, customer_id, service_id, started_by, every_weeks, sessions_left, last_start, price_cents, pay_by_rule, status,
        client_name, client_pronouns, client_time_zone, message)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
   ).bind(id, p.customerId, p.serviceId, p.startedBy, p.repeat.everyWeeks, p.repeat.total === null ? null : p.repeat.total - 1,
-    iso(p.firstStart), p.priceCents, p.payByRule, p.active ? "active" : "pending", p.name, p.pronouns, p.timeZone, p.message).run();
-  return id;
+    iso(p.firstStart), p.priceCents, p.payByRule, p.active ? "active" : "pending", p.name, p.pronouns, p.timeZone, p.message);
+  return { id, statement };
 }
 
 // A student's series starts once their first session is paid for.
@@ -104,7 +113,11 @@ export async function bookNextSessions(env: Env, now: number): Promise<number> {
       if (!claim.meta.changes) continue;
       const result = await bookOne(env, s, service, next, now);
       if (result === "booked") booked++;
-      else await skipped(env, s, next, result);
+      else {
+        // A skipped week doesn't count toward a set number of sessions.
+        await env.DB.prepare("UPDATE series SET sessions_left = sessions_left + 1 WHERE id = ?1 AND sessions_left IS NOT NULL").bind(s.id).run();
+        await skipped(env, s, next, result);
+      }
       const after = await env.DB.prepare("SELECT sessions_left FROM series WHERE id = ?1").bind(s.id).first<{ sessions_left: number | null }>();
       if (after?.sessions_left === 0) await env.DB.prepare("UPDATE series SET status = 'ended' WHERE id = ?1 AND status = 'active'").bind(s.id).run();
     } catch (err) {
@@ -164,7 +177,7 @@ async function skipped(env: Env, s: SeriesRow, when: number, why: Exclude<Outcom
   const info = {
     name: s.client_name ?? "", email: c.email, timeZone: s.client_time_zone || AVERY_TZ, serviceName: serviceLabel(service),
     when, next, reason: why, everyWeeks: s.every_weeks, bookUrl: `${env.SITE_URL}/book/?service=${s.service_id}`,
-    continues: s.sessions_left === null || s.sessions_left > 0,
+    continues: true, // skipped weeks don't use up a session, so there's always a next one
   };
   await sendEmail(env, "series_skipped", null, T.seriesSkipped(info));
   await sendEmail(env, "admin_series_skipped", null, { ...T.adminSeriesSkipped(info), to: env.ADMIN_EMAIL });

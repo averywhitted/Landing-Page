@@ -34,6 +34,7 @@ export type BookingView = {
 };
 
 const repeatWords = (n: number) => (n === 1 ? "every week" : `every ${n} weeks`);
+const repeatTag = (n?: number | null) => (!n ? "" : n === 1 ? " (repeats weekly)" : ` (repeats every ${n} weeks)`);
 // "This session repeats every week..." for sessions in a series.
 function repeatPara(b: BookingView, manageUrl: string): string {
   if (!b.repeatEvery) return "";
@@ -121,8 +122,21 @@ const zoomButton = (url: string) => button(url, "Join on Zoom")
   + `<p style="margin:-12px 0 20px;font:12px/1.5 ${FONT};color:#6b727b;">Or paste this link: <a href="${esc(url)}" style="color:#6b727b;word-break:break-all;">${esc(url)}</a></p>`;
 const ghostButton = (href: string, label: string) =>
   `<p style="margin:4px 0 20px;"><a href="${esc(href)}" style="display:inline-block;padding:12px 18px;border-radius:12px;border:1.5px solid #0e1116;color:#0e1116;font:700 12px/1 ${FONT};letter-spacing:0.8px;text-transform:uppercase;text-decoration:none;">${esc(label)}</a></p>`;
-const warn = (text: string) =>
-  `<p style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#fff4e5;font:600 14px/1.5 ${FONT};color:#7a4b00;">${esc(text)}</p>`;
+export type Fix = [label: string, url: string];
+export const ADMIN_URL = "https://book.averywhitted.com/admin";
+export const FIX_ADMIN: Fix = ["Resolve in Admin", `${ADMIN_URL}#attention`];
+export const FIX_ZOOM: Fix = ["Resolve in Zoom", "https://zoom.us/meeting"];
+export const FIX_CALENDAR: Fix = ["Resolve in iCloud Calendar", "https://www.icloud.com/calendar/"];
+const warn = (text: string, fix?: Fix | null) =>
+  `<p style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#fff4e5;font:600 14px/1.5 ${FONT};color:#7a4b00;">${esc(text)}${fix
+    ? `<br><a href="${esc(fix[1])}" style="display:inline-block;margin-top:6px;color:#7a4b00;font-weight:700;">${esc(fix[0])} &rarr;</a>` : ""}</p>`;
+const fixText = (fix?: Fix | null) => (fix ? ` ${fix[0]}: ${fix[1]}` : "");
+
+// A personal note from Avery, labelled so it stands apart from the standard text.
+const noteBlock = (m?: string | null) => m
+  ? `<p style="margin:0 0 4px;font:700 13px/1.5 ${FONT};color:#0e1116;">Note:</p><p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(m)}</p>` : "";
+// Anything that cancels or ends something.
+const questionsLine = "If you have any questions, or think this was a mistake, please reply to this email.";
 
 function details(rows: [string, string][]): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 20px;border-radius:14px;background:#eceef2;">
@@ -138,7 +152,7 @@ const icsAttachment = (ics: string, method: "REQUEST" | "CANCEL") =>
 function sessionRows(b: BookingView, tz: string, withPaid: boolean): [string, string][] {
   const rows: [string, string][] = [
     ["Session", esc(b.serviceName)],
-    ["Date", esc(day(b.start, tz))],
+    ["Date", esc(day(b.start, tz) + repeatTag(b.repeatEvery))],
     ["Time", esc(timeRange(b, tz))],
     ["Where", zoomFor(b) ? `<a href="${esc(zoomFor(b)!)}" style="color:#1f47f5;">Join on Zoom</a>` : `Zoom (${noZoomText(b).toLowerCase()})`],
   ];
@@ -193,7 +207,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
 // ── Sessions Avery booked for a student ──
 
 const dueLine = (b: BookingView, tz: string) => b.payBy
-  ? `Please pay ${money(b.dueCents!)} by ${day(b.payBy, tz)} at ${clock(b.payBy, tz)} ${zoneName(b.payBy, tz)}. If it isn't paid by then, the session is released.`
+  ? `Please pay ${money(b.dueCents!)} by ${day(b.payBy, tz)} at ${clock(b.payBy, tz)} ${zoneName(b.payBy, tz)}. Paying by then confirms your ${b.group ? "spot in the session" : "session"}; after that, ${b.group ? "your spot" : "the time"} will be opened up to other students.`
   : `Please pay ${money(b.dueCents!)} before your session.`;
 
 export function adminInvite(b: BookingView, ics: string, manageUrl: string, payUrl: string | null): Email {
@@ -203,9 +217,9 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
   if (due) rows.push(["Price", esc(money(b.dueCents!))]);
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
-    para(b.repeatNext ? `Your next session is booked (it repeats ${repeatWords(b.repeatEvery ?? 1)}). Here are the details.`
+    para(b.repeatNext ? "Your next session is booked. Here are the details."
       : b.group ? "I've booked you into a group coaching session. Here are the details." : "I've booked a session for you. Here are the details."),
-    b.message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(b.message)}</p>` : "",
+    noteBlock(b.message),
     details(rows),
     due ? para(esc(dueLine(b, tz))) + button(payUrl!, `Pay ${money(b.dueCents!)}`) : "",
     zoomFor(b) ? zoomButton(zoomFor(b)!) : noZoomPara(b),
@@ -221,7 +235,7 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
     text: [
       `Hi ${firstName(b.name)},`, "",
       b.group ? "I've booked you into a group coaching session." : "I've booked a session for you.", "",
-      ...(b.message ? [b.message, ""] : []),
+      ...(b.message ? ["Note:", b.message, ""] : []),
       textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
       ...(due ? [dueLine(b, tz), `Pay here: ${payUrl}`, ""] : []),
       `${b.group ? "View or cancel your spot" : "Reschedule or cancel"} (up to 24 hours before): ${manageUrl}`, "",
@@ -256,7 +270,7 @@ export function adminPaymentReceived(b: BookingView): Email {
   const tz = AVERY_TZ;
   return {
     to: "",
-    subject: `Paid: ${b.name}, ${money(b.amountCents)} for ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
+    subject: `Payment received: ${b.name}, ${money(b.amountCents)} for ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
     html: layout({ preheader: `${b.name} paid ${money(b.amountCents)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "Payment received", subtitle: b.name,
       body: details(adminRows(b)) }),
     text: textRows([["Client", b.name], ["Paid", money(b.amountCents)], ["When", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
@@ -270,7 +284,7 @@ export function paymentReminder(b: BookingView, payUrl: string, manageUrl?: stri
     para(`A quick reminder that your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(day(b.start, tz))}</strong> hasn't been paid yet.`),
     para(esc(dueLine(b, tz))),
     button(payUrl, `Pay ${money(b.dueCents!)}`),
-    small(`Already paid? Thank you, you can ignore this email.${manageUrl ? ` Can't make it anymore? You can <a href="${esc(manageUrl)}" style="color:#6b727b;">${b.group ? "cancel your spot" : "cancel the session"}</a>.` : " If anything's changed, just reply."}`),
+    small(`Already paid? Thank you, you can ignore this email.${manageUrl ? ` Can't make it anymore? You can <a href="${esc(manageUrl)}" style="color:#6b727b;">${b.group ? "cancel your spot" : "cancel the session"}</a>.` : " If anything's changed, please reply to this email."}`),
     para("Thanks,<br>Avery"),
   ].join("\n");
   return {
@@ -285,18 +299,23 @@ export function paymentReminder(b: BookingView, payUrl: string, manageUrl?: stri
 export function unpaidReleased(b: BookingView, ics: string): Email {
   const tz = b.clientTimeZone;
   const when = `${day(b.start, tz)}, ${timeRange(b, tz)}`;
+  const line = b.group
+    ? `Payment for your spot in the group session on <strong>${esc(when)}</strong> didn't come through by the deadline, so your spot has been opened up to other students.`
+    : `Payment for your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> didn't come through by the deadline, so the booking has been cancelled and the time opened up to other students.`;
+  const plain = line.replace(/<[^>]+>/g, "");
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
-    para(`Your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(when)}</strong> wasn't paid by the deadline, so it has been released.`),
-    para("If you'd still like a session, just reply to this email and we'll find a time."),
+    para(line),
+    para("If you'd still like a session, please reply to this email and we'll find a time."),
+    small(questionsLine),
     para("Take care,<br>Avery"),
   ].join("\n");
   return {
     to: b.email,
-    subject: `Released: ${b.serviceName} on ${shortDay(b.start, tz)}`,
-    html: layout({ preheader: `Your session on ${when} has been released.`, tag: b.group ? "Group coaching" : tagFor(b), title: "Session cancelled", body }),
-    text: [`Hi ${firstName(b.name)},`, "", `Your ${b.serviceName.toLowerCase()} on ${when} wasn't paid by the deadline, so it has been released.`, "",
-      "If you'd still like a session, just reply to this email and we'll find a time.", "", "Take care,", "Avery"].join("\n"),
+    subject: `Cancelled: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: plain, tag: b.group ? "Group coaching" : tagFor(b), title: "Session cancelled", body }),
+    text: [`Hi ${firstName(b.name)},`, "", plain, "",
+      "If you'd still like a session, please reply to this email and we'll find a time.", "", questionsLine, "", "Take care,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "CANCEL"),
   };
 }
@@ -304,8 +323,8 @@ export function unpaidReleased(b: BookingView, ics: string): Email {
 export function adminUnpaidReleased(b: BookingView, groupContinues: boolean): Email {
   const tz = AVERY_TZ;
   const note = b.group
-    ? (groupContinues ? "They were removed from the group session, which goes ahead for everyone else." : "They were the last student, so the group session was cancelled and the time opened up.")
-    : "The session was cancelled and the time opened up.";
+    ? (groupContinues ? "They were removed from the group session, which will go ahead for everyone else." : "They were the last student, so the group session was cancelled and the time was opened up.")
+    : "The session was cancelled and the time was opened up.";
   return {
     to: "",
     subject: `Released (unpaid): ${b.name}, ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
@@ -324,7 +343,8 @@ export function paidAfterCancel(b: BookingView): Email {
     html: layout({ preheader: "Your payment has been refunded.", tag: b.group ? "Group coaching" : tagFor(b), title: "Auto-refunded", body: [
       para(`Hi ${esc(firstName(b.name))},`),
       para(`Your payment of ${esc(money(b.amountCents))} came through after your session on ${esc(day(b.start, tz))} had already been cancelled, so it has been refunded in full. Refunds may take a few business days to appear.`),
-      para("If you'd like to book a time, just reply to this email."),
+      para("If you'd like to book a time, please reply to this email."),
+      small(questionsLine),
       para("Take care,<br>Avery"),
     ].join("\n") }),
     text: [`Hi ${firstName(b.name)},`, "", `Your payment of ${money(b.amountCents)} came through after your session on ${day(b.start, tz)} had already been cancelled, so it has been refunded in full.`, "", "Take care,", "Avery"].join("\n"),
@@ -353,7 +373,7 @@ export function bundlePurchased(p: BundleView, bundleUrl: string): Email {
   const tz = p.clientTimeZone;
   const body = [
     para(`Hi ${esc(firstName(p.name))},`),
-    para(`Thanks for picking up a bundle. Your ${countWord(p.credits)} ${esc(p.sessionLength === "1 hour" ? "one-hour" : p.sessionLength)} sessions are ready to book whenever you are.`),
+    para(`Your ${countWord(p.credits)} ${esc(p.sessionLength === "1 hour" ? "one-hour" : p.sessionLength)} sessions are ready to book whenever you are.`),
     details([
       ["Bundle", esc(p.bundleName)],
       ["Sessions", `${p.credits} &times; ${esc(p.sessionLength)} on Zoom`],
@@ -361,9 +381,9 @@ export function bundlePurchased(p: BundleView, bundleUrl: string): Email {
       ["Paid", esc(money(p.amountCents))],
     ]),
     button(bundleUrl, "Book your first session"),
-    para("This link is your bundle page: it shows how many sessions you have left and lets you book, reschedule, or cancel them. Keep this email handy."),
-    small(`Sessions can be rescheduled or cancelled up to 24 hours before they start, and the session goes back into your bundle. Sessions cancelled later than that, or not used by ${esc(day(p.expiresAt, tz))}, can't be returned.`),
+    para("This is the link to your bundle page. It shows how many sessions you have left and lets you book, reschedule, or cancel them. Be sure to hang on to this email."),
     para("Looking forward to it,<br>Avery"),
+    small(`Sessions can be rescheduled or cancelled up to 24 hours before they start, and the session goes back into your bundle. Sessions cancelled later than that, or not used by ${esc(day(p.expiresAt, tz))}, can't be returned.`),
   ].join("\n");
   return {
     to: p.email,
@@ -402,7 +422,7 @@ export function bundleExpiring(p: BundleView, bundleUrl: string): Email {
     para(`Hi ${esc(firstName(p.name))},`),
     para(`A quick heads-up: you still have <strong>${esc(left)}</strong> left in your bundle, and they need to be used by <strong>${esc(day(p.expiresAt, tz))}</strong>.`),
     button(bundleUrl, "Book a session"),
-    small("If the timing isn't working out, just reply to this email and we'll figure something out."),
+    small("If the timing isn't working out, please reply to this email and we'll figure something out."),
     para("Talk soon,<br>Avery"),
   ].join("\n");
   return {
@@ -422,8 +442,8 @@ export function bundleUpdated(p: BundleView, change: "added" | "removed" | "exte
   const body = [
     para(`Hi ${esc(firstName(p.name))},`),
     para(esc(what)),
-    message ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(message)}</p>` : "",
-    details([["Bundle", esc(p.bundleName)], ["Left", `${p.remaining} of ${p.credits}`], ["Use by", esc(day(p.expiresAt, tz))]]),
+    noteBlock(message),
+    details([["Bundle", esc(p.bundleName)], ["Sessions left", String(p.remaining)], ["Use by", esc(day(p.expiresAt, tz))]]),
     button(bundleUrl, "Go to your bundle"),
     para("Thanks,<br>Avery"),
   ].join("\n");
@@ -431,8 +451,8 @@ export function bundleUpdated(p: BundleView, change: "added" | "removed" | "exte
     to: p.email,
     subject: change === "extended" ? "Your bundle has been extended" : `Your bundle: ${change === "added" ? "a session added" : "a session removed"}`,
     html: layout({ preheader: what, tag: "Session bundle", title: "Bundle updated", body }),
-    text: [`Hi ${firstName(p.name)},`, "", what, ...(message ? ["", message] : []), "",
-      textRows([["Bundle", p.bundleName], ["Left", `${p.remaining} of ${p.credits}`], ["Use by", day(p.expiresAt, tz)]]), "",
+    text: [`Hi ${firstName(p.name)},`, "", what, ...(message ? ["", "Note:", message] : []), "",
+      textRows([["Bundle", p.bundleName], ["Sessions left", String(p.remaining)], ["Use by", day(p.expiresAt, tz)]]), "",
       `Your bundle: ${bundleUrl}`, "", "Thanks,", "Avery"].join("\n"),
   };
 }
@@ -472,29 +492,30 @@ export function adminSeriesSkipped(p: SkipNote): Email {
 }
 
 export function seriesStopped(p: SeriesNote & { by: "client" | "admin" | "unpaid" }): Email {
+  const each = p.everyWeeks === 1 ? "each week" : `every ${p.everyWeeks} weeks`;
   const line = p.by === "unpaid"
-    ? "Your repeating sessions have stopped, because the last two weren't paid for."
-    : p.by === "client" ? `Your sessions won't repeat ${repeatWords(p.everyWeeks)} anymore, as you asked.`
-    : `Your sessions won't repeat ${repeatWords(p.everyWeeks)} anymore.`;
+    ? `Your recurring sessions have been stopped, because payment for the last two didn't come through before their deadlines. Your sessions will no longer repeat ${each}.`
+    : p.by === "client" ? `This is to confirm that you have cancelled your recurring sessions. Your sessions will no longer repeat ${each}.`
+    : `This is to confirm that I have cancelled your recurring sessions. Your sessions will no longer repeat ${each}.`;
   return {
     to: p.email,
     subject: "Your sessions won't repeat anymore",
     html: layout({ preheader: line, tag: "Private coaching", title: "Repeats stopped", body: [
       para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), para("Any session already booked is still on. You're always welcome to book again:"),
-      button(p.bookUrl, "Book a session"), para("Thanks,<br>Avery"),
+      button(p.bookUrl, "Book a session"), small(questionsLine), para("Thanks,<br>Avery"),
     ].join("\n") }),
-    text: [`Hi ${firstName(p.name)},`, "", line, "", "Any session already booked is still on.", `Book again: ${p.bookUrl}`, "", "Avery"].join("\n"),
+    text: [`Hi ${firstName(p.name)},`, "", line, "", "Any session already booked is still on.", `Book again: ${p.bookUrl}`, "", questionsLine, "", "Avery"].join("\n"),
   };
 }
 
 export function adminSeriesStopped(p: SeriesNote & { by: "client" | "admin" | "unpaid" }): Email {
-  const why = p.by === "unpaid" ? "the last two sessions weren't paid for" : "they stopped it";
+  const why = p.by === "unpaid" ? "the last two sessions weren't paid for by their deadlines" : "they stopped it";
   return {
     to: "",
     subject: `Repeats stopped: ${p.name}`,
-    html: layout({ preheader: `${p.name}'s sessions stopped repeating`, tag: "Private coaching", title: "Repeats stopped", subtitle: p.name,
-      body: para(esc(`${p.name}'s sessions (${repeatWords(p.everyWeeks)}) stopped repeating because ${why}. Sessions already booked are still on.`)) }),
-    text: `${p.name}'s sessions stopped repeating because ${why}.`,
+    html: layout({ preheader: `${p.name}'s sessions have stopped repeating`, tag: "Private coaching", title: "Repeats stopped", subtitle: p.name,
+      body: para(esc(`${p.name}'s sessions (${repeatWords(p.everyWeeks)}) have stopped repeating because ${why}. Sessions already booked are still on.`)) }),
+    text: `${p.name}'s sessions have stopped repeating because ${why}.`,
   };
 }
 
@@ -506,13 +527,14 @@ export function icloudStatus(ok: boolean, error: string): Email {
     : [
       warn("Your booking page can't read your iCloud calendars, so clients can't see open times or book right now."),
       para("The most common cause is the app-specific password being revoked, which can happen when your Apple ID password changes or you sign out of devices. To fix it, make a new app-specific password at account.apple.com and send it to the booking service."),
+      button("https://account.apple.com/account/manage", "Make a new password"),
       small(`What iCloud said: ${esc(error)}`),
       small("You'll get one more email when it's working again."),
     ].join("\n");
   return {
     to: "",
     subject: ok ? "Booking system: iCloud is working again" : "Booking system: can't reach your iCloud calendar",
-    html: layout({ preheader: ok ? "iCloud is working again." : "Clients can't book until this is fixed.", tag: "Booking system", title: "Needs attention", body }),
+    html: layout({ preheader: ok ? "iCloud is working again." : "Clients can't book until this is fixed.", tag: ok ? "Booking system" : "Error", title: ok ? "Issue resolved" : "Needs attention", body }),
     text: ok ? "Your booking page can read your iCloud calendars again."
       : `Your booking page can't read your iCloud calendars, so clients can't book right now.\n\nMost likely the app-specific password was revoked. Make a new one at account.apple.com.\n\niCloud said: ${error}`,
   };
@@ -521,8 +543,6 @@ export function icloudStatus(ok: boolean, error: string): Email {
 // ── Refunds Avery gives by hand, and refund requests ──
 
 type RefundNote = { name: string; email: string; what: string; message?: string };
-const noteBlock = (m?: string) => m
-  ? `<p style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #1f47f5;font:15px/1.65 ${FONT};color:#2c3138;white-space:pre-wrap;">${esc(m)}</p>` : "";
 
 export function refundIssued(p: RefundNote & { amountCents: number }): Email {
   const line = `I've refunded ${money(p.amountCents)} for ${p.what}. Refunds may take a few business days to appear.`;
@@ -532,20 +552,20 @@ export function refundIssued(p: RefundNote & { amountCents: number }): Email {
     html: layout({ preheader: line, tag: "Refund", title: "Refund issued", body: [
       para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), noteBlock(p.message), para("Take care,<br>Avery"),
     ].join("\n") }),
-    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", p.message] : []), "", "Take care,", "Avery"].join("\n"),
+    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", "Note:", p.message] : []), "", "Take care,", "Avery"].join("\n"),
   };
 }
 
 export function refundDeclined(p: RefundNote): Email {
-  const line = `Thanks for reaching out about ${p.what}. I'm not able to offer a refund for it.`;
+  const line = `Thanks for reaching out about ${p.what}. I'm unfortunately not able to offer a refund for it.`;
   return {
     to: p.email,
     subject: "About your refund request",
     html: layout({ preheader: "About your refund request", tag: "Refund", title: "About your request", body: [
       para(`Hi ${esc(firstName(p.name))},`), para(esc(line)), noteBlock(p.message),
-      small("If you have any questions, just reply to this email."), para("Take care,<br>Avery"),
+      small("If you have any questions, please reply to this email."), para("Take care,<br>Avery"),
     ].join("\n") }),
-    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", p.message] : []), "", "If you have any questions, just reply to this email.", "", "Avery"].join("\n"),
+    text: [`Hi ${firstName(p.name)},`, "", line, ...(p.message ? ["", "Note:", p.message] : []), "", "If you have any questions, please reply to this email.", "", "Avery"].join("\n"),
   };
 }
 
@@ -590,6 +610,7 @@ export function bundleCancelled(p: BundleCancelView): Email {
     p.refundCents > 0 ? para(`Your refund of ${esc(money(p.refundCents))} is being processed and may take a few business days to appear.`) : "",
     p.keptSessions.length && !p.byAvery ? small("Sessions less than 24 hours away can't be cancelled online, so they're still on. Reply to this email if you can't make it.") : "",
     p.cancelledSessions.length ? small("Calendar invites for the cancelled sessions will be removed.") : "",
+    small(questionsLine),
     para("Thanks for working with me. You're always welcome back.<br>Avery"),
   ].join("\n");
   return {
@@ -599,7 +620,7 @@ export function bundleCancelled(p: BundleCancelView): Email {
     text: [`Hi ${firstName(p.name)},`, "", `Your ${p.bundleName} has been cancelled.`, "",
       textRows([["Sessions used", String(p.used)], ["Refund", p.refundCents > 0 ? money(p.refundCents) : "None"]]),
       ...(p.refundCents > 0 ? ["", `Your refund of ${money(p.refundCents)} is being processed and may take a few business days to appear.`] : []),
-      "", "Avery"].join("\n"),
+      "", questionsLine, "", "Avery"].join("\n"),
   };
 }
 
@@ -663,7 +684,7 @@ export type RefundState = "refunded" | "pending" | "offer" | "none";
 
 function refundLine(b: BookingView, refund: RefundState): string {
   if (refund === "refunded" || refund === "pending") return `Your full refund of ${money(b.amountCents)} is on its way. Refunds may take a few business days to appear.`;
-  if (refund === "offer") return "Since this cancellation came from my side, you can have a full refund or a new time at no charge, whichever you'd rather. Just reply to this email and let me know.";
+  if (refund === "offer") return "Since this cancellation came from my side, you can either have a full refund or schedule a new time at no charge, whichever you prefer. Please reply to this email and let me know.";
   return "";
 }
 
@@ -672,7 +693,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string, re
   const when = `${day(b.start, tz)}, ${timeRange(b, tz)}`;
   const money_ = b.bundleNote
     ? (creditReturned ? "The session has gone back into your bundle, so you can book another time whenever you like."
-      : "This session wasn't returned to your bundle. If you have any questions, just reply to this email.")
+      : "Because this session was cancelled less than 24 hours before your scheduled time, per our policy, the session was not returned to your bundle.")
     : refundLine(b, refund);
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
@@ -680,6 +701,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string, re
     money_ ? para(esc(money_)) : "",
     para("The attached update removes it from your calendar. Whenever you're ready, you're welcome to book another time:"),
     button(bookUrl, "Book another time"),
+    small(questionsLine),
     para("Take care,<br>Avery"),
   ].join("\n");
   return {
@@ -688,7 +710,7 @@ export function clientCancelled(b: BookingView, ics: string, bookUrl: string, re
     html: layout({ preheader: `Your session on ${when} is cancelled.`, tag: tagFor(b), title: "Session cancelled", body }),
     text: [`Hi ${firstName(b.name)},`, "", `Your ${b.serviceName.toLowerCase()} on ${when} has been cancelled.`,
       ...(money_ ? ["", money_] : []),
-      "", `Book another time: ${bookUrl}`, "", "Take care,", "Avery"].join("\n"),
+      "", `Book another time: ${bookUrl}`, "", questionsLine, "", "Take care,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "CANCEL"),
   };
 }
@@ -706,7 +728,7 @@ function adminRows(b: BookingView, opts: { zoom?: boolean } = {}): [string, stri
       : (b.dueCents ?? 0) > 0 ? esc(`Not yet (${money(b.dueCents!)} due)`) : "Free"],
   ];
   if (opts.zoom !== false) rows.push(["Zoom", b.zoomUrl ? `<a href="${esc(b.zoomUrl)}" style="color:#1f47f5;">${esc(b.zoomUrl)}</a>` : "Not created"]);
-  if (b.clientTimeZone !== tz) rows.push(["Their zone", esc(`${clock(b.start, b.clientTimeZone)} ${zoneName(b.start, b.clientTimeZone)}`)]);
+  if (b.clientTimeZone !== tz) rows.push(["Their time", esc(`${clock(b.start, b.clientTimeZone)} ${zoneName(b.start, b.clientTimeZone)}`)]);
   return rows;
 }
 
@@ -722,20 +744,20 @@ function intakeHtml(b: BookingView): string {
      <p style="margin:0 0 16px;font:14px/1.6 ${MONO};color:#0e1116;white-space:pre-wrap;">${k === "Link" ? `<a href="${esc(v!)}" style="color:#1f47f5;">${esc(v!)}</a>` : esc(v!)}</p>`).join("\n");
 }
 
-export function adminNotification(b: BookingView, opts: { zoomMissing: boolean; calendarFailed: boolean; notice?: string; title?: string }): Email {
+export function adminNotification(b: BookingView, opts: { zoomMissing: boolean; calendarFailed: boolean; notice?: string; noticeFix?: Fix | null; title?: string }): Email {
   const tz = AVERY_TZ;
-  const warnings = [
-    opts.notice ?? "",
-    opts.zoomMissing ? "No Zoom meeting was created. Please send the client a link." : "",
-    opts.calendarFailed ? "This booking couldn't be added to your Coaching calendar yet. It will retry automatically." : "",
-  ].filter(Boolean);
-  const body = [warnings.map(warn).join(""), details(adminRows(b)), intakeHtml(b)].join("\n");
+  const warnings = ([
+    [opts.notice ?? "", opts.noticeFix ?? null],
+    [opts.zoomMissing ? "No Zoom meeting was created. Please make one and send the client the link." : "", FIX_ZOOM],
+    [opts.calendarFailed ? "This booking couldn't be added to your Coaching calendar yet. It will keep retrying automatically." : "", FIX_ADMIN],
+  ] as [string, Fix | null][]).filter(([t]) => t);
+  const body = [warnings.map(([t, f]) => warn(t, f)).join(""), details(adminRows(b)), intakeHtml(b)].join("\n");
   return {
     to: "", // filled in with ADMIN_EMAIL by the caller
     subject: `New booking: ${b.name}, ${b.serviceName} on ${shortDay(b.start, tz)} at ${clock(b.start, tz)}`,
     html: layout({ preheader: `${b.name} booked ${b.serviceName}`, tag: tagFor(b), title: opts.title ?? "New booking", subtitle: b.name, body }),
     text: [
-      ...warnings, warnings.length ? "" : "",
+      ...warnings.map(([t, f]) => t + fixText(f)), warnings.length ? "" : "",
       textRows([["Client", b.name], ["Email", b.email], ["Session", b.serviceName], ["When", `${day(b.start, tz)}, ${timeRange(b, tz)}`],
         ["Paid", b.amountCents > 0 ? money(b.amountCents) : "Free"], ["Zoom", b.zoomUrl ?? "Not created"]]), "",
     ].join("\n"),
@@ -746,7 +768,7 @@ export function adminRescheduled(b: BookingView, previousStart: number, opts: { 
   const tz = AVERY_TZ;
   const was = `${day(previousStart, tz)}, ${clock(previousStart, tz)} ${zoneName(previousStart, tz)}`;
   const body = [
-    opts.calendarFailed ? warn("Your Coaching calendar couldn't be updated yet. Please move the event by hand.") : "",
+    opts.calendarFailed ? warn("Your Coaching calendar couldn't be updated yet. Please move the event by hand.", FIX_CALENDAR) : "",
     details([...adminRows(b), ["Was", `<span style="color:#6b727b;text-decoration:line-through;">${esc(was)}</span>`]]),
     small("Your Coaching calendar event and the Zoom meeting have been moved to the new time."),
   ].join("\n");
@@ -763,18 +785,18 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
   const tz = AVERY_TZ;
   const amount = money(b.amountCents);
   const refundNote = r.refund === "refunded" ? `Refunded ${amount} automatically. They cancelled at least 24 hours ahead.`
-    : r.refund === "pending" ? `The automatic refund of ${amount} hasn't gone through yet. It keeps retrying, and you'll get an alert if it doesn't.`
+    : r.refund === "pending" ? `The automatic refund of ${amount} hasn't gone through yet. It will keep retrying, and you'll get an alert if it still doesn't go through.`
     : r.refund === "offer" ? `Not refunded. They were offered a full refund or a new time, whichever they prefer.`
     : "";
   const tag = r.refund === "refunded" ? ` (refunded ${amount})` : r.refund === "pending" ? ` (refund pending ${amount})` : "";
-  const leftovers = [
-    r.calendarRemoved ? "" : "It couldn't be removed from your Coaching calendar yet. It keeps retrying; if you still see it, delete it by hand. It isn't happening.",
-    r.zoomRemoved ? "" : "The Zoom meeting couldn't be deleted yet. It keeps retrying.",
-  ].filter(Boolean);
+  const leftovers: [string, Fix][] = [
+    ...(r.calendarRemoved ? [] : [["It couldn't be removed from your Coaching calendar yet. It will keep retrying; if you still see it, delete it by hand.", FIX_CALENDAR] as [string, Fix]]),
+    ...(r.zoomRemoved ? [] : [["The Zoom meeting couldn't be deleted yet. It will keep retrying; you can also delete it in Zoom.", FIX_ZOOM] as [string, Fix]]),
+  ];
   const body = [
     r.refund === "pending" || r.refund === "offer" ? warn(refundNote) : refundNote ? small(refundNote) : "",
     stripePaymentUrl && r.refund !== "none" ? button(stripePaymentUrl, r.refund === "refunded" ? "View payment in Stripe" : `Refund ${amount} in Stripe`) : "",
-    ...leftovers.map(warn),
+    ...leftovers.map(([t, f]) => warn(t, f)),
     details(adminRows(b, { zoom: false })),
     b.bundleNote ? small("It was a bundle session, so the credit has gone back into their bundle.") : "",
     leftovers.length ? "" : small("The event has been removed from your Coaching calendar and the Zoom meeting deleted. The time is open for booking again."),
@@ -785,7 +807,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
     html: layout({ preheader: `${b.name} cancelled${tag}`, tag: tagFor(b), title: "Booking cancelled", subtitle: b.name, body }),
     text: [
       ...(refundNote ? [refundNote, ...(stripePaymentUrl ? [stripePaymentUrl] : []), ""] : []),
-      ...leftovers.flatMap((l) => [l, ""]),
+      ...leftovers.flatMap(([t, f]) => [t + fixText(f), ""]),
       textRows([["Client", b.name], ["Session", b.serviceName], ["Was", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
     ].join("\n"),
   };
@@ -826,17 +848,20 @@ export function sessionReminder(b: BookingView, now: number): Email {
 
 // ── Avery: something needs attention ──
 
-export function attentionAlert(problems: string[]): Email {
+export type Problem = string | { text: string; fix?: Fix | null };
+export function attentionAlert(problemsIn: Problem[]): Email {
+  const problems = problemsIn.map((p) => (typeof p === "string" ? { text: p, fix: FIX_ADMIN } : { text: p.text, fix: p.fix ?? FIX_ADMIN }));
   const body = [
     para("The booking system ran into something it couldn't fix on its own:"),
-    `<ul style="margin:0 0 18px;padding-left:20px;font:14px/1.6 ${FONT};color:#2c3138;">${problems.map((p) => `<li style="margin:0 0 6px;">${esc(p)}</li>`).join("")}</ul>`,
+    `<ul style="margin:0 0 18px;padding-left:20px;font:14px/1.6 ${FONT};color:#2c3138;">${problems.map((p) => `<li style="margin:0 0 10px;">${esc(p.text)}<br><a href="${esc(p.fix[1])}" style="color:#1f47f5;font-weight:700;">${esc(p.fix[0])} &rarr;</a></li>`).join("")}</ul>`,
+    button(FIX_ADMIN[1], "Open Admin"),
     small("Emails and calendar updates retry automatically every few minutes, so some of these may clear on their own. You'll get at most one of these alerts an hour."),
   ].join("\n");
   return {
     to: "",
     subject: `Booking system: ${problems.length} thing${problems.length === 1 ? "" : "s"} need${problems.length === 1 ? "s" : ""} attention`,
-    html: layout({ preheader: problems[0] ?? "", tag: "Heads up", title: "Needs attention", body }),
-    text: ["The booking system ran into something it couldn't fix on its own:", "", ...problems.map((p) => `- ${p}`)].join("\n"),
+    html: layout({ preheader: problems[0]?.text ?? "", tag: "Error", title: "Needs attention", body }),
+    text: ["The booking system ran into something it couldn't fix on its own:", "", ...problems.map((p) => `- ${p.text}${fixText(p.fix)}`)].join("\n"),
   };
 }
 
@@ -856,7 +881,7 @@ export function checkoutReminder(b: BookingView, bookUrl: string): Email {
   return {
     to: b.email,
     subject: "Your session isn't booked yet",
-    html: layout({ preheader: `Finish booking your session for ${when}`, tag: "Almost there", title: "Finish your booking", body }),
+    html: layout({ preheader: `Finish booking your session for ${when}`, tag: tagFor(b), title: "Finish your booking", body }),
     text: [`Hi ${firstName(b.name)},`, "", `It looks like you started booking a ${b.serviceName.toLowerCase()} for ${when}, but checkout wasn't finished, so that time hasn't been reserved.`, "",
       `Finish booking: ${bookUrl}`, "", "Hope to see you soon,", "Avery"].join("\n"),
   };
@@ -876,7 +901,7 @@ export function bundleCheckoutReminder(p: BundleView, bookUrl: string): Email {
   return {
     to: p.email,
     subject: "Your bundle isn't finished yet",
-    html: layout({ preheader: `Finish buying your ${p.bundleName}`, tag: "Almost there", title: "Finish your booking", body }),
+    html: layout({ preheader: `Finish buying your ${p.bundleName}`, tag: "Private coaching", title: "Finish your booking", body }),
     text: [`Hi ${firstName(p.name)},`, "", `It looks like you started buying a ${p.bundleName}, but checkout wasn't finished.`, "", `Finish your purchase: ${bookUrl}`, "", "Avery"].join("\n"),
   };
 }
@@ -891,6 +916,7 @@ export function slotTakenRefund(b: BookingView, bookUrl: string): Email {
     para(`I'm sorry: your payment went through after the time you picked (<strong>${esc(when)}</strong>) had already been booked by someone else. You've been refunded in full (${esc(money(b.amountCents))}). Refunds may take a few business days to appear.`),
     para("I'd still love to work with you. Please pick another time:"),
     button(bookUrl, "Choose a new time"),
+    small(questionsLine),
     para("Sorry for the mix-up,<br>Avery"),
   ].join("\n");
   return {
@@ -909,5 +935,5 @@ export const HEADING_TITLES = [
   "See you soon", "Needs attention",
   "Bundle confirmed", "Bundle purchased", "Sessions expiring", "Bundle cancelled",
   "Payment due", "Payment received", "Bundle updated", "Refund issued",
-  "About your request", "Refund request", "Session skipped", "Repeats stopped",
+  "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved",
 ];

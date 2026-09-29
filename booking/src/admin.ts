@@ -317,19 +317,6 @@ export async function adminCancelBooking(env: Env, id: string, opts: { notifyCli
   return { ok: true };
 }
 
-// Refunds a session cancelled from the admin page earlier (the client chose a refund).
-export async function adminRefundBooking(env: Env, id: string, ctx: { now: number }) {
-  const row = await loadBooking(env, "id", id);
-  if (!row) throw new BookingError(404, "Booking not found.");
-  if (row.status !== "cancelled") throw new BookingError(409, "Only cancelled sessions can be refunded here.");
-  if (row.refunded_at) throw new BookingError(409, "This session is already refunded.");
-  if (row.package_id || row.amount_cents <= 0 || !row.stripe_payment_intent_id) throw new BookingError(409, "There's no payment to refund for this session.");
-  await env.DB.prepare("UPDATE bookings SET refund_requested_at = COALESCE(refund_requested_at, ?1) WHERE id = ?2 AND status = 'cancelled'")
-    .bind(iso(ctx.now), id).run();
-  const ok = await issueRefund(env, id, ctx.now);
-  return { ok, message: ok ? "Refunded." : "Stripe didn't accept the refund yet. It will keep retrying." };
-}
-
 export async function adminAdjustCredits(env: Env, packageId: string, delta: number, note: string, now: number,
   notify?: { message: string }) {
   if (delta !== 1 && delta !== -1) throw new BookingError(400, "Credits change one at a time.");

@@ -475,7 +475,7 @@ export async function afterConfirm(env: Env, bookingId: string): Promise<void> {
   if (row.package_id) {
     const pkg = await env.DB.prepare("SELECT credits_total, credits_used FROM packages WHERE id = ?1").bind(row.package_id)
       .first<{ credits_total: number; credits_used: number }>();
-    if (pkg) v.bundleNote = `Bundle session (${pkg.credits_total - pkg.credits_used} of ${pkg.credits_total} left)`;
+    if (pkg) { const left = pkg.credits_total - pkg.credits_used; v.bundleNote = `Bundle session (${left} session${left === 1 ? "" : "s"} left)`; }
   }
 
   // 2. Avery's Coaching calendar (includes the intake answers for prep)
@@ -920,11 +920,11 @@ export async function runRetention(env: Env, now: number): Promise<number> {
 
 /* ── Telling Avery when something needs a human ── */
 
-export async function checkAlerts(env: Env, now: number): Promise<string[]> {
+export async function checkAlerts(env: Env, now: number): Promise<T.Problem[]> {
   const last = await env.DB.prepare("SELECT last_sent_at FROM alerts_sent WHERE kind = 'attention'").first<{ last_sent_at: string }>();
   if (last && Date.parse(last.last_sent_at) > now - 60 * MIN) return [];
   const since = last?.last_sent_at ?? iso(now - 24 * 60 * MIN);
-  const problems: string[] = [];
+  const problems: T.Problem[] = [];
 
   const failedEmails = await env.DB.prepare(
     `SELECT e.kind, COUNT(*) AS n FROM email_log e
@@ -953,11 +953,15 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
   for (const p of unsentBundles.results) problems.push(`${p.name} bought a bundle but hasn't received their bundle email.`);
 
   const stuckRefunds = await env.DB.prepare(
-    `SELECT b.amount_cents, b.refund_error, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
+    `SELECT b.amount_cents, b.refund_error, b.stripe_payment_intent_id, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
      WHERE b.status = 'cancelled' AND b.refund_requested_at IS NOT NULL AND b.refunded_at IS NULL AND b.refund_requested_at <= ?1 LIMIT 10`,
-  ).bind(iso(now - 15 * MIN)).all<{ amount_cents: number; refund_error: string | null; name: string }>();
+  ).bind(iso(now - 15 * MIN)).all<{ amount_cents: number; refund_error: string | null; name: string; stripe_payment_intent_id: string | null }>();
   for (const r of stuckRefunds.results) {
-    problems.push(`The automatic refund of $${(r.amount_cents / 100).toFixed(2)} to ${r.name} hasn't gone through${r.refund_error ? ` (Stripe said: ${r.refund_error})` : ""}. It keeps retrying; you can also refund it in Stripe.`);
+    const url = stripePaymentUrl(env, r.stripe_payment_intent_id);
+    problems.push({
+      text: `The automatic refund of $${(r.amount_cents / 100).toFixed(2)} to ${r.name} hasn't gone through${r.refund_error ? ` (Stripe said: ${r.refund_error})` : ""}. It will keep retrying; you can also refund it in Stripe.`,
+      fix: url ? ["Resolve in Stripe", url] : T.FIX_ADMIN,
+    });
   }
 
   const leftOver = await env.DB.prepare(
@@ -966,7 +970,7 @@ export async function checkAlerts(env: Env, now: number): Promise<string[]> {
   ).bind(iso(now - 15 * MIN), iso(now)).all<{ start_utc: string; name: string }>();
   for (const s of leftOver.results) {
     const when = new Intl.DateTimeFormat("en-US", { timeZone: AVERY_TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(Date.parse(s.start_utc));
-    problems.push(`${s.name}'s session on ${when} is cancelled but couldn't be removed from your Coaching calendar yet. Please delete it by hand; it isn't happening.`);
+    problems.push({ text: `${s.name}'s session on ${when} is cancelled but couldn't be removed from your Coaching calendar yet. Please delete it by hand.`, fix: T.FIX_CALENDAR });
   }
 
   if (!problems.length) return [];
