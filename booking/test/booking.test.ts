@@ -2499,7 +2499,8 @@ test("check-in emails: the four templates start as editable drafts, with the rig
   assert.equal(a.subject, "Checking in");
   assert.deepEqual(a.to, ["riley@example.com"]);
   assert.match(a.text, /You can grab a time here:\n\nBook a session: https:\/\/[^\s]+\/book\/\n\nHope you're well\.\nAvery/);
-  assert.match(a.text, /reply and I'll stop checking in/);
+  assert.match(a.text, /Not looking to book right now\? Click here and I'll stop checking in: https:\/\/[^\s]+\/book\/unsubscribe\/\?c=[0-9a-f-]{36}&t=[\w-]{32}/);
+  assert.match(a.html, /Click <a href="https:\/\/[^"]+\/book\/unsubscribe\/\?c=[0-9a-f-]{36}&amp;t=[\w-]{32}"[^>]*>here<\/a> and I'll stop checking in\./);
   assert.match(a.html, /checking-in\.png/, "heading is the drawn image");
   assert.equal((await sent("coming_up")).subject, "Anything coming up?");
   const intro = await sent("intro");
@@ -2677,4 +2678,126 @@ test("check-in emails: deleting or merging a student takes their history along; 
   assert.equal(nudgeRows(a).length, 2, "both histories on the kept student");
   assert.equal((await api.call("POST", `/api/admin/students/${a}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } })).status, 200);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM nudge_emails").get()!.n, 0);
+});
+
+/* ── Students pausing or unsubscribing from check-in emails ── */
+
+// The unsubscribe link from the last email sent.
+const unsubLink = () => {
+  const m = world.state.emails.at(-1)!.text.match(/book\/unsubscribe\/\?c=([0-9a-f-]{36})&t=([\w-]{32})/);
+  assert.ok(m, "email has an unsubscribe link");
+  return { c: m![1], t: m![2] };
+};
+
+test("unsubscribe link: a signed page for the student; wrong or missing signatures are refused", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  await sendDraft(id, "checkin");
+  const { c, t } = unsubLink();
+  assert.equal(c, id);
+  const view = await api.call("GET", `/api/unsubscribe?c=${c}&t=${t}`);
+  assert.equal(view.status, 200);
+  assert.deepEqual(view.data, { firstName: "Riley", paused: false, forever: false, until: null });
+  assert.equal((await api.call("GET", `/api/unsubscribe?c=${c}&t=${"x".repeat(32)}`)).status, 404);
+  assert.equal((await api.call("GET", `/api/unsubscribe?c=${c}`)).status, 404);
+  const other = await quietStudent("Other One", "other@example.com");
+  assert.equal((await api.call("GET", `/api/unsubscribe?c=${other}&t=${t}`)).status, 404, "one student's link doesn't work for another");
+  assert.equal((await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "7" } })).status, 400);
+  assert.equal((await api.call("POST", "/api/unsubscribe", { body: { c, t: "x".repeat(32), choice: "30" } })).status, 404);
+  assert.equal(db.prepare("SELECT email_paused_until FROM customers WHERE id = ?").get(id)!.email_paused_until, null);
+});
+
+test("unsubscribe: pausing for 30 days blocks check-ins until then and shows in admin; scheduled ones before the end are cancelled", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  await sendDraft(id, "checkin");
+  const { c, t } = unsubLink();
+  await sendDraft(id, "intro", { force: true, sendDate: etDate(Date.now() + 10 * DAY), sendTime: "10:00" });
+  await sendDraft(id, "intro", { force: true, sendDate: etDate(Date.now() + 45 * DAY), sendTime: "10:00" });
+  const r = await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "30" } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.paused, true);
+  assert.equal(r.data.forever, false);
+  const days = (Date.parse(r.data.until) - Date.now()) / DAY;
+  assert.ok(days > 29.9 && days <= 30, `about 30 days, got ${days}`);
+  const rows = nudgeRows(id);
+  assert.equal(rows.filter((n) => n.status === "cancelled").length, 1, "the one inside the pause");
+  assert.match(rows.find((n) => n.status === "cancelled")!.note, /paused or unsubscribed/);
+  assert.equal(rows.filter((n) => n.status === "scheduled").length, 1, "the one after it stays");
+
+  // Blocked for now, with the date; allowed once the pause is over.
+  const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
+  assert.match(info.blocked, /paused check-in emails until \w+, \w+ \d+/);
+  world.state.emails.length = 0;
+  const now = await sendDraft(id, "checkin", { force: true });
+  assert.equal(now.status, 409);
+  assert.match(now.data.error, /paused check-in emails until/);
+  const soon = await sendDraft(id, "checkin", { force: true, sendDate: etDate(Date.now() + 5 * DAY), sendTime: "10:00" });
+  assert.equal(soon.status, 409);
+  assert.match(soon.data.error, /Pick a later date/);
+  assert.equal((await sendDraft(id, "checkin", { force: true, sendDate: etDate(Date.now() + 40 * DAY), sendTime: "10:00" })).status, 200);
+  assert.equal(world.state.emails.length, 0);
+
+  // Admin sees it in the list and the profile.
+  const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data.find((s: any) => s.id === id);
+  assert.equal(list.unsub.forever, false);
+  assert.equal(list.unsub.until, r.data.until);
+  const detail = (await api.call("GET", `/api/admin/students/${id}`, { headers: asAdmin() })).data;
+  assert.equal(detail.unsub.until, r.data.until);
+
+  // Their page now says it's paused; picking the same again is fine.
+  const view = await api.call("GET", `/api/unsubscribe?c=${c}&t=${t}`);
+  assert.equal(view.data.paused, true);
+  assert.equal((await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "30" } })).status, 200);
+
+  // Once the pause has run out, it's as if nothing happened.
+  db.prepare("UPDATE customers SET email_paused_until = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), id);
+  assert.equal((await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data.blocked, null);
+  assert.equal((await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data.find((s: any) => s.id === id).unsub, null);
+});
+
+test("unsubscribe: 60 days, and 'all' stops for good; a shorter choice afterwards never undoes a longer one", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  await sendDraft(id, "checkin");
+  const { c, t } = unsubLink();
+  const sixty = (await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "60" } })).data;
+  assert.ok((Date.parse(sixty.until) - Date.now()) / DAY > 59.9);
+  assert.equal((await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "30" } })).data.until, sixty.until, "a shorter pause doesn't shorten it");
+  const all = await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "all" } });
+  assert.deepEqual(all.data, { firstName: "Riley", paused: true, forever: true, until: null });
+  assert.equal((await api.call("POST", "/api/unsubscribe", { body: { c, t, choice: "30" } })).data.forever, true, "still unsubscribed");
+  const blocked = await sendDraft(id, "checkin", { force: true });
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.data.error, /unsubscribed from check-in emails/);
+  const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data.find((s: any) => s.id === id);
+  assert.equal(list.unsub.forever, true);
+  assert.ok(list.unsub.at);
+
+  // You can turn it back on (they asked you to); it's admin only.
+  assert.equal((await api.call("POST", `/api/admin/students/${id}/resubscribe`)).status, 403);
+  assert.equal((await api.call("POST", `/api/admin/students/${id}/resubscribe`, { headers: asAdmin() })).status, 200);
+  assert.equal((await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data.blocked, null);
+  assert.equal((await sendDraft(id, "checkin", { force: true })).status, 200);
+});
+
+test("unsubscribe: a scheduled email is skipped if they paused after it was checked; merging keeps the longer pause", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  await sendDraft(id, "checkin", { sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  // A pause that didn't go through the page (so the scheduled row wasn't cancelled).
+  db.prepare("UPDATE customers SET email_paused_until = ? WHERE id = ?").run(new Date(Date.now() + 60 * DAY).toISOString(), id);
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE customer_id = ?").run(new Date(Date.now() - 60000).toISOString(), id);
+  world.state.emails.length = 0;
+  await api.cron();
+  assert.equal(world.state.emails.length, 0);
+  assert.equal(nudgeRows(id)[0].status, "skipped");
+  assert.match(nudgeRows(id)[0].note, /paused or unsubscribed/);
+
+  const keep = await quietStudent("Sam One", "sam1@example.com");
+  const dupe = await quietStudent("Sam Two", "sam2@example.com");
+  db.prepare("UPDATE customers SET email_paused_until = ?, email_paused_at = ? WHERE id = ?").run(new Date(Date.now() + 20 * DAY).toISOString(), new Date().toISOString(), dupe);
+  assert.equal((await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: keep, mergeIds: [dupe] } })).status, 200);
+  const merged = (await api.call("GET", `/api/admin/students/${keep}`, { headers: asAdmin() })).data;
+  assert.ok(merged.unsub && Date.parse(merged.unsub.until) > Date.now() + 19 * DAY, "the pause carried over");
 });

@@ -460,10 +460,32 @@
   const quietDays = (s) => Math.floor((Date.now() - Date.parse(s.lastStart || s.since)) / 86400000);
   const isQuiet = (s) => !s.upcoming && quietDays(s) >= 60;
 
-  // Only shown once it's been 60+ days (nothing in the list before then; use their profile).
-  function nudgeButton(s) {
-    if (s.noEmail || !isQuiet(s)) return "";
+  // Why check-in emails can't go to this student right now (their own pause, or your "don't email"), or "".
+  function emailBlock(s) {
     const first = firstName(s.name);
+    if (s.noEmail) return `${first} is marked don't email.`;
+    const u = s.unsub && Date.parse(s.unsub.until) > Date.now() ? s.unsub : null;
+    if (!u) return "";
+    return u.forever ? `${first} unsubscribed from check-in emails.` : `${first} paused check-in emails until ${shortDate(u.until)}.`;
+  }
+  // "Unsubscribed (12 days left)" for a pause, "Unsubscribed" for good, "Don't email" for your own flag.
+  function unsubChip(s) {
+    const u = s.unsub && Date.parse(s.unsub.until) > Date.now() ? s.unsub : null;
+    if (u) {
+      const days = Math.max(1, Math.ceil((Date.parse(u.until) - Date.now()) / 86400000));
+      const tip = u.forever ? `They unsubscribed${u.at ? ` on ${shortDate(u.at)}` : ""}` : `They paused check-in emails until ${shortDate(u.until)}`;
+      return ` <span class="chip unsub" title="${esc(tip)}">${u.forever ? "Unsubscribed" : `Unsubscribed (${days} day${days === 1 ? "" : "s"} left)`}</span>`;
+    }
+    return s.noEmail ? ` <span class="chip unsub" title="You marked them don't email">Don't email</span>` : "";
+  }
+
+  // Only shown once it's been 60+ days (nothing in the list before then; use their profile).
+  // Greyed out while they're unsubscribed or paused.
+  function nudgeButton(s) {
+    if (!isQuiet(s)) return "";
+    const first = firstName(s.name);
+    const blocked = emailBlock(s);
+    if (blocked) return `<button type="button" class="btn sm sr-nudge" disabled title="${esc(blocked)}" aria-label="Check in: ${esc(blocked)}">Check in</button>`;
     const state = s.nudgeAt ? ` An email to ${first} is already scheduled.` : s.lastNudgeAt ? ` You last emailed ${first} on ${shortDate(s.lastNudgeAt)}.` : "";
     const tip = `${first} hasn't had a session in ${quietDays(s)} days. Send a check-in email.${state}`;
     return `<button type="button" class="btn sm sr-nudge" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">${s.nudgeAt ? "Scheduled" : "Check in"}</button>`;
@@ -504,7 +526,7 @@
       <div class="panel student-list">
         <div class="student-row student-head">${head("name", "Name")}${head("next", "Next")}${head("last", "Last session")}${head("owes", "Owes")}${head("bundle", "Bundle")}</div>
         ${list.length ? list.map((s) => `<div class="student-item"><button type="button" class="student-row" data-student="${esc(s.id)}" title="Open ${esc(s.name)}'s profile">
-          <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</strong><small>${esc(s.email)}</small></span>
+          <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}${unsubChip(s)}</strong><small>${esc(s.email)}</small></span>
           <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
           <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
           <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}${s.noShows ? ` <span class="chip" title="Sessions marked as no-shows">${s.noShows} no-show${s.noShows === 1 ? "" : "s"}</span>` : ""}</span>
@@ -569,7 +591,7 @@
       draft = await draftFor(info.suggested);
     } catch (err) { toast(err.message, true); return; }
     const first = firstName(info.name);
-    if (info.noEmail) { toast(`${first} is marked don't email. Untick that on their profile first.`, true); return; }
+    if (info.blocked) { toast(info.blocked, true); return; }
     const tomorrow = nyParts(new Date(Date.now() + 86400000).toISOString());
     const form = formDialog(`
       <h2 id="dlg-title">Email ${esc(first)}</h2>
@@ -655,15 +677,16 @@
     };
     showDialog(`<div class="student-detail">
       <div class="sd-head">
-        <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</h2>
+        <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}${unsubChip(s)}</h2>
           <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
-        <span class="seat-actions">${btn("Check-in email", `data-nudge="${esc(s.id)}"${s.noEmail ? " disabled" : ""}`, s.noEmail ? "They're marked don't email" : "Send them a check-in email now, or schedule one", isQuiet(s) && !s.noEmail ? "primary" : "")}${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
+        <span class="seat-actions">${btn("Check-in email", `data-nudge="${esc(s.id)}"${emailBlock(s) ? " disabled" : ""}`, emailBlock(s) || "Send them a check-in email now, or schedule one", isQuiet(s) && !emailBlock(s) ? "primary" : "")}${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
       </div>
       <div class="seat-actions" style="margin:10px 0 0">${btn("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns")}${btn("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet")}${btn("Delete", `data-delete-student="${esc(s.id)}"`, "Permanently remove this student and their records from your booking system", "danger")}</div>
       ${(s.paymentRequests || []).length ? `<h3>Payment requests</h3>${s.paymentRequests.map(requestRow).join("")}` : ""}
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
       <h3>Emails</h3>
       ${nudgeHistoryHtml(s)}
+      ${s.unsub && Date.parse(s.unsub.until) > Date.now() ? `<div class="warn-line soft">${esc(emailBlock(s))} ${btn("Turn emails back on", `data-resubscribe="${esc(s.id)}"`, "Only do this if they asked you to", "sm")}</div>` : ""}
       <label style="display:block;margin:10px 0"><input type="checkbox" id="no-email" ${s.noEmail ? "checked" : ""}> Don't send ${esc(firstName(s.name))} check-in emails <span class="hint" style="display:inline">(turns off the button and cancels any scheduled ones)</span></label>
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
       <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
@@ -1729,7 +1752,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-nudge],[data-nudge-cancel],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
+    const t = e.target.closest("[data-nudge],[data-nudge-cancel],[data-resubscribe],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1739,6 +1762,11 @@
     else if (d.connTestemail !== undefined) connAction("/api/admin/status/resend/test", "Test email sent. Check your inbox.", t, "resend");
     else if (d.connFilter) { connProblemsOnly = d.connFilter === "problems"; render(); }
     else if (d.nudge) openNudge(d.nudge);
+    else if (d.resubscribe) {
+      if (confirm("They chose to stop or pause these emails themselves. Turn them back on only if they asked you to. Turn them back on?")) {
+        requestAction(`/api/admin/students/${encodeURIComponent(d.resubscribe)}/resubscribe`, "Check-in emails are back on.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); });
+      }
+    }
     else if (d.nudgeCancel) { if (confirm("Don't send this email?")) requestAction(`/api/admin/nudges/${encodeURIComponent(d.nudgeCancel)}/cancel`, "Cancelled.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); }); }
     else if (d.addStudent !== undefined) { studentOpen = null; openAddStudent(); }
     else if (d.dupes !== undefined) openDuplicates();

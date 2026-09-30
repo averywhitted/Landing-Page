@@ -223,6 +223,21 @@ app.get("/api/manage", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// The page linked from the bottom of check-in emails: pause them or stop them.
+app.get("/api/unsubscribe", async (c) => {
+  try {
+    c.header("Cache-Control", "no-store");
+    const { unsubscribeView } = await import("./nudges");
+    return c.json(await unsubscribeView(c.env, c.req.query("c"), c.req.query("t"), Date.now()));
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/unsubscribe", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  try { const { unsubscribeApply } = await import("./nudges"); return c.json(await unsubscribeApply(c.env, body.c, body.t, body.choice, Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/manage/cancel", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   try {
@@ -475,6 +490,11 @@ app.post("/api/admin/students/:id/nudge", async (c) => {
 
 app.post("/api/admin/nudges/:id/cancel", async (c) => {
   try { const { adminCancelNudge } = await import("./nudges"); return c.json(await adminCancelNudge(c.env, c.req.param("id"))); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/resubscribe", async (c) => {
+  try { const { adminResubscribe } = await import("./nudges"); return c.json(await adminResubscribe(c.env, c.req.param("id"))); }
   catch (err) { return bookingErrorResponse(c, err); }
 });
 

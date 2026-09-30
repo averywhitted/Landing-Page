@@ -1035,7 +1035,6 @@ export const NUDGE_LABELS: Record<NudgeKind, string> = {
 export type NudgeCredits = { n: number; until: number; url: string; several: boolean };
 
 const plural = (n: number, word: string) => `${n} ${n === 1 ? word : `${word}s`}`;
-const optOut = "Not looking to book right now? Just reply and I'll stop checking in.";
 
 // Each template is a starting draft: Avery can change the subject and every word before it goes out.
 // {button} marks where the button goes; {first name} is filled in when the email is built.
@@ -1064,6 +1063,7 @@ export type NudgeInput = {
   introUrl: string;                                  // the free Intro Chat
   credits?: NudgeCredits;
   subject: string; body: string;                     // exactly what Avery approved
+  unsubscribeUrl: string;                            // where "Click here" at the bottom goes
 };
 
 const TITLES: Record<NudgeKind, string> = { checkin: "Checking in", coming_up: "Anything coming up?", intro: "Let's catch up", credits: "Sessions waiting", custom: "A note from Avery" };
@@ -1084,7 +1084,7 @@ export function studentNudge(p: NudgeInput): Email {
   return {
     to: p.email,
     subject,
-    html: layout({ preheader: fill(p.body).replace(/\{button\}/gi, "").replace(/\s+/g, " ").trim().slice(0, 90), tag: "Private coaching", title: TITLES[p.kind], body: `${html}\n${small(optOut)}` }),
-    text: `${text}\n\n${optOut}`,
+    html: layout({ preheader: fill(p.body).replace(/\{button\}/gi, "").replace(/\s+/g, " ").trim().slice(0, 90), tag: "Private coaching", title: TITLES[p.kind], body: `${html}\n${small(`Not looking to book right now? Click <a href="${esc(p.unsubscribeUrl)}" style="color:#6b727b;">here</a> and I'll stop checking in.`)}` }),
+    text: `${text}\n\nNot looking to book right now? Click here and I'll stop checking in: ${p.unsubscribeUrl}`,
   };
 }

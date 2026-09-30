@@ -114,7 +114,7 @@ const groups: [string, Entry[]][] = [
     { who: "You", title: "Repeats stopped", when: "A student stopped, or two went unpaid.", email: T.adminSeriesStopped({ ...series, by: "unpaid" }) },
   ]],
   ["Check-in emails (sent from a student's profile)", (() => {
-    const base = { name: "Jamie Rivera", email: "jamie@example.com", bookUrl: book, introUrl: `${book.split("?")[0]}?service=intro-15` };
+    const base = { name: "Jamie Rivera", email: "jamie@example.com", bookUrl: book, introUrl: `${book.split("?")[0]}?service=intro-15`, unsubscribeUrl: "https://averywhitted.com/book/unsubscribe/?c=sample&t=sample" };
     const credits = { n: 2, until: start + 30 * D, url: bundlePage, several: false };
     const make = (kind: T.NudgeKind, cr?: typeof credits) => T.studentNudge({ ...base, kind, credits: cr, ...T.nudgeDraft(kind, base.name, cr) });
     return [

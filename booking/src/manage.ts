@@ -37,4 +37,9 @@ export async function validManageToken(env: Env, bookingId: unknown, token: unkn
 export async function packageUrl(env: Env, packageId: string): Promise<string> {
   return `${env.SITE_URL}/book/package/?p=${encodeURIComponent(packageId)}&t=${await sign(env, packageId, "package")}`;
 }
+// Unsubscribe links for check-in emails: same scheme, its own purpose, keyed by the student's id.
+export async function unsubscribeUrl(env: Env, customerId: string): Promise<string> {
+  return `${env.SITE_URL}/book/unsubscribe/?c=${encodeURIComponent(customerId)}&t=${await sign(env, customerId, "unsubscribe")}`;
+}
+export const validUnsubscribeToken = (env: Env, id: unknown, token: unknown) => validManageToken(env, id, token, "unsubscribe");
 export const validPackageToken = (env: Env, id: unknown, token: unknown) => validManageToken(env, id, token, "package");

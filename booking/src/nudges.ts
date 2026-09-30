@@ -10,7 +10,7 @@ import type { Env } from "./env";
 import { iso, zonedToUtc } from "./time";
 import { RULES } from "./settings";
 import { BookingError, clean } from "./bookings";
-import { packageUrl } from "./manage";
+import { packageUrl, unsubscribeUrl, validUnsubscribeToken } from "./manage";
 import { sendEmail } from "./email";
 import * as T from "./templates";
 
@@ -23,10 +23,10 @@ const MAX_TRIES = 3;
 const KINDS = Object.keys(T.NUDGE_LABELS) as T.NudgeKind[];
 const dayText = (ms: number) => new Intl.DateTimeFormat("en-US", { timeZone: RULES.timeZone, weekday: "short", month: "short", day: "numeric" }).format(ms);
 
-type Student = { id: string; name: string; email: string; no_email: number; created_at: string };
+type Student = { id: string; name: string; email: string; no_email: number; created_at: string; email_paused_until: string | null; email_paused_at: string | null };
 
 async function loadStudent(env: Env, id: string): Promise<Student> {
-  const s = await env.DB.prepare("SELECT id, name, email, no_email, created_at FROM customers WHERE id = ?1").bind(id).first<Student>();
+  const s = await env.DB.prepare("SELECT id, name, email, no_email, created_at, email_paused_until, email_paused_at FROM customers WHERE id = ?1").bind(id).first<Student>();
   if (!s) throw new BookingError(404, "Student not found.");
   return s;
 }
@@ -67,6 +67,26 @@ function warningsFor(f: Awaited<ReturnType<typeof facts>>, first: string, now: n
 
 const firstOf = (name: string) => name.trim().split(/\s+/)[0] || "them";
 
+/* ── Pauses: the student's own choice from the link in each email ── */
+
+// "Stop all check-in emails" is stored as a pause that never ends.
+export const FOREVER = "9999-12-31T00:00:00Z";
+
+// The pause in effect at `at`: null if none (or it has run out).
+export function pauseAt(s: Pick<Student, "email_paused_until">, at: number): { forever: boolean; until: string } | null {
+  if (!s.email_paused_until || Date.parse(s.email_paused_until) <= at) return null;
+  return { forever: s.email_paused_until >= FOREVER, until: s.email_paused_until };
+}
+
+// Why Avery can't email this student at `at`, or null if she can.
+export function blockedReason(s: Student, at: number): string | null {
+  const first = firstOf(s.name);
+  if (s.no_email) return `${first} is marked "don't email". Untick that on their profile first.`;
+  const p = pauseAt(s, at);
+  if (!p) return null;
+  return p.forever ? `${first} unsubscribed from check-in emails.` : `${first} paused check-in emails until ${dayText(Date.parse(p.until))}.`;
+}
+
 /* ── The dialog: what can be sent, what to warn about, what's suggested ── */
 
 export async function adminNudgeInfo(env: Env, customerId: string, now: number) {
@@ -74,7 +94,7 @@ export async function adminNudgeInfo(env: Env, customerId: string, now: number) 
   const f = await facts(env, s, now);
   const credits = await creditsFor(env, s.id, now);
   return {
-    name: s.name, email: s.email, noEmail: !!s.no_email, days: f.days, upcoming: f.upcoming,
+    name: s.name, email: s.email, noEmail: !!s.no_email, blocked: blockedReason(s, now), days: f.days, upcoming: f.upcoming,
     warnings: warningsFor(f, firstOf(s.name), now),
     credits: credits ? { n: credits.n, until: new Date(credits.until).toISOString() } : null,
     // Credits are the strongest reason to write; after that, the longer they've been away the softer the ask.
@@ -113,7 +133,7 @@ async function build(env: Env, s: Student, d: Draft, now: number) {
   if (d.kind === "credits" && !credits) throw new BookingError(409, `${firstOf(s.name)} doesn't have any unused bundle sessions.`);
   return T.studentNudge({
     kind: d.kind, name: s.name, email: s.email, bookUrl: `${env.SITE_URL}/book/`, introUrl: `${env.SITE_URL}/book/?service=intro-15`,
-    credits, subject: d.subject, body: d.body,
+    credits, subject: d.subject, body: d.body, unsubscribeUrl: await unsubscribeUrl(env, s.id),
   });
 }
 
@@ -130,12 +150,7 @@ export async function adminNudgeDraft(env: Env, customerId: string, raw: Record<
 
 export async function adminSendNudge(env: Env, customerId: string, raw: Record<string, unknown>, now: number) {
   const s = await loadStudent(env, customerId);
-  if (s.no_email) throw new BookingError(409, `${firstOf(s.name)} is marked "don't email". Untick that on their profile first.`);
   const d = readDraft(raw);
-  const warnings = warningsFor(await facts(env, s, now), firstOf(s.name), now);
-  if (warnings.length && raw.force !== true) throw new BookingError(409, `${warnings.join(" ")} Send anyway?`);
-  const email = await build(env, s, d, now);
-
   let sendAt = now;
   const scheduled = typeof raw.sendDate === "string" || typeof raw.sendTime === "string";
   if (scheduled) {
@@ -146,6 +161,12 @@ export async function adminSendNudge(env: Env, customerId: string, raw: Record<s
     if (!(sendAt > now + MIN)) throw new BookingError(400, "Pick a time in the future.");
     if (sendAt > now + 366 * DAY) throw new BookingError(400, "That's more than a year away.");
   }
+  // A scheduled email is checked again when it goes out, so their pause has to be over by then.
+  const blocked = blockedReason(s, sendAt);
+  if (blocked) throw new BookingError(409, scheduled && !s.no_email && !pauseAt(s, sendAt)?.forever ? `${blocked} Pick a later date.` : blocked);
+  const warnings = warningsFor(await facts(env, s, now), firstOf(s.name), now);
+  if (warnings.length && raw.force !== true) throw new BookingError(409, `${warnings.join(" ")} Send anyway?`);
+  const email = await build(env, s, d, now);
 
   const id = crypto.randomUUID();
   const insert = (status: string, sentAt: number | null) => env.DB.prepare(
@@ -175,6 +196,49 @@ export async function adminSetNoEmail(env: Env, customerId: string, value: unkno
     ...(on ? [env.DB.prepare("UPDATE nudge_emails SET status = 'cancelled' WHERE customer_id = ?1 AND status = 'scheduled'").bind(s.id)] : []),
   ]);
   return { ok: true, noEmail: on };
+}
+
+// Avery turns check-in emails back on after the student paused or unsubscribed (they asked her to, say).
+export async function adminResubscribe(env: Env, customerId: string) {
+  const s = await loadStudent(env, customerId);
+  await env.DB.prepare("UPDATE customers SET email_paused_until = NULL, email_paused_at = NULL WHERE id = ?1").bind(s.id).run();
+  return { ok: true };
+}
+
+/* ── The student's side: the page the link at the bottom of each email opens ── */
+
+const CHOICES: Record<string, number> = { "30": 30, "60": 60, all: Infinity };
+
+async function studentForLink(env: Env, c: unknown, t: unknown): Promise<Student> {
+  const bad = new BookingError(404, "This link doesn't look right. Please use the link in your email, or reply to it and I'll take care of it.");
+  if (!(await validUnsubscribeToken(env, c, t))) throw bad;
+  return await loadStudent(env, c as string).catch(() => { throw bad; });
+}
+
+// What the page needs: their first name and what's already in effect.
+const publicState = (s: Student, now: number) => {
+  const p = s.no_email ? { forever: true, until: FOREVER } : pauseAt(s, now);
+  return { firstName: firstOf(s.name), paused: !!p, forever: !!p?.forever, until: p && !p.forever ? p.until : null };
+};
+
+export async function unsubscribeView(env: Env, c: unknown, t: unknown, now: number) {
+  return publicState(await studentForLink(env, c, t), now);
+}
+
+// A pause never gets shorter: choosing 30 days after choosing "all" leaves "all" in place.
+export async function unsubscribeApply(env: Env, c: unknown, t: unknown, choice: unknown, now: number) {
+  const s = await studentForLink(env, c, t);
+  const days = typeof choice === "string" ? CHOICES[choice] : undefined;
+  if (days === undefined) throw new BookingError(400, "Please choose one of the options.");
+  const chosen = days === Infinity ? FOREVER : iso(now + days * DAY);
+  const current = pauseAt(s, now)?.until ?? "";
+  const until = chosen > current ? chosen : current;
+  await env.DB.batch([
+    env.DB.prepare("UPDATE customers SET email_paused_until = ?1, email_paused_at = ?2 WHERE id = ?3").bind(until, iso(now), s.id),
+    // Anything already scheduled to go out during the pause is called off.
+    env.DB.prepare("UPDATE nudge_emails SET status = 'cancelled', note = 'They paused or unsubscribed.' WHERE customer_id = ?1 AND status = 'scheduled' AND send_at < ?2").bind(s.id, until),
+  ]);
+  return publicState({ ...s, email_paused_until: until }, now);
 }
 
 // The last few for a student's profile.
@@ -210,7 +274,8 @@ export async function sendScheduledNudges(env: Env, now: number): Promise<number
       const s = await loadStudent(env, n.customer_id);
       const f = await facts(env, s, now);
       const booked = await env.DB.prepare("SELECT 1 AS x FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND created_at > ?2 LIMIT 1").bind(s.id, n.created_at).first();
-      if (s.no_email) { await settle("skipped", "Marked \"don't email\"."); continue; }
+      const blocked = blockedReason(s, now);
+      if (blocked) { await settle("skipped", s.no_email ? "Marked \"don't email\"." : "They paused or unsubscribed."); continue; }
       if (f.upcoming || booked) { await settle("skipped", "They have a session booked."); continue; }
       let email;
       try { email = await build(env, s, { kind: n.template, subject: n.subject, body: n.body }, now); }

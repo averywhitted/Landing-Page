@@ -251,7 +251,7 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
   if (!keep) throw new BookingError(404, "Student not found.");
   const others = [];
   for (const id of mergeIds) {
-    const o = await env.DB.prepare("SELECT id, name, email, pronouns, notes, no_email FROM customers WHERE id = ?1").bind(id).first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; no_email: number }>();
+    const o = await env.DB.prepare("SELECT id, name, email, pronouns, notes, no_email, email_paused_until, email_paused_at FROM customers WHERE id = ?1").bind(id).first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; no_email: number; email_paused_until: string | null; email_paused_at: string | null }>();
     if (!o) throw new BookingError(404, "One of those students no longer exists. Refresh and try again.");
     others.push(o);
   }
@@ -279,6 +279,9 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
   stmts.push(env.DB.prepare("UPDATE customers SET notes = ?1, pronouns = ?2 WHERE id = ?3").bind(notes.slice(0, 5000) || null, pronouns, keepId));
   // If any of them asked not to be emailed, the merged student keeps that.
   if (others.some((o) => o.no_email)) stmts.push(env.DB.prepare("UPDATE customers SET no_email = 1 WHERE id = ?1").bind(keepId));
+  // ...and the longest pause any of them chose.
+  const longest = others.filter((o) => o.email_paused_until).sort((a, b) => b.email_paused_until!.localeCompare(a.email_paused_until!))[0];
+  if (longest) stmts.push(env.DB.prepare("UPDATE customers SET email_paused_until = ?1, email_paused_at = ?2 WHERE id = ?3 AND (email_paused_until IS NULL OR email_paused_until < ?1)").bind(longest.email_paused_until, longest.email_paused_at, keepId));
   await env.DB.batch(stmts);
 
   const upcoming = await env.DB.prepare(

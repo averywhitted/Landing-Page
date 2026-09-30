@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Check-in Emails | Avery Whitted</title>
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://book.averywhitted.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/podcast/podcast.css" />
+    <link rel="stylesheet" href="/book/booking.css?v=93e91e1a" />
+    <style>
+      .mg { margin: 32px auto 0; padding: 40px 44px; max-width: 760px; }
+      .mg .show-title { margin-bottom: 12px; }
+      .mg-lead { margin: 0 0 22px; font-size: 1rem; line-height: 1.6; }
+      .mg-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .mg-note { margin: 18px 0 0; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.8125rem; line-height: 1.6; color: var(--faint); }
+      .mg-note a, .mg-msg a, .mg-lead a { color: var(--a); text-decoration: underline; text-underline-offset: 3px; }
+      .mg-msg { margin: 0 0 20px; padding: 14px 16px; border-radius: 12px; font-size: 0.9062rem; line-height: 1.5; }
+      .mg-msg.ok { background: var(--lime); color: var(--lime-ink); font-weight: 600; }
+      .mg-msg.err { background: #fdecea; color: #8a1c12; }
+      .mg-confirm { margin-top: 22px; padding: 20px; border: 1.5px solid var(--text); border-radius: 16px; }
+      .mg-confirm h2 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; text-transform: uppercase; font-size: 1.25rem; line-height: 1.05; }
+      .mg-confirm p { margin: 0 0 16px; font-family: var(--mono); letter-spacing: -0.03em; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+      .mg-wait { display: flex; align-items: center; gap: 12px; font-family: var(--mono); letter-spacing: -0.03em; color: var(--muted); }
+      .mg-wait .bk-spin { width: 18px; height: 18px; color: var(--a); }
+      .un-choices { margin: 0 0 22px; padding: 0; border: 0; display: grid; gap: 10px; }
+      .un-choices legend { padding: 0; margin: 0 0 10px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+      .un-opt { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1.5px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; }
+      .un-opt:hover { border-color: var(--text); }
+      .un-opt:has(input:checked) { border-color: var(--a); background: var(--a-soft); }
+      .un-opt input { margin: 4px 0 0; accent-color: var(--a); }
+      .un-opt strong { display: block; font-size: 0.9688rem; }
+      .un-opt small { display: block; margin-top: 2px; font-size: 0.8125rem; line-height: 1.5; color: var(--muted); }
+      @media (max-width: 640px) {
+        .mg { padding: 26px 20px; margin: 22px auto 0; }
+        .mg-actions .btn { flex: 1 1 100%; }
+      }
+    </style>
+    <script>document.documentElement.classList.add("js");</script>
+    <script src="/book/booking.js?v=4995baf3" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <a href="/">
+            <span class="brand-name">Avery Whitted</span>
+            <span class="brand-sub">Acting Workshops + Private Coaching</span>
+          </a>
+        </div>
+        <nav aria-label="Site">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/podcast/">Podcast</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="panel mg" id="mg" aria-live="polite">
+          <p class="tag">Check-in emails</p>
+          <h1 class="show-title">One moment</h1>
+          <p class="mg-wait"><span class="bk-spin" aria-hidden="true"></span>Loading...</p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div>&copy; <span id="year"></span> Avery Whitted &middot; <a class="footer-link" href="/">Home</a> &middot; <a class="footer-link" href="/policies.html">Policies</a></div>
+      </footer>
+    </div>
+
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+      window.addEventListener("DOMContentLoaded", () => {
+        const API = (window.AWBooking && window.AWBooking.api) || "https://book.averywhitted.com";
+        const q = new URLSearchParams(location.search);
+        const c = q.get("c") || "";
+        const t = q.get("t") || "";
+        const $ = document.getElementById("mg");
+        const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+        const date = (iso) => new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(Date.parse(iso));
+
+        // What each choice does, in words: the option, the question asked before it's saved.
+        const CHOICES = {
+          30: { label: "Pause for 30 days", hint: "No check-in emails for the next 30 days.", ask: "Pause check-in emails for 30 days?", yes: "Yes, pause them" },
+          60: { label: "Pause for 60 days", hint: "No check-in emails for the next 60 days.", ask: "Pause check-in emails for 60 days?", yes: "Yes, pause them" },
+          all: { label: "Stop all check-in emails", hint: "You won't get another one from me.", ask: "Stop all check-in emails?", yes: "Yes, stop them" },
+        };
+
+        async function api(method, path, body) {
+          const r = await fetch(`${API}${path}`, {
+            method,
+            headers: body ? { "Content-Type": "application/json" } : undefined,
+            body: body ? JSON.stringify(body) : undefined,
+            cache: "no-store",
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) { const err = new Error(data.error || "Something went wrong. Please try again."); err.status = r.status; throw err; }
+          return data;
+        }
+
+        function show(title, html, flash) {
+          $.innerHTML = `<p class="tag">Check-in emails</p><h1 class="show-title">${esc(title)}</h1>`
+            + (flash ? `<p class="mg-msg ${flash.kind}" role="${flash.kind === "err" ? "alert" : "status"}">${flash.html}</p>` : "") + html;
+        }
+
+        function bad(message) {
+          show("Hmm", `<p class="mg-lead">${esc(message)}</p><p class="mg-note">Questions? Just reply to my email or write to <a href="mailto:info@averywhitted.com">info@averywhitted.com</a>.</p>`);
+        }
+
+        // The polite message for what's now in effect (which can be more than they just picked).
+        function thanks(state) {
+          if (state.forever) {
+            return { title: "You're unsubscribed", html: `You're all set, ${esc(state.firstName)}. I won't send you any more check-in emails. Thank you for letting me know, and I wish you all the best with your acting.` };
+          }
+          return { title: "Thanks, you're all set", html: `Got it, ${esc(state.firstName)}. I won't send you check-in emails until ${esc(date(state.until))}. Thank you for letting me know, and take care until then.` };
+        }
+
+        function renderChoose(state) {
+          const now = state.forever ? "You've already stopped all check-in emails." : state.paused ? `Your check-in emails are paused until ${esc(date(state.until))}.` : "";
+          show("Need a break?",
+            `<p class="mg-lead">Hi ${esc(state.firstName)}, no problem at all. Choose what works for you.</p>`
+            + (now ? `<p class="mg-msg ok" role="status">${now}</p>` : "")
+            + `<form id="un-form" novalidate>
+                <fieldset class="un-choices">
+                  <legend>How long?</legend>
+                  ${Object.entries(CHOICES).map(([k, v], i) => `<label class="un-opt"><input type="radio" name="choice" value="${k}"${i === 0 ? " checked" : ""}><span><strong>${esc(v.label)}</strong><small>${esc(v.hint)}</small></span></label>`).join("")}
+                </fieldset>
+                <div class="mg-actions"><button type="submit" class="btn primary">Submit</button></div>
+              </form>
+              <p class="mg-note">This only affects these check-in emails. You'll still get the emails about any sessions you book, like confirmations and reminders.</p>`);
+          document.getElementById("un-form").addEventListener("submit", (e) => { e.preventDefault(); ask(state, document.querySelector("input[name=choice]:checked").value); });
+        }
+
+        // "Are you sure?" before anything is saved.
+        function ask(state, choice) {
+          const v = CHOICES[choice];
+          document.getElementById("un-form").hidden = true;
+          const box = document.createElement("div");
+          box.className = "mg-confirm";
+          box.setAttribute("role", "alertdialog");
+          box.setAttribute("aria-labelledby", "un-c-title");
+          box.innerHTML = `<h2 id="un-c-title">${esc(v.ask)}</h2><p>${esc(v.hint)} You can always reply to one of my emails if you change your mind.</p>
+            <div class="mg-actions"><button type="button" class="btn primary" id="un-yes">${esc(v.yes)}</button><button type="button" class="btn" id="un-no">Go back</button></div>`;
+          $.appendChild(box);
+          document.getElementById("un-no").addEventListener("click", () => { box.remove(); document.getElementById("un-form").hidden = false; });
+          const yes = document.getElementById("un-yes");
+          yes.focus();
+          yes.addEventListener("click", async () => {
+            yes.disabled = true;
+            yes.innerHTML = '<span class="bk-spin" aria-hidden="true"></span>Saving';
+            try {
+              const done = thanks(await api("POST", "/api/unsubscribe", { c, t, choice }));
+              show(done.title, `<p class="mg-msg ok" role="status">${done.html}</p><p class="mg-note">Changed your mind? Just reply to any of my emails, or <a href="/book/">book a session</a> whenever you're ready.</p>`);
+            } catch (err) {
+              box.remove();
+              document.getElementById("un-form").hidden = false;
+              const flash = document.createElement("p");
+              flash.className = "mg-msg err";
+              flash.setAttribute("role", "alert");
+              flash.textContent = err.message;
+              $.querySelector(".mg-lead").after(flash);
+            }
+          });
+        }
+
+        (async () => {
+          if (!c || !t) return bad("This link doesn't look right. Please use the link in your email.");
+          try { renderChoose(await api("GET", `/api/unsubscribe?c=${encodeURIComponent(c)}&t=${encodeURIComponent(t)}`)); }
+          catch (err) { bad(err.message); }
+        })();
+      });
+    </script>
+  </body>
+</html>
