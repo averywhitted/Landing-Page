@@ -456,6 +456,23 @@
   let studentShow = "all";
   const pips = (total, used) => `<span class="pips" aria-label="${total - used} of ${total} left">${Array.from({ length: total }, (_, i) => `<span class="dot${i >= total - used ? " used" : ""}"></span>`).join("")}</span>`;
 
+  // Days since their last session (or since they were added, if they've had none), and whether they're due a nudge.
+  const quietDays = (s) => Math.floor((Date.now() - Date.parse(s.lastStart || s.since)) / 86400000);
+  const isQuiet = (s) => !s.upcoming && quietDays(s) >= 60;
+
+  // "Check in" once it's been 60+ days; otherwise just a small envelope that shows on hover.
+  function nudgeButton(s) {
+    const first = firstName(s.name);
+    if (s.noEmail) return `<button type="button" class="btn sm sr-nudge quiet" disabled title="${esc(first)} is marked don't email" aria-label="${esc(first)} is marked don't email">&#9993;</button>`;
+    const state = s.nudgeAt ? ` An email to ${first} is already scheduled.` : s.lastNudgeAt ? ` You last emailed ${first} on ${shortDate(s.lastNudgeAt)}.` : "";
+    if (isQuiet(s)) {
+      const tip = `${first} hasn't had a session in ${quietDays(s)} days. Send a check-in email.${state}`;
+      return `<button type="button" class="btn sm sr-nudge due" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">${s.nudgeAt ? "Scheduled" : "Check in"}</button>`;
+    }
+    const tip = `Send ${first} an email.${state}`;
+    return `<button type="button" class="btn sm sr-nudge quiet" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">&#9993;</button>`;
+  }
+
   function renderStudents() {
     if (!students) {
       loadStudents().then(() => { if (tab === "students") render(); }).catch((err) => { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; });
@@ -496,7 +513,7 @@
           <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
           <span class="sr-stat"><small>Owes</small>${s.owedCents ? `<span class="chip bad">${money(s.owedCents)}</span>` : "Nothing"}${s.noShows ? ` <span class="chip" title="Sessions marked as no-shows">${s.noShows} no-show${s.noShows === 1 ? "" : "s"}</span>` : ""}</span>
           <span class="sr-stat"><small>Bundle</small>${s.bundles.length ? s.bundles.map((x) => `${pips(x.total, x.total - x.remaining)}${x.remaining} left`).join("<br>") : "None"}</span>
-        </button>${btn("Edit", `data-edit-student="${esc(s.id)}"`, `Edit ${s.name}'s name, email and pronouns`, "sm sr-edit")}</div>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
+        </button><span class="sr-actions">${nudgeButton(s)}${btn("Edit", `data-edit-student="${esc(s.id)}"`, `Edit ${s.name}'s name, email and pronouns`, "sm sr-edit")}</span></div>`).join("") : `<p class="empty" style="margin:10px">${q || studentShow !== "all" ? "No students match." : "No students yet."}</p>`}
       </div>`;
   }
 
@@ -534,6 +551,72 @@
     b.disabled = true;
     try { await api("POST", path); toast(okText); await load(); }
     catch (err) { toast(err.message, true); b.disabled = false; }
+  }
+
+  // The profile's list of check-in emails: scheduled ones can be cancelled.
+  function nudgeHistoryHtml(s) {
+    if (!s.nudges.length) return '<p class="hint">Nothing sent or scheduled.</p>';
+    const when = (n) => `${fmt(n.sendAt, { month: "short", day: "numeric", year: "numeric" })}, ${clock(n.sendAt)}`;
+    return s.nudges.map((n) => `<div class="seat">
+      <div class="who-line"><strong>${esc(n.label)}</strong><small>${n.subject ? `${esc(n.subject)} &middot; ` : ""}${esc(when(n))}${n.note ? ` &middot; ${esc(n.note)}` : ""}</small></div>
+      <span class="seat-chips"><span class="chip${n.status === "sent" ? " ok" : n.status === "failed" ? " bad" : ""}">${{ scheduled: "Scheduled", sent: "Sent", skipped: "Skipped", cancelled: "Cancelled", failed: "Failed" }[n.status] || esc(n.status)}</span></span>
+      ${n.status === "scheduled" ? `<span class="seat-actions">${btn("Cancel", `data-nudge-cancel="${esc(n.id)}"`, "Don't send this email", "sm danger")}</span>` : ""}
+    </div>`).join("");
+  }
+
+  // Send a check-in email now, or schedule one.
+  async function openNudge(id) {
+    let info;
+    try { info = await api("GET", `/api/admin/students/${encodeURIComponent(id)}/nudge`); }
+    catch (err) { toast(err.message, true); return; }
+    const first = firstName(info.name);
+    if (info.noEmail) { toast(`${first} is marked don't email. Untick that on their profile first.`, true); return; }
+    const tomorrow = nyParts(new Date(Date.now() + 86400000).toISOString());
+    const form = formDialog(`
+      <h2 id="dlg-title">Email ${esc(first)}</h2>
+      <p>${esc(info.email)} &middot; ${info.upcoming ? "has a session coming up" : `last session ${info.days} day${info.days === 1 ? "" : "s"} ago`}</p>
+      ${info.warnings.length ? `<div class="nudge-note">${info.warnings.map(esc).join("<br>")}</div>` : ""}
+      <label class="field">Which email<select name="template">${info.templates.map((t) => `<option value="${esc(t.kind)}"${t.kind === info.suggested ? " selected" : ""}>${esc(t.label)}${t.kind === info.suggested ? " (suggested)" : ""}${t.kind === "credits" ? ` (${info.credits.n} left)` : ""}</option>`).join("")}</select></label>
+      <div id="nudge-custom" hidden>
+        <label class="field">Subject<input type="text" name="subject" maxlength="150"></label>
+        <label class="field">Message<textarea name="body" rows="7" maxlength="5000">Hi {first name},\n\n\n\nBest,\nAvery</textarea></label>
+        <label><input type="checkbox" name="button" checked> Include a "Book a session" button</label>
+        <p class="hint">{first name} is replaced with ${esc(first)}'s first name.</p>
+      </div>
+      <div class="nudge-preview" id="nudge-preview" aria-live="polite">Loading preview...</div>
+      <p class="hint" style="margin-bottom:0">Or schedule it (${esc(TZ.replace("_", " ").split("/").pop())} time). It's checked again when it goes out and skipped if they've booked by then.</p>
+      <div class="nudge-when"><label>Date<input type="date" name="date" value="${esc(tomorrow.date)}" min="${esc(nyParts(new Date().toISOString()).date)}"></label>
+        <label>Time<input type="time" name="time" value="10:00"></label></div>
+      <div class="row">${cancelButton()}<button type="button" class="btn" id="nudge-schedule">Schedule send</button><button type="submit" class="btn primary">Send now</button></div>`, () => go(false));
+    const custom = form.querySelector("#nudge-custom");
+    const preview = form.querySelector("#nudge-preview");
+    const draft = () => ({ template: form.template.value, subject: form.subject.value, body: form.body.value, button: form.button.checked });
+    let timer = 0, seq = 0;
+    const refresh = () => {
+      custom.hidden = form.template.value !== "custom";
+      const mine = ++seq;
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge/preview`, draft());
+          if (mine === seq) preview.innerHTML = `<strong>${esc(r.subject)}</strong>${esc(r.text)}`;
+        } catch (err) { if (mine === seq) preview.textContent = err.message; }
+      }, form.template.value === "custom" ? 350 : 0);
+    };
+    form.addEventListener("input", refresh);
+    refresh();
+    const go = async (schedule) => {
+      const buttons = [...form.querySelectorAll("button")];
+      if (schedule && !(form.date.value && form.time.value)) throw new Error("Pick a date and time to send.");
+      if (info.warnings.length && !confirm(`${info.warnings.join("\n")}\n\n${schedule ? "Schedule it anyway?" : "Send anyway?"}`)) { form.querySelector("[type=submit]").disabled = false; return; }
+      buttons.forEach((b) => { b.disabled = true; });
+      try {
+        const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge`, { ...draft(), force: true, ...(schedule ? { sendDate: form.date.value, sendTime: form.time.value } : {}) });
+        students = null;
+        await afterAction(r.message);
+      } catch (err) { buttons.forEach((b) => { b.disabled = false; }); throw err; }
+    };
+    form.querySelector("#nudge-schedule").addEventListener("click", () => go(true).catch((err) => toast(err.message, true)));
   }
 
   async function openStudent(id) {
@@ -585,11 +668,14 @@
       <div class="sd-head">
         <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}</h2>
           <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
-        <span class="seat-actions">${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
+        <span class="seat-actions">${btn("Check-in email", `data-nudge="${esc(s.id)}"${s.noEmail ? " disabled" : ""}`, s.noEmail ? "They're marked don't email" : "Send them a check-in email now, or schedule one", isQuiet(s) && !s.noEmail ? "primary" : "")}${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
       </div>
       <div class="seat-actions" style="margin:10px 0 0">${btn("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns")}${btn("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet")}${btn("Delete", `data-delete-student="${esc(s.id)}"`, "Permanently remove this student and their records from your booking system", "danger")}</div>
       ${(s.paymentRequests || []).length ? `<h3>Payment requests</h3>${s.paymentRequests.map(requestRow).join("")}` : ""}
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
+      <h3>Emails</h3>
+      ${nudgeHistoryHtml(s)}
+      <label style="display:block;margin:10px 0"><input type="checkbox" id="no-email" ${s.noEmail ? "checked" : ""}> Don't send ${esc(firstName(s.name))} check-in emails <span class="hint" style="display:inline">(turns off the button and cancels any scheduled ones)</span></label>
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
       <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
       <p class="notes-status hint" aria-live="polite"></p>
@@ -607,6 +693,12 @@
     </div>
     <div class="row">${btn("Close", "data-close-student", "Close")}</div>`, "wide");
     $dlg.querySelector("[data-close-student]").addEventListener("click", () => $dlg.close());
+    const noEmail = $dlg.querySelector("#no-email");
+    noEmail.addEventListener("change", async () => {
+      noEmail.disabled = true;
+      try { await api("POST", `/api/admin/students/${encodeURIComponent(s.id)}/no-email`, { value: noEmail.checked }); students = null; await openStudent(s.id); load(); }
+      catch (err) { noEmail.checked = !noEmail.checked; noEmail.disabled = false; toast(err.message, true); }
+    });
     // Notes save on their own when you click away.
     const notes = $dlg.querySelector("#student-notes");
     const status = $dlg.querySelector(".notes-status");
@@ -1648,7 +1740,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
+    const t = e.target.closest("[data-nudge],[data-nudge-cancel],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); }
@@ -1657,6 +1749,8 @@
     else if (d.connBackup !== undefined) connAction("/api/admin/status/backups/run", "Backup saved.", t, "backups");
     else if (d.connTestemail !== undefined) connAction("/api/admin/status/resend/test", "Test email sent. Check your inbox.", t, "resend");
     else if (d.connFilter) { connProblemsOnly = d.connFilter === "problems"; render(); }
+    else if (d.nudge) openNudge(d.nudge);
+    else if (d.nudgeCancel) { if (confirm("Don't send this email?")) requestAction(`/api/admin/nudges/${encodeURIComponent(d.nudgeCancel)}/cancel`, "Cancelled.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); }); }
     else if (d.addStudent !== undefined) { studentOpen = null; openAddStudent(); }
     else if (d.dupes !== undefined) openDuplicates();
     else if (d.dupMerge !== undefined) dupAction("merge", Number(d.dupMerge), t);

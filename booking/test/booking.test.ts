@@ -2458,3 +2458,190 @@ test("admin: add a student by hand; they're listed with no sessions, and duplica
   const other = await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "Temp Person", email: "temp@example.com" } });
   assert.equal((await api.call("POST", `/api/admin/students/${other.data.id}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } })).status, 200);
 });
+
+/* ── "Been a while" emails ── */
+
+async function quietStudent(name = "Riley Park", email = "riley@example.com", daysAgo = 100) {
+  const r = await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name, email } });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  db.prepare("UPDATE customers SET created_at = ? WHERE id = ?").run(new Date(Date.now() - daysAgo * DAY).toISOString(), r.data.id);
+  world.state.emails.length = 0;
+  return r.data.id as string;
+}
+const nudge = (id: string, body: Record<string, unknown>) => api.call("POST", `/api/admin/students/${id}/nudge`, { headers: asAdmin(), body });
+const nudgeRows = (id: string) => db.prepare("SELECT * FROM nudge_emails WHERE customer_id = ? ORDER BY created_at").all(id) as any[];
+
+test("check-in emails: the four templates, with the right link and no email-dash", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
+  assert.equal(info.suggested, "checkin");
+  assert.deepEqual(info.templates.map((t: any) => t.kind), ["checkin", "coming_up", "intro", "custom"], "no credits template without credits");
+  assert.equal(info.warnings.length, 0);
+  assert.equal((await nudge(id, { template: "credits" })).status, 409, "no bundle sessions to mention");
+  assert.equal((await nudge(id, { template: "bogus" })).status, 400);
+
+  const sent = async (template: string) => {
+    const r = await nudge(id, { template, force: true });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    return world.state.emails.at(-1)!;
+  };
+  const a = await sent("checkin");
+  assert.equal(a.subject, "Checking in");
+  assert.deepEqual(a.to, ["riley@example.com"]);
+  assert.match(a.text, /^Hi Riley, it's been a little while since our last session/);
+  assert.match(a.text, /Book a session: https:\/\/[^\s]+\/book\/\n/);
+  assert.match(a.text, /Hope you're well\.\nAvery/);
+  assert.match(a.text, /reply and I'll stop checking in/);
+  assert.equal((await sent("coming_up")).subject, "Anything coming up?");
+  const intro = await sent("intro");
+  assert.equal(intro.subject, "Let's catch up");
+  assert.match(intro.text, /free 15-minute session/);
+  assert.match(intro.text, /\/book\/\?service=intro-15/);
+  for (const e of world.state.emails) { assert.ok(noEmDash(e.text) && noEmDash(e.html) && noEmDash(e.subject)); }
+  assert.equal(nudgeRows(id).filter((n) => n.status === "sent").length, 3);
+});
+
+test("check-in emails: 120+ days suggests the intro chat; unused bundle sessions suggest (and fill in) the credits email", async () => {
+  adminEnv();
+  const far = await quietStudent("Far Away", "far@example.com", 150);
+  assert.equal((await api.call("GET", `/api/admin/students/${far}/nudge`, { headers: asAdmin() })).data.suggested, "intro");
+
+  const b = await paidBundle();
+  const jamie = (db.prepare("SELECT customer_id FROM packages WHERE id = ?").get(b.id) as any).customer_id;
+  db.prepare("UPDATE customers SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 90 * DAY).toISOString(), jamie);
+  const info = (await api.call("GET", `/api/admin/students/${jamie}/nudge`, { headers: asAdmin() })).data;
+  assert.equal(info.suggested, "credits");
+  assert.equal(info.credits.n, 4);
+  assert.ok(info.templates.some((t: any) => t.kind === "credits"));
+  const preview = await api.call("POST", `/api/admin/students/${jamie}/nudge/preview`, { headers: asAdmin(), body: { template: "credits" } });
+  assert.equal(preview.data.subject, "You still have 4 prepaid sessions");
+  assert.equal(world.state.emails.length, 0, "a preview sends nothing");
+  assert.equal((await nudge(jamie, { template: "credits" })).status, 200);
+  const e = world.state.emails.at(-1)!;
+  assert.match(e.text, /you still have 4 sessions left in your bundle that are good through \w+day, \w+ \d+\. Book one here, whenever you have a chance:/);
+  assert.match(e.text, /book\/package\/\?p=[0-9a-f-]{36}&t=[\w-]{32}/);
+  assert.match(e.text, /Best,\nAvery/);
+});
+
+test("check-in emails: write your own, with {first name} filled in and the button optional", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  assert.equal((await nudge(id, { template: "custom", subject: "", body: "Hi" })).status, 400);
+  assert.equal((await nudge(id, { template: "custom", subject: "Hello", body: "" })).status, 400);
+  assert.equal((await nudge(id, { template: "custom", subject: "Hey {first name}", body: "Hi {first name},\n\nPilot season is close.\nBest,\nAvery", button: false })).status, 200);
+  const e = world.state.emails.at(-1)!;
+  assert.equal(e.subject, "Hey Riley");
+  assert.match(e.text, /Hi Riley,\n\nPilot season is close\.\nBest,\nAvery/);
+  assert.doesNotMatch(e.text, /Book a session:/);
+  assert.match(e.html, /Pilot season is close\.<br>Best,<br>Avery/);
+  assert.equal((await nudge(id, { template: "custom", subject: "Again", body: "<b>Hi</b>", force: true })).status, 200);
+  assert.match(world.state.emails.at(-1)!.html, /&lt;b&gt;Hi&lt;\/b&gt;/, "their text is escaped");
+});
+
+test("check-in emails: warnings need confirming (upcoming session, recent email, under 60 days), and don't-email blocks", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  assert.equal((await nudge(id, { template: "checkin" })).status, 200);
+  const again = await nudge(id, { template: "checkin" });
+  assert.equal(again.status, 409);
+  assert.match(again.data.error, /You emailed Riley on/);
+  assert.equal((await nudge(id, { template: "checkin", force: true })).status, 200);
+
+  await adminBook({ students: [student("Riley Park", "riley@example.com", { priceCents: 0 })] });
+  const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
+  assert.ok(info.warnings.some((w: string) => /session coming up/.test(w)));
+
+  const fresh = await quietStudent("New Person", "new@example.com", 10);
+  assert.match((await api.call("GET", `/api/admin/students/${fresh}/nudge`, { headers: asAdmin() })).data.warnings[0], /only 10 days ago/);
+
+  const off = await api.call("POST", `/api/admin/students/${fresh}/no-email`, { headers: asAdmin(), body: { value: true } });
+  assert.equal(off.status, 200);
+  const blocked = await nudge(fresh, { template: "checkin", force: true });
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.data.error, /don't email/);
+  const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
+  assert.equal(list.find((s: any) => s.id === fresh).noEmail, true);
+});
+
+test("scheduled check-in emails: wait for their time, then send; can be cancelled; skipped if they've booked", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  const at = (days: number) => ({ sendDate: etDate(Date.now() + days * DAY), sendTime: "10:00" });
+  assert.equal((await nudge(id, { template: "checkin", sendDate: etDate(Date.now() - 2 * DAY), sendTime: "10:00" })).status, 400, "not in the past");
+  assert.equal((await nudge(id, { template: "checkin", sendDate: "nope", sendTime: "10:00" })).status, 400);
+  const r = await nudge(id, { template: "checkin", ...at(2) });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.scheduled, true);
+  assert.match(r.data.message, /^Scheduled for /);
+  assert.equal(world.state.emails.length, 0, "nothing goes out yet");
+  await api.cron();
+  assert.equal(world.state.emails.length, 0, "not due yet");
+  const detail = (await api.call("GET", `/api/admin/students/${id}`, { headers: asAdmin() })).data;
+  assert.equal(detail.nudges[0].status, "scheduled");
+  const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
+  assert.ok(list.find((s: any) => s.id === id).nudgeAt);
+
+  const [n1] = nudgeRows(id);
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 5 * 60000).toISOString(), n1.id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => e.subject === "Checking in").length, 1);
+  assert.equal(nudgeRows(id)[0].status, "sent");
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => e.subject === "Checking in").length, 1, "only once");
+
+  // Cancelled ones never go out.
+  const r2 = await nudge(id, { template: "intro", force: true, ...at(3) });
+  const n2 = nudgeRows(id).find((n) => n.status === "scheduled")!;
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n2.id}/cancel`, { headers: asAdmin() })).status, 200);
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n2.id}/cancel`, { headers: asAdmin() })).status, 409, "only once");
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n2.id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => e.subject === "Let's catch up").length, 0);
+
+  // Booked in the meantime: skipped, with the reason on record.
+  assert.equal(r2.status, 200);
+  await nudge(id, { template: "coming_up", force: true, ...at(5) });
+  await adminBook({ students: [student("Riley Park", "riley@example.com", { priceCents: 0 })] });
+  const n3 = nudgeRows(id).find((n) => n.status === "scheduled")!;
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n3.id);
+  await api.cron();
+  assert.equal(world.state.emails.filter((e) => e.subject === "Anything coming up?").length, 0);
+  const skipped = nudgeRows(id).find((n) => n.id === n3.id)!;
+  assert.equal(skipped.status, "skipped");
+  assert.match(skipped.note, /session booked/);
+});
+
+test("scheduled check-in emails: marking don't-email cancels them; a failed send is retried", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  await nudge(id, { template: "checkin", sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  await api.call("POST", `/api/admin/students/${id}/no-email`, { headers: asAdmin(), body: { value: true } });
+  assert.equal(nudgeRows(id)[0].status, "cancelled");
+  await api.call("POST", `/api/admin/students/${id}/no-email`, { headers: asAdmin(), body: { value: false } });
+
+  await nudge(id, { template: "checkin", force: true, sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  const n = nudgeRows(id).find((x) => x.status === "scheduled")!;
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n.id);
+  world.state.resendFailNext = 1;
+  await api.cron();
+  let now = nudgeRows(id).find((x) => x.id === n.id)!;
+  assert.equal(now.status, "scheduled", "put back to try again");
+  assert.ok(Date.parse(now.send_at) > Date.now(), "in a few minutes");
+  db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n.id);
+  await api.cron();
+  assert.equal(nudgeRows(id).find((x) => x.id === n.id)!.status, "sent");
+});
+
+test("check-in emails: deleting or merging a student takes their history along; admin only", async () => {
+  adminEnv();
+  const a = await quietStudent("Sam One", "sam1@example.com");
+  const b = await quietStudent("Sam Two", "sam2@example.com");
+  await nudge(a, { template: "checkin" });
+  await nudge(b, { template: "checkin" });
+  assert.equal((await api.call("GET", `/api/admin/students/${a}/nudge`)).status, 403);
+  assert.equal((await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: a, mergeIds: [b] } })).status, 200);
+  assert.equal(nudgeRows(a).length, 2, "both histories on the kept student");
+  assert.equal((await api.call("POST", `/api/admin/students/${a}/delete`, { headers: asAdmin(), body: { confirm: "DELETE" } })).status, 200);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM nudge_emails").get()!.n, 0);
+});

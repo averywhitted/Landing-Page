@@ -457,6 +457,33 @@ app.post("/api/admin/students/:id/remind", async (c) => {
   try { return c.json(await adminRemindStudent(c.env, c.req.param("id"), Date.now())); } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// "Been a while" emails.
+app.get("/api/admin/students/:id/nudge", async (c) => {
+  try { const { adminNudgeInfo } = await import("./nudges"); return c.json(await adminNudgeInfo(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/nudge/preview", async (c) => {
+  try { const { adminNudgePreview } = await import("./nudges"); return c.json(await adminNudgePreview(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/nudge", async (c) => {
+  try { const { adminSendNudge } = await import("./nudges"); return c.json(await adminSendNudge(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/nudges/:id/cancel", async (c) => {
+  try { const { adminCancelNudge } = await import("./nudges"); return c.json(await adminCancelNudge(c.env, c.req.param("id"))); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/students/:id/no-email", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminSetNoEmail } = await import("./nudges"); return c.json(await adminSetNoEmail(c.env, c.req.param("id"), body.value)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/students/:id/notes", async (c) => {
   const body = await jsonBody(c);
   try { const { adminSaveNotes } = await import("./extras"); return c.json(await adminSaveNotes(c.env, c.req.param("id"), body.notes, Date.now())); }
@@ -697,6 +724,7 @@ async function scheduled(env: Env): Promise<void> {
   const unpaid = await run("unpaid deadlines", () => releaseUnpaid(env, now));
   await run("payment reminders", () => sendPaymentReminders(env, now));
   await run("group sessions", () => maintainGroups(env, now));
+  await run("scheduled check-in emails", async () => (await import("./nudges")).sendScheduledNudges(env, now));
   const series = await import("./series");
   const repeats = await run("repeating sessions", () => series.bookNextSessions(env, now));
   await run("abandoned repeats", () => series.dropAbandonedSeries(env, now));

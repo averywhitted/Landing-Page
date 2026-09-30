@@ -1022,3 +1022,87 @@ export const HEADING_TITLES = [
   "Payment due", "Payment received", "Bundle updated", "Refund issued",
   "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved", "Password updated",
 ];
+
+/* ── "Been a while" emails, sent from a student's profile ── */
+
+export type NudgeKind = "checkin" | "coming_up" | "intro" | "credits" | "custom";
+
+export const NUDGE_LABELS: Record<NudgeKind, string> = {
+  checkin: "Gentle check-in", coming_up: "Something coming up?", intro: "Free intro chat", credits: "Unused credits", custom: "Written by me",
+};
+
+export type NudgeInput = {
+  kind: NudgeKind; name: string; email: string;
+  bookUrl: string;                                   // the booking page
+  introUrl: string;                                  // the free Intro Chat
+  credits?: { n: number; until: number; url: string; several: boolean };
+  subject?: string; body?: string; button?: boolean; // custom only
+};
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const optOut = "Not looking to book right now? Just reply and I'll stop checking in.";
+
+// Plain text -> paragraphs (blank line between paragraphs, single line breaks kept).
+const paragraphs = (text: string) => text.trim().split(/\n{2,}/).map((p) => para(esc(p.trim()).replace(/\n/g, "<br>"))).join("\n");
+
+export function studentNudge(p: NudgeInput): Email {
+  const first = firstName(p.name);
+  const tz = AVERY_TZ;
+  let subject: string, title: string, preheader: string, buttonLabel = "Book a session", buttonUrl = p.bookUrl;
+  let before: string[], after: string[] = [], signoff = "Best,<br>Avery", textSignoff = ["Best,", "Avery"];
+  let textBefore: string[], textAfter: string[] = [];
+  switch (p.kind) {
+    case "checkin":
+      subject = "Checking in"; title = "Checking in"; preheader = "It's been a little while. How are things going?";
+      before = [para(`Hi ${esc(first)}, it's been a little while since our last session, and I wanted to see how things are going. If you have an audition, a project, or just want to get back into it, I'd love to work with you again. You can grab a time here:`)];
+      textBefore = [`Hi ${first}, it's been a little while since our last session, and I wanted to see how things are going. If you have an audition, a project, or just want to get back into it, I'd love to work with you again. You can grab a time here:`];
+      signoff = "Hope you're well.<br>Avery"; textSignoff = ["Hope you're well.", "Avery"];
+      break;
+    case "coming_up":
+      subject = "Anything coming up?"; title = "Anything coming up?"; preheader = "I have openings this week and next.";
+      before = [para(`Hi ${esc(first)}, if you've got an audition, self-tape, or callback coming up, I have openings this week and next.`)];
+      after = [para("Let me know if you'd like to grab some time to work through something.")];
+      textBefore = [`Hi ${first}, if you've got an audition, self-tape, or callback coming up, I have openings this week and next.`];
+      textAfter = ["Let me know if you'd like to grab some time to work through something."];
+      break;
+    case "intro":
+      subject = "Let's catch up"; title = "Let's catch up"; preheader = "A free 15-minute chat, whenever you're ready.";
+      buttonLabel = "Book a free 15-minute chat"; buttonUrl = p.introUrl;
+      before = [para(`Hi ${esc(first)}, it's been a while! I'd love to get back in touch and see what you've got going on.`),
+        para("If you'd like to chat go ahead and grab a free 15-minute session. It'd be great to check in and see what might help you most right now.")];
+      textBefore = [`Hi ${first}, it's been a while! I'd love to get back in touch and see what you've got going on.`, "",
+        "If you'd like to chat go ahead and grab a free 15-minute session. It'd be great to check in and see what might help you most right now."];
+      break;
+    case "credits": {
+      const c = p.credits!;
+      const left = plural(c.n, "session");
+      subject = `You still have ${plural(c.n, "prepaid session")}`; title = "Sessions waiting"; preheader = `Good through ${day(c.until, tz)}.`;
+      buttonUrl = c.url;
+      const where = c.several ? "in your bundles, the earliest good through" : "in your bundle that are good through";
+      before = [para(`Hi ${esc(first)}, you still have <strong>${esc(left)}</strong> left ${where} <strong>${esc(day(c.until, tz))}</strong>. Book one here, whenever you have a chance:`)];
+      textBefore = [`Hi ${first}, you still have ${left} left ${where} ${day(c.until, tz)}. Book one here, whenever you have a chance:`];
+      break;
+    }
+    default: {
+      const text = (p.body ?? "").replace(/\{first name\}/gi, first);
+      subject = (p.subject ?? "").replace(/\{first name\}/gi, first); title = "A note from Avery"; preheader = text.replace(/\s+/g, " ").slice(0, 90);
+      before = [paragraphs(text)]; textBefore = [text.trim()];
+      signoff = ""; textSignoff = [];
+    }
+  }
+  const showButton = p.kind !== "custom" || p.button !== false;
+  const body = [
+    ...before,
+    ...(showButton ? [button(buttonUrl, buttonLabel)] : []),
+    ...after,
+    ...(signoff ? [para(signoff)] : []),
+    small(optOut),
+  ].join("\n");
+  return {
+    to: p.email,
+    subject,
+    html: layout({ preheader, tag: "Private coaching", title, body }),
+    text: [...textBefore, ...(showButton ? ["", `${buttonLabel}: ${buttonUrl}`] : []), ...(textAfter.length ? ["", ...textAfter] : []),
+      ...(textSignoff.length ? ["", ...textSignoff] : []), "", optOut].join("\n"),
+  };
+}

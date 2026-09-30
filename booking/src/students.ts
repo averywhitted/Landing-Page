@@ -146,6 +146,7 @@ export async function adminDeleteStudent(env: Env, customerId: string, confirm: 
     env.DB.prepare("DELETE FROM bookings WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM packages WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM series WHERE customer_id = ?1").bind(customerId),
+    env.DB.prepare("DELETE FROM nudge_emails WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM customer_aliases WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM duplicate_ignores WHERE a_id = ?1 OR b_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM customers WHERE id = ?1").bind(customerId),
@@ -250,7 +251,7 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
   if (!keep) throw new BookingError(404, "Student not found.");
   const others = [];
   for (const id of mergeIds) {
-    const o = await env.DB.prepare("SELECT id, name, email, pronouns, notes FROM customers WHERE id = ?1").bind(id).first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null }>();
+    const o = await env.DB.prepare("SELECT id, name, email, pronouns, notes, no_email FROM customers WHERE id = ?1").bind(id).first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; no_email: number }>();
     if (!o) throw new BookingError(404, "One of those students no longer exists. Refresh and try again.");
     others.push(o);
   }
@@ -261,7 +262,7 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
   for (const o of others) {
     if (o.notes) notes = `${notes}${notes ? "\n\n" : ""}From ${o.name} (${o.email}):\n${o.notes}`;
     pronouns = pronouns || o.pronouns;
-    for (const t of ["bookings", "packages", "series", "payment_requests", "refund_requests"]) {
+    for (const t of ["bookings", "packages", "series", "payment_requests", "refund_requests", "nudge_emails"]) {
       stmts.push(env.DB.prepare(`UPDATE ${t} SET customer_id = ?1 WHERE customer_id = ?2`).bind(keepId, o.id));
     }
     stmts.push(
@@ -276,6 +277,8 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
     stmts.push(env.DB.prepare(`UPDATE ${t} SET client_name = ?1, client_pronouns = ?2 WHERE customer_id = ?3`).bind(keep.name, pronouns, keepId));
   }
   stmts.push(env.DB.prepare("UPDATE customers SET notes = ?1, pronouns = ?2 WHERE id = ?3").bind(notes.slice(0, 5000) || null, pronouns, keepId));
+  // If any of them asked not to be emailed, the merged student keeps that.
+  if (others.some((o) => o.no_email)) stmts.push(env.DB.prepare("UPDATE customers SET no_email = 1 WHERE id = ?1").bind(keepId));
   await env.DB.batch(stmts);
 
   const upcoming = await env.DB.prepare(

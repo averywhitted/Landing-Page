@@ -155,7 +155,7 @@ export async function calendarHealth(env: Env) {
 /* ── Backups ── */
 
 // Not included: stored_secrets (the encrypted iCloud password stays out of every copy).
-const BACKUP_TABLES = ["customers", "customer_aliases", "duplicate_ignores", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "payment_requests", "settings", "alerts_sent"];
+const BACKUP_TABLES = ["customers", "customer_aliases", "duplicate_ignores", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "payment_requests", "nudge_emails", "settings", "alerts_sent"];
 
 export async function backupJson(env: Env, now: number): Promise<string> {
   const out: Record<string, unknown> = { made: iso(now), tables: {} };
@@ -205,7 +205,7 @@ export async function clearTestData(env: Env, confirm: unknown) {
     if (l.cal) await cal.deleteEvent(l.cal).catch(() => { problems++; });
     if (l.zoom) await deleteMeeting(env, l.zoom).catch(() => { problems++; });
   }
-  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "bookings", "groups", "series", "packages", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
+  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "bookings", "groups", "series", "packages", "nudge_emails", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
   await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
   return {
     ok: true,

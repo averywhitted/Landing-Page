@@ -113,6 +113,18 @@ const groups: [string, Entry[]][] = [
     { who: "You", title: "Repeat went ahead", when: "You didn't decide by 2 days before.", email: T.adminSeriesClash({ name: "Jamie Rivera", serviceName: "1 hour session", when: start + 7 * D, clash: "day_off", wentAhead: true }) },
     { who: "You", title: "Repeats stopped", when: "A student stopped, or two went unpaid.", email: T.adminSeriesStopped({ ...series, by: "unpaid" }) },
   ]],
+  ["Check-in emails (sent from a student's profile)", (() => {
+    const base = { name: "Jamie Rivera", email: "jamie@example.com", bookUrl: book, introUrl: `${book.split("?")[0]}?service=intro-15` };
+    const credits = { n: 2, until: start + 30 * D, url: bundlePage, several: false };
+    return [
+      { who: "Student", title: "Gentle check-in", when: "You send it (or schedule it) to someone quiet for a while.", email: T.studentNudge({ ...base, kind: "checkin" }) },
+      { who: "Student", title: "Something coming up?", when: "You send it (or schedule it).", email: T.studentNudge({ ...base, kind: "coming_up" }) },
+      { who: "Student", title: "Free intro chat", when: "You send it, usually after 120+ days.", email: T.studentNudge({ ...base, kind: "intro" }) },
+      { who: "Student", title: "Unused credits", when: "You send it to someone with bundle sessions left.", email: T.studentNudge({ ...base, kind: "credits", credits }) },
+      { who: "Student", title: "Unused credits (several bundles)", when: "Same, if they have more than one bundle.", email: T.studentNudge({ ...base, kind: "credits", credits: { ...credits, n: 3, several: true } }) },
+      { who: "Student", title: "Written by you", when: "You write your own.", email: T.studentNudge({ ...base, kind: "custom", subject: "Pilot season", body: "Hi Jamie,\n\nPilot season is close and I have a few evenings open.\nLet me know.\n\nBest,\nAvery" }) },
+    ] as Entry[];
+  })()],
   ["To you: system alerts", [
     { who: "You", title: "Something needs attention", when: "Failures that didn't fix themselves (at most hourly).", email: T.attentionAlert(["1 \"client confirmation\" email failed to send.", "Jamie Rivera's session on Thu, Oct 1, 11:00 AM isn't in your Coaching calendar.", { text: "The automatic refund of $130.00 to Jamie Rivera hasn't gone through. It will keep retrying; you can also refund it in Stripe.", fix: ["Resolve in Stripe", stripe] }]) },
     { who: "You", title: "Can't reach iCloud", when: "Your calendars have been unreachable for 15 minutes.", email: T.icloudStatus(false, "iCloud PROPFIND failed with status 401") },

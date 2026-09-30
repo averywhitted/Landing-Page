@@ -234,13 +234,25 @@
     .warn-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
     /* Students: hover edit button */
     .student-list { padding: 4px 10px; }
-    .student-item { display: grid; grid-template-columns: 1fr 58px; align-items: center; border-top: 1px solid var(--line); }
+    .student-item { display: grid; grid-template-columns: 1fr 150px; align-items: center; border-top: 1px solid var(--line); }
     .student-item .student-row { border-top: 0; }
     .student-item:hover { background: var(--a-soft); }
-    .student-head { padding-right: 58px; }
-    .sr-edit { visibility: hidden; }
-    .student-item:hover .sr-edit, .student-item:focus-within .sr-edit { visibility: visible; }
-    @media (hover: none) { .sr-edit { visibility: visible; } }
+    .student-head { padding-right: 150px; }
+    .sr-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+    .sr-edit, .sr-nudge.quiet { visibility: hidden; }
+    .student-item:hover .sr-edit, .student-item:focus-within .sr-edit,
+    .student-item:hover .sr-nudge.quiet, .student-item:focus-within .sr-nudge.quiet { visibility: visible; }
+    @media (hover: none) { .sr-edit, .sr-nudge.quiet { visibility: visible; } }
+    /* Ready for a check-in email: always visible and filled in. Under 60 days: a small envelope, shown on hover. */
+    .sr-nudge.due { border-color: var(--a); background: var(--a); color: #fff; }
+    .sr-nudge.due:hover { background: var(--a-dark); }
+    .sr-nudge.quiet { padding: 6px 8px; font-size: .8125rem; line-height: 1; }
+    .sr-nudge:disabled { opacity: .45; cursor: not-allowed; }
+    .nudge-preview { margin: 10px 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg1); font-size: .8125rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+    .nudge-preview strong { display: block; margin-bottom: 6px; }
+    .nudge-when { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 6px 0 4px; }
+    .nudge-when label { display: flex; flex-direction: column; gap: 5px; margin: 0; font-size: .75rem; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+    .nudge-note { margin: 0 0 12px; padding: 9px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: .8125rem; font-weight: 600; }
     .danger-box, .note-box { margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; font-size: .8125rem; }
     .danger-box { border: 1.5px solid var(--danger); background: #fdecea; color: #6b140d; }
     .note-box { border: 1px solid var(--line); background: var(--bg1); color: var(--muted); }
@@ -290,7 +302,7 @@
     .ev-time { font-family: var(--mono); font-size: .75rem; color: var(--faint); white-space: nowrap; }
     .ev-msg { min-width: 0; overflow-wrap: anywhere; }
     .ev .chip { justify-self: start; }
-    @media (max-width: 700px) { .ev { grid-template-columns: 1fr; } .student-item { align-items: start; } .student-item .sr-edit { margin-top: 10px; } }
+    @media (max-width: 700px) { .ev { grid-template-columns: 1fr; } .student-item { align-items: start; grid-template-columns: 1fr; } .student-item .sr-actions { justify-content: flex-start; margin: 0 8px 10px; } }
     @media (max-width: 700px) {
       .wrap { padding: 18px 14px 56px; }
       nav.tabs { flex-wrap: nowrap; overflow-x: auto; margin: 20px -14px 0; padding: 0 14px; scrollbar-width: none; }

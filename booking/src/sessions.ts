@@ -483,7 +483,10 @@ export async function adminStudents(env: Env, now: number) {
        (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.price_cents IS NOT NULL
           AND b.paid_at IS NULL AND b.package_id IS NULL AND b.price_cents > 0) AS owed_cents,
        (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked,
-       (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows
+       (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows,
+       c.no_email, c.created_at AS since,
+       (SELECT MAX(n.sent_at) FROM nudge_emails n WHERE n.customer_id = c.id AND n.status = 'sent') AS last_nudge,
+       (SELECT MIN(n.send_at) FROM nudge_emails n WHERE n.customer_id = c.id AND n.status IN ('scheduled', 'sending')) AS nudge_at
      FROM customers c
      WHERE c.added_manually = 1
         OR EXISTS (SELECT 1 FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled'))
@@ -497,6 +500,7 @@ export async function adminStudents(env: Env, now: number) {
   return people.results.map((p) => ({
     id: p.id, name: p.name, email: p.email, pronouns: p.pronouns,
     upcoming: p.upcoming, nextStart: p.next_start, lastStart: p.last_start, pastSessions: p.past, owedCents: p.owed_cents, noShows: p.no_shows,
+    noEmail: !!p.no_email, since: p.since, lastNudgeAt: p.last_nudge, nudgeAt: p.nudge_at,
     bundles: bundles.results.filter((x) => x.customer_id === p.id).map((x) => ({
       id: x.id, remaining: x.credits_total - x.credits_used, total: x.credits_total, expiresAt: x.expires_at,
     })),
@@ -505,8 +509,8 @@ export async function adminStudents(env: Env, now: number) {
 
 // One student's full history, for the Students detail view.
 export async function adminStudentDetail(env: Env, customerId: string, now: number) {
-  const c = await env.DB.prepare("SELECT id, name, email, pronouns, notes, created_at FROM customers WHERE id = ?1").bind(customerId)
-    .first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; created_at: string }>();
+  const c = await env.DB.prepare("SELECT id, name, email, pronouns, notes, created_at, no_email FROM customers WHERE id = ?1").bind(customerId)
+    .first<{ id: string; name: string; email: string; pronouns: string | null; notes: string | null; created_at: string; no_email: number }>();
   if (!c) throw new BookingError(404, "Student not found.");
   const bookings = await env.DB.prepare(
     `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id
@@ -518,6 +522,9 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
   ).bind(customerId).all<Record<string, any>>();
   return {
     id: c.id, name: c.name, email: c.email, pronouns: c.pronouns, notes: c.notes, since: c.created_at,
+    noEmail: !!c.no_email, nudges: await (await import("./nudges")).nudgeHistory(env, c.id),
+    lastStart: bookings.results.find((b) => b.status === "confirmed" && Date.parse(b.start_utc) <= now)?.start_utc ?? null,
+    upcoming: bookings.results.filter((b) => b.status === "confirmed" && Date.parse(b.end_utc) > now).length,
     sessions: bookings.results.map((b) => {
       const service = findService(b.service_id)!;
       return {
