@@ -247,6 +247,16 @@
     .sr-nudge { border-color: var(--a); background: var(--a); color: #fff; }
     .sr-nudge:hover { background: var(--a-dark); }
     .sr-nudge:disabled { border-color: var(--line); background: var(--bg1); color: var(--faint); opacity: 1; }
+    /* The "..." menu on a student's profile */
+    .menu-wrap { position: relative; display: inline-flex; }
+    .menu-btn { padding: 9px 12px; font-size: 1rem; line-height: 1; letter-spacing: .1em; }
+    .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; min-width: 176px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 12px 32px rgba(14, 17, 22, .18); }
+    .menu[hidden] { display: none; }
+    .menu-item { display: block; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: none; text-align: left; font: 600 .8125rem var(--body); color: var(--text); cursor: pointer; }
+    .menu-item:hover, .menu-item:focus-visible { background: var(--a-soft); outline: none; }
+    .menu-item.danger { color: var(--danger); }
+    .menu-item.danger:hover, .menu-item.danger:focus-visible { background: #fdecea; }
+    .menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }
     dialog h2 .chip { font-family: var(--body); font-size: .6875rem; letter-spacing: .04em; text-transform: none; }
     .warn-line.soft { background: var(--warn-bg); color: var(--warn); }
     .chip.unsub { margin-left: 6px; background: var(--warn-bg); color: var(--warn); font-weight: 700; white-space: nowrap; vertical-align: middle; }

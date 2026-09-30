@@ -2776,7 +2776,9 @@ test("unsubscribe: 60 days, and 'all' stops for good; a shorter choice afterward
 
   // You can turn it back on (they asked you to); it's admin only.
   assert.equal((await api.call("POST", `/api/admin/students/${id}/resubscribe`)).status, 403);
+  db.prepare("UPDATE customers SET no_email = 1 WHERE id = ?").run(id);
   assert.equal((await api.call("POST", `/api/admin/students/${id}/resubscribe`, { headers: asAdmin() })).status, 200);
+  assert.equal((db.prepare("SELECT no_email n FROM customers WHERE id = ?").get(id) as any).n, 0, "also clears the old don't-email flag");
   assert.equal((await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data.blocked, null);
   assert.equal((await sendDraft(id, "checkin", { force: true })).status, 200);
 });

@@ -121,9 +121,9 @@
         // The polite message for what's now in effect (which can be more than they just picked).
         function thanks(state) {
           if (state.forever) {
-            return { title: "You're unsubscribed", html: `You're all set, ${esc(state.firstName)}. I won't send you any more check-in emails. Thank you for letting me know, and I wish you all the best with your acting.` };
+            return { title: "All set", html: "You're unsubscribed.<br>I wish you all the best on your acting journey. Feel free to reach back out any time." };
           }
-          return { title: "Thanks, you're all set", html: `Got it, ${esc(state.firstName)}. I won't send you check-in emails until ${esc(date(state.until))}. Thank you for letting me know, and take care until then.` };
+          return { title: "All set", html: `You're unsubscribed until ${esc(date(state.until))}. Thank you for letting me know, and take care until then.` };
         }
 
         function renderChoose(state) {

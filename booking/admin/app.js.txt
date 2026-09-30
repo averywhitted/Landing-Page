@@ -571,6 +571,49 @@
     catch (err) { toast(err.message, true); b.disabled = false; }
   }
 
+  // The "..." button on a profile: the less common actions, in a small floating menu.
+  function moreMenu(s) {
+    const item = (label, attrs, tip, cls = "") => `<button type="button" role="menuitem" class="menu-item${cls ? ` ${cls}` : ""}" ${attrs} title="${esc(tip)}">${label}</button>`;
+    return `<span class="menu-wrap"><button type="button" class="btn menu-btn" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="More options" title="More options">&#8943;</button>
+      <div class="menu" role="menu" aria-label="More options for ${esc(s.name)}" hidden>
+        ${item("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns")}
+        ${item("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet")}
+        ${emailBlock(s) ? item("Turn emails back on", `data-resubscribe="${esc(s.id)}"`, "Only do this if they asked you to") : ""}
+        <div class="menu-sep" role="separator"></div>
+        ${item("Delete", `data-delete-student="${esc(s.id)}"`, "Permanently remove this student and their records from your booking system", "danger")}
+      </div></span>`;
+  }
+
+  // Opening, closing and keyboard use of those menus (one at a time).
+  const closeMenus = (refocus = false) => {
+    for (const m of document.querySelectorAll(".menu:not([hidden])")) {
+      m.hidden = true;
+      const b = m.parentElement.querySelector("[data-menu]");
+      b.setAttribute("aria-expanded", "false");
+      if (refocus) b.focus();
+    }
+  };
+  document.addEventListener("click", (e) => {
+    const toggle = e.target.closest("[data-menu]");
+    const wasOpen = toggle && toggle.getAttribute("aria-expanded") === "true";
+    closeMenus();
+    if (!toggle || wasOpen) return;
+    const menu = toggle.parentElement.querySelector(".menu");
+    menu.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
+    menu.querySelector(".menu-item").focus();
+  });
+  document.addEventListener("keydown", (e) => {
+    const menu = document.querySelector(".menu:not([hidden])");
+    if (!menu) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMenus(true); return; }
+    const items = [...menu.querySelectorAll(".menu-item")];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); items[(at + 1) % items.length].focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+    else if (e.key === "Tab") closeMenus();
+  }, true);
+
   // The profile's list of check-in emails: scheduled ones can be cancelled.
   function nudgeHistoryHtml(s) {
     if (!s.nudges.length) return '<p class="hint">Nothing sent or scheduled.</p>';
@@ -679,15 +722,12 @@
       <div class="sd-head">
         <div><h2 id="dlg-title">${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}${unsubChip(s)}</h2>
           <p><a href="mailto:${esc(s.email)}">${esc(s.email)}</a> &middot; since ${esc(shortDate(s.since))}</p></div>
-        <span class="seat-actions">${btn("Check-in email", `data-nudge="${esc(s.id)}"${emailBlock(s) ? " disabled" : ""}`, emailBlock(s) || "Send them a check-in email now, or schedule one", isQuiet(s) && !emailBlock(s) ? "primary" : "")}${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}</span>
+        <span class="seat-actions">${btn("Book a session", `data-book-student="${esc(s.id)}"`, "Book this student into a new session", "primary")}${btn("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions")}${btn("Check-in email", `data-nudge="${esc(s.id)}"${emailBlock(s) ? " disabled" : ""}`, emailBlock(s) || "Send them a check-in email now, or schedule one", isQuiet(s) && !emailBlock(s) ? "primary" : "")}${moreMenu(s)}</span>
       </div>
-      <div class="seat-actions" style="margin:10px 0 0">${btn("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns")}${btn("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet")}${btn("Delete", `data-delete-student="${esc(s.id)}"`, "Permanently remove this student and their records from your booking system", "danger")}</div>
       ${(s.paymentRequests || []).length ? `<h3>Payment requests</h3>${s.paymentRequests.map(requestRow).join("")}` : ""}
       ${owed ? `<div class="warn-line">Owes ${money(owed)} for upcoming sessions. ${btn("Send payment reminder", `data-remind-student="${esc(s.id)}"`, `Email ${firstName(s.name)} a reminder for everything they owe, with payment links`, "sm")}</div>` : ""}
       <h3>Emails</h3>
       ${nudgeHistoryHtml(s)}
-      ${s.unsub && Date.parse(s.unsub.until) > Date.now() ? `<div class="warn-line soft">${esc(emailBlock(s))} ${btn("Turn emails back on", `data-resubscribe="${esc(s.id)}"`, "Only do this if they asked you to", "sm")}</div>` : ""}
-      <label style="display:block;margin:10px 0"><input type="checkbox" id="no-email" ${s.noEmail ? "checked" : ""}> Don't send ${esc(firstName(s.name))} check-in emails <span class="hint" style="display:inline">(turns off the button and cancels any scheduled ones)</span></label>
       <h3>Your notes <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">(private; also added to their calendar events)</span></h3>
       <textarea class="notes" id="student-notes" maxlength="5000" placeholder="What you're working on together, things to remember...">${esc(s.notes || "")}</textarea>
       <p class="notes-status hint" aria-live="polite"></p>
@@ -705,12 +745,6 @@
     </div>
     <div class="row">${btn("Close", "data-close-student", "Close")}</div>`, "wide");
     $dlg.querySelector("[data-close-student]").addEventListener("click", () => $dlg.close());
-    const noEmail = $dlg.querySelector("#no-email");
-    noEmail.addEventListener("change", async () => {
-      noEmail.disabled = true;
-      try { await api("POST", `/api/admin/students/${encodeURIComponent(s.id)}/no-email`, { value: noEmail.checked }); students = null; await openStudent(s.id); load(); }
-      catch (err) { noEmail.checked = !noEmail.checked; noEmail.disabled = false; toast(err.message, true); }
-    });
     // Notes save on their own when you click away.
     const notes = $dlg.querySelector("#student-notes");
     const status = $dlg.querySelector(".notes-status");

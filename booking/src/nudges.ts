@@ -198,10 +198,10 @@ export async function adminSetNoEmail(env: Env, customerId: string, value: unkno
   return { ok: true, noEmail: on };
 }
 
-// Avery turns check-in emails back on after the student paused or unsubscribed (they asked her to, say).
+// Avery turns check-in emails back on after the student paused or unsubscribed (they asked her to, say). Clears her own "don't email" flag too.
 export async function adminResubscribe(env: Env, customerId: string) {
   const s = await loadStudent(env, customerId);
-  await env.DB.prepare("UPDATE customers SET email_paused_until = NULL, email_paused_at = NULL WHERE id = ?1").bind(s.id).run();
+  await env.DB.prepare("UPDATE customers SET email_paused_until = NULL, email_paused_at = NULL, no_email = 0 WHERE id = ?1").bind(s.id).run();
   return { ok: true };
 }
 
