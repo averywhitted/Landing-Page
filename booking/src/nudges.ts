@@ -85,36 +85,45 @@ export async function adminNudgeInfo(env: Env, customerId: string, now: number) 
 
 /* ── Building the email ── */
 
-type Draft = { kind: T.NudgeKind; subject: string; body: string; button: boolean };
+// What Avery approved: the template it started from (which decides the button) and the exact subject and words.
+type Draft = { kind: T.NudgeKind; subject: string; body: string };
 
-function readDraft(raw: Record<string, unknown>): Draft {
+function readKind(raw: Record<string, unknown>): T.NudgeKind {
   const kind = raw.template as T.NudgeKind;
   if (!KINDS.includes(kind)) throw new BookingError(400, "Pick an email to send.");
-  if (kind !== "custom") return { kind, subject: "", body: "", button: true };
+  return kind;
+}
+
+function readDraft(raw: Record<string, unknown>): Draft {
+  const kind = readKind(raw);
   const subject = clean(raw.subject, 150);
   const body = clean(raw.body, 5000, true);
   if (!subject) throw new BookingError(400, "Please write a subject.");
   if (!body) throw new BookingError(400, "Please write the email.");
-  return { kind, subject, body, button: raw.button !== false };
+  return { kind, subject, body };
+}
+
+async function creditsInfo(env: Env, s: Student, now: number): Promise<T.NudgeCredits | undefined> {
+  const c = await creditsFor(env, s.id, now);
+  return c ? { n: c.n, until: c.until, several: c.several, url: await packageUrl(env, c.packageId) } : undefined;
 }
 
 async function build(env: Env, s: Student, d: Draft, now: number) {
-  let credits: T.NudgeInput["credits"];
-  if (d.kind === "credits") {
-    const c = await creditsFor(env, s.id, now);
-    if (!c) throw new BookingError(409, `${firstOf(s.name)} doesn't have any unused bundle sessions.`);
-    credits = { n: c.n, until: c.until, several: c.several, url: await packageUrl(env, c.packageId) };
-  }
+  const credits = d.kind === "credits" ? await creditsInfo(env, s, now) : undefined;
+  if (d.kind === "credits" && !credits) throw new BookingError(409, `${firstOf(s.name)} doesn't have any unused bundle sessions.`);
   return T.studentNudge({
     kind: d.kind, name: s.name, email: s.email, bookUrl: `${env.SITE_URL}/book/`, introUrl: `${env.SITE_URL}/book/?service=intro-15`,
-    credits, subject: d.subject, body: d.body, button: d.button,
+    credits, subject: d.subject, body: d.body,
   });
 }
 
-export async function adminNudgePreview(env: Env, customerId: string, raw: Record<string, unknown>, now: number) {
+// The starting text for a template, filled in for this student. It's put in editable boxes.
+export async function adminNudgeDraft(env: Env, customerId: string, raw: Record<string, unknown>, now: number) {
   const s = await loadStudent(env, customerId);
-  const email = await build(env, s, readDraft(raw), now);
-  return { to: email.to, subject: email.subject, text: email.text };
+  const kind = readKind(raw);
+  const credits = kind === "credits" ? await creditsInfo(env, s, now) : undefined;
+  if (kind === "credits" && !credits) throw new BookingError(409, `${firstOf(s.name)} doesn't have any unused bundle sessions.`);
+  return T.nudgeDraft(kind, s.name, credits);
 }
 
 /* ── Send now, or schedule ── */
@@ -140,8 +149,8 @@ export async function adminSendNudge(env: Env, customerId: string, raw: Record<s
 
   const id = crypto.randomUUID();
   const insert = (status: string, sentAt: number | null) => env.DB.prepare(
-    `INSERT INTO nudge_emails (id, customer_id, template, subject, body, button, send_at, status, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-  ).bind(id, s.id, d.kind, d.subject || null, d.body || null, d.button ? 1 : 0, iso(sendAt), status, sentAt ? iso(sentAt) : null).run();
+    `INSERT INTO nudge_emails (id, customer_id, template, subject, body, send_at, status, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+  ).bind(id, s.id, d.kind, d.subject, d.body, iso(sendAt), status, sentAt ? iso(sentAt) : null).run();
   if (scheduled) {
     await insert("scheduled", null);
     return { ok: true, scheduled: true, sendAt: iso(sendAt), message: `Scheduled for ${new Intl.DateTimeFormat("en-US", { timeZone: RULES.timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(sendAt)}.` };
@@ -174,7 +183,7 @@ export async function nudgeHistory(env: Env, customerId: string) {
     "SELECT id, template, subject, send_at, status, note, sent_at FROM nudge_emails WHERE customer_id = ?1 ORDER BY send_at DESC LIMIT 10",
   ).bind(customerId).all<{ id: string; template: T.NudgeKind; subject: string | null; send_at: string; status: string; note: string | null; sent_at: string | null }>()).results;
   return rows.map((r) => ({
-    id: r.id, label: T.NUDGE_LABELS[r.template], subject: r.template === "custom" ? r.subject : null,
+    id: r.id, label: T.NUDGE_LABELS[r.template], subject: r.subject,
     sendAt: r.send_at, status: r.status === "sending" ? "scheduled" : r.status, note: r.note, sentAt: r.status === "sent" ? r.sent_at : null,
   }));
 }
@@ -196,15 +205,15 @@ export async function sendScheduledNudges(env: Env, now: number): Promise<number
     const settle = (status: string, note: string | null, sentAt: number | null = null) =>
       env.DB.prepare("UPDATE nudge_emails SET status = ?1, note = ?2, sent_at = ?3 WHERE id = ?4").bind(status, note, sentAt ? iso(sentAt) : null, id).run();
     try {
-      const n = (await env.DB.prepare("SELECT customer_id, template, subject, body, button, created_at, attempts FROM nudge_emails WHERE id = ?1").bind(id)
-        .first<{ customer_id: string; template: T.NudgeKind; subject: string | null; body: string | null; button: number; created_at: string; attempts: number }>())!;
+      const n = (await env.DB.prepare("SELECT customer_id, template, subject, body, created_at FROM nudge_emails WHERE id = ?1").bind(id)
+        .first<{ customer_id: string; template: T.NudgeKind; subject: string; body: string; created_at: string }>())!;
       const s = await loadStudent(env, n.customer_id);
       const f = await facts(env, s, now);
       const booked = await env.DB.prepare("SELECT 1 AS x FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND created_at > ?2 LIMIT 1").bind(s.id, n.created_at).first();
       if (s.no_email) { await settle("skipped", "Marked \"don't email\"."); continue; }
       if (f.upcoming || booked) { await settle("skipped", "They have a session booked."); continue; }
       let email;
-      try { email = await build(env, s, { kind: n.template, subject: n.subject ?? "", body: n.body ?? "", button: !!n.button }, now); }
+      try { email = await build(env, s, { kind: n.template, subject: n.subject, body: n.body }, now); }
       catch (err) { if (err instanceof BookingError) { await settle("skipped", err.message); continue; } throw err; }
       if (await sendEmail(env, "student_nudge", null, email)) { await settle("sent", null, now); sent++; continue; }
       throw new Error("The email couldn't be sent.");

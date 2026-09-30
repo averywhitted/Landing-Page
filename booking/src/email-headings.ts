@@ -27,6 +27,11 @@ import sessionSkipped from "../assets/headings/session-skipped.png";
 import repeatsStopped from "../assets/headings/repeats-stopped.png";
 import issueResolved from "../assets/headings/issue-resolved.png";
 import passwordUpdated from "../assets/headings/password-updated.png";
+import checkingIn from "../assets/headings/checking-in.png";
+import anythingComingUp from "../assets/headings/anything-coming-up.png";
+import letsCatchUp from "../assets/headings/lets-catch-up.png";
+import sessionsWaiting from "../assets/headings/sessions-waiting.png";
+import aNoteFromAvery from "../assets/headings/a-note-from-avery.png";
 
 export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number }> = {
   "You're booked": { file: "youre-booked.png", w: 316, h: 23 },
@@ -54,6 +59,11 @@ export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number
   "Repeats stopped": { file: "repeats-stopped.png", w: 374, h: 23 },
   "Issue resolved": { file: "issue-resolved.png", w: 326, h: 23 },
   "Password updated": { file: "password-updated.png", w: 417, h: 23 },
+  "Checking in": { file: "checking-in.png", w: 262, h: 23 },
+  "Anything coming up?": { file: "anything-coming-up.png", w: 468, h: 23 },
+  "Let's catch up": { file: "lets-catch-up.png", w: 302, h: 23 },
+  "Sessions waiting": { file: "sessions-waiting.png", w: 373, h: 23 },
+  "A note from Avery": { file: "a-note-from-avery.png", w: 409, h: 23 },
 };
 
 // Image bytes by file name, served at /email/h/<file>.
@@ -83,4 +93,9 @@ export const HEADING_BYTES: Record<string, ArrayBuffer> = {
   "repeats-stopped.png": repeatsStopped,
   "issue-resolved.png": issueResolved,
   "password-updated.png": passwordUpdated,
+  "checking-in.png": checkingIn,
+  "anything-coming-up.png": anythingComingUp,
+  "lets-catch-up.png": letsCatchUp,
+  "sessions-waiting.png": sessionsWaiting,
+  "a-note-from-avery.png": aNoteFromAvery,
 };

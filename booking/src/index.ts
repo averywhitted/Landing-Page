@@ -463,8 +463,8 @@ app.get("/api/admin/students/:id/nudge", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
-app.post("/api/admin/students/:id/nudge/preview", async (c) => {
-  try { const { adminNudgePreview } = await import("./nudges"); return c.json(await adminNudgePreview(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
+app.post("/api/admin/students/:id/nudge/draft", async (c) => {
+  try { const { adminNudgeDraft } = await import("./nudges"); return c.json(await adminNudgeDraft(c.env, c.req.param("id"), await jsonBody(c), Date.now())); }
   catch (err) { return bookingErrorResponse(c, err); }
 });
 

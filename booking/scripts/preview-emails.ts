@@ -116,13 +116,14 @@ const groups: [string, Entry[]][] = [
   ["Check-in emails (sent from a student's profile)", (() => {
     const base = { name: "Jamie Rivera", email: "jamie@example.com", bookUrl: book, introUrl: `${book.split("?")[0]}?service=intro-15` };
     const credits = { n: 2, until: start + 30 * D, url: bundlePage, several: false };
+    const make = (kind: T.NudgeKind, cr?: typeof credits) => T.studentNudge({ ...base, kind, credits: cr, ...T.nudgeDraft(kind, base.name, cr) });
     return [
-      { who: "Student", title: "Gentle check-in", when: "You send it (or schedule it) to someone quiet for a while.", email: T.studentNudge({ ...base, kind: "checkin" }) },
-      { who: "Student", title: "Something coming up?", when: "You send it (or schedule it).", email: T.studentNudge({ ...base, kind: "coming_up" }) },
-      { who: "Student", title: "Free intro chat", when: "You send it, usually after 120+ days.", email: T.studentNudge({ ...base, kind: "intro" }) },
-      { who: "Student", title: "Unused credits", when: "You send it to someone with bundle sessions left.", email: T.studentNudge({ ...base, kind: "credits", credits }) },
-      { who: "Student", title: "Unused credits (several bundles)", when: "Same, if they have more than one bundle.", email: T.studentNudge({ ...base, kind: "credits", credits: { ...credits, n: 3, several: true } }) },
-      { who: "Student", title: "Written by you", when: "You write your own.", email: T.studentNudge({ ...base, kind: "custom", subject: "Pilot season", body: "Hi Jamie,\n\nPilot season is close and I have a few evenings open.\nLet me know.\n\nBest,\nAvery" }) },
+      { who: "Student", title: "Gentle check-in", when: "You send it (or schedule it) to someone quiet for a while. You can edit it first.", email: make("checkin") },
+      { who: "Student", title: "Something coming up?", when: "Same.", email: make("coming_up") },
+      { who: "Student", title: "Free intro chat", when: "Same; suggested after 120+ days.", email: make("intro") },
+      { who: "Student", title: "Unused credits", when: "Same; suggested when they have bundle sessions left.", email: make("credits", credits) },
+      { who: "Student", title: "Unused credits (several bundles)", when: "Same, if they have more than one bundle.", email: make("credits", { ...credits, n: 3, several: true }) },
+      { who: "Student", title: "Written by you", when: "You write your own from scratch.", email: T.studentNudge({ ...base, kind: "custom", subject: "Pilot season", body: "Hi Jamie,\n\nPilot season is close and I have a few evenings open. {button}\n\nBest,\nAvery" }) },
     ] as Entry[];
   })()],
   ["To you: system alerts", [

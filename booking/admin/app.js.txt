@@ -460,17 +460,13 @@
   const quietDays = (s) => Math.floor((Date.now() - Date.parse(s.lastStart || s.since)) / 86400000);
   const isQuiet = (s) => !s.upcoming && quietDays(s) >= 60;
 
-  // "Check in" once it's been 60+ days; otherwise just a small envelope that shows on hover.
+  // Only shown once it's been 60+ days (nothing in the list before then; use their profile).
   function nudgeButton(s) {
+    if (s.noEmail || !isQuiet(s)) return "";
     const first = firstName(s.name);
-    if (s.noEmail) return `<button type="button" class="btn sm sr-nudge quiet" disabled title="${esc(first)} is marked don't email" aria-label="${esc(first)} is marked don't email">&#9993;</button>`;
     const state = s.nudgeAt ? ` An email to ${first} is already scheduled.` : s.lastNudgeAt ? ` You last emailed ${first} on ${shortDate(s.lastNudgeAt)}.` : "";
-    if (isQuiet(s)) {
-      const tip = `${first} hasn't had a session in ${quietDays(s)} days. Send a check-in email.${state}`;
-      return `<button type="button" class="btn sm sr-nudge due" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">${s.nudgeAt ? "Scheduled" : "Check in"}</button>`;
-    }
-    const tip = `Send ${first} an email.${state}`;
-    return `<button type="button" class="btn sm sr-nudge quiet" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">&#9993;</button>`;
+    const tip = `${first} hasn't had a session in ${quietDays(s)} days. Send a check-in email.${state}`;
+    return `<button type="button" class="btn sm sr-nudge" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">${s.nudgeAt ? "Scheduled" : "Check in"}</button>`;
   }
 
   function renderStudents() {
@@ -566,9 +562,12 @@
 
   // Send a check-in email now, or schedule one.
   async function openNudge(id) {
-    let info;
-    try { info = await api("GET", `/api/admin/students/${encodeURIComponent(id)}/nudge`); }
-    catch (err) { toast(err.message, true); return; }
+    const draftFor = (template) => api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge/draft`, { template });
+    let info, draft;
+    try {
+      info = await api("GET", `/api/admin/students/${encodeURIComponent(id)}/nudge`);
+      draft = await draftFor(info.suggested);
+    } catch (err) { toast(err.message, true); return; }
     const first = firstName(info.name);
     if (info.noEmail) { toast(`${first} is marked don't email. Untick that on their profile first.`, true); return; }
     const tomorrow = nyParts(new Date(Date.now() + 86400000).toISOString());
@@ -576,42 +575,32 @@
       <h2 id="dlg-title">Email ${esc(first)}</h2>
       <p>${esc(info.email)} &middot; ${info.upcoming ? "has a session coming up" : `last session ${info.days} day${info.days === 1 ? "" : "s"} ago`}</p>
       ${info.warnings.length ? `<div class="nudge-note">${info.warnings.map(esc).join("<br>")}</div>` : ""}
-      <label class="field">Which email<select name="template">${info.templates.map((t) => `<option value="${esc(t.kind)}"${t.kind === info.suggested ? " selected" : ""}>${esc(t.label)}${t.kind === info.suggested ? " (suggested)" : ""}${t.kind === "credits" ? ` (${info.credits.n} left)` : ""}</option>`).join("")}</select></label>
-      <div id="nudge-custom" hidden>
-        <label class="field">Subject<input type="text" name="subject" maxlength="150"></label>
-        <label class="field">Message<textarea name="body" rows="7" maxlength="5000">Hi {first name},\n\n\n\nBest,\nAvery</textarea></label>
-        <label><input type="checkbox" name="button" checked> Include a "Book a session" button</label>
-        <p class="hint">{first name} is replaced with ${esc(first)}'s first name.</p>
-      </div>
-      <div class="nudge-preview" id="nudge-preview" aria-live="polite">Loading preview...</div>
+      <label class="field">Start from<select name="template">${info.templates.map((t) => `<option value="${esc(t.kind)}"${t.kind === info.suggested ? " selected" : ""}>${esc(t.label)}${t.kind === info.suggested && t.kind !== "custom" ? " (suggested)" : ""}${t.kind === "credits" ? ` (${info.credits.n} left)` : ""}</option>`).join("")}</select></label>
+      <label class="field">Subject<input type="text" name="subject" maxlength="150" value="${esc(draft.subject)}" required></label>
+      <label class="field">Message<textarea name="body" rows="9" maxlength="5000" required>${esc(draft.body)}</textarea></label>
+      <p class="hint">Change anything you like. <strong>{button}</strong> is where the button goes (delete it for no button). The line about replying to stop is added at the bottom.</p>
       <p class="hint" style="margin-bottom:0">Or schedule it (${esc(TZ.replace("_", " ").split("/").pop())} time). It's checked again when it goes out and skipped if they've booked by then.</p>
       <div class="nudge-when"><label>Date<input type="date" name="date" value="${esc(tomorrow.date)}" min="${esc(nyParts(new Date().toISOString()).date)}"></label>
         <label>Time<input type="time" name="time" value="10:00"></label></div>
       <div class="row">${cancelButton()}<button type="button" class="btn" id="nudge-schedule">Schedule send</button><button type="submit" class="btn primary">Send now</button></div>`, () => go(false));
-    const custom = form.querySelector("#nudge-custom");
-    const preview = form.querySelector("#nudge-preview");
-    const draft = () => ({ template: form.template.value, subject: form.subject.value, body: form.body.value, button: form.button.checked });
-    let timer = 0, seq = 0;
-    const refresh = () => {
-      custom.hidden = form.template.value !== "custom";
-      const mine = ++seq;
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try {
-          const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge/preview`, draft());
-          if (mine === seq) preview.innerHTML = `<strong>${esc(r.subject)}</strong>${esc(r.text)}`;
-        } catch (err) { if (mine === seq) preview.textContent = err.message; }
-      }, form.template.value === "custom" ? 350 : 0);
-    };
-    form.addEventListener("input", refresh);
-    refresh();
+    // Picking another template replaces the text, after checking before losing edits.
+    let shown = form.template.value, edited = false;
+    form.subject.addEventListener("input", () => { edited = true; });
+    form.body.addEventListener("input", () => { edited = true; });
+    form.template.addEventListener("change", async () => {
+      const next = form.template.value;
+      if (edited && !confirm("Replace what you've written with this template?")) { form.template.value = shown; return; }
+      try { const d = await draftFor(next); form.subject.value = d.subject; form.body.value = d.body; shown = next; edited = false; }
+      catch (err) { form.template.value = shown; toast(err.message, true); }
+    });
     const go = async (schedule) => {
       const buttons = [...form.querySelectorAll("button")];
+      if (!form.subject.value.trim() || !form.body.value.trim()) throw new Error("Please fill in the subject and message.");
       if (schedule && !(form.date.value && form.time.value)) throw new Error("Pick a date and time to send.");
       if (info.warnings.length && !confirm(`${info.warnings.join("\n")}\n\n${schedule ? "Schedule it anyway?" : "Send anyway?"}`)) { form.querySelector("[type=submit]").disabled = false; return; }
       buttons.forEach((b) => { b.disabled = true; });
       try {
-        const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge`, { ...draft(), force: true, ...(schedule ? { sendDate: form.date.value, sendTime: form.time.value } : {}) });
+        const r = await api("POST", `/api/admin/students/${encodeURIComponent(id)}/nudge`, { template: form.template.value, subject: form.subject.value, body: form.body.value, force: true, ...(schedule ? { sendDate: form.date.value, sendTime: form.time.value } : {}) });
         students = null;
         await afterAction(r.message);
       } catch (err) { buttons.forEach((b) => { b.disabled = false; }); throw err; }

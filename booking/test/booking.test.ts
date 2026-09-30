@@ -2471,28 +2471,36 @@ async function quietStudent(name = "Riley Park", email = "riley@example.com", da
 const nudge = (id: string, body: Record<string, unknown>) => api.call("POST", `/api/admin/students/${id}/nudge`, { headers: asAdmin(), body });
 const nudgeRows = (id: string) => db.prepare("SELECT * FROM nudge_emails WHERE customer_id = ? ORDER BY created_at").all(id) as any[];
 
-test("check-in emails: the four templates, with the right link and no email-dash", async () => {
+const draft = async (id: string, template: string) => (await api.call("POST", `/api/admin/students/${id}/nudge/draft`, { headers: asAdmin(), body: { template } })).data as { subject: string; body: string };
+// Sends a template's own draft, as the dialog does when nothing is edited.
+const sendDraft = async (id: string, template: string, extra: Record<string, unknown> = {}) => nudge(id, { template, ...(await draft(id, template)), ...extra });
+
+test("check-in emails: the four templates start as editable drafts, with the right link and no email-dash", async () => {
   adminEnv();
   const id = await quietStudent();
   const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
   assert.equal(info.suggested, "checkin");
   assert.deepEqual(info.templates.map((t: any) => t.kind), ["checkin", "coming_up", "intro", "custom"], "no credits template without credits");
   assert.equal(info.warnings.length, 0);
-  assert.equal((await nudge(id, { template: "credits" })).status, 409, "no bundle sessions to mention");
-  assert.equal((await nudge(id, { template: "bogus" })).status, 400);
+  assert.equal((await api.call("POST", `/api/admin/students/${id}/nudge/draft`, { headers: asAdmin(), body: { template: "credits" } })).status, 409, "no bundle sessions to mention");
+  assert.equal((await api.call("POST", `/api/admin/students/${id}/nudge/draft`, { headers: asAdmin(), body: { template: "bogus" } })).status, 400);
+  assert.equal(world.state.emails.length, 0, "getting a draft sends nothing");
 
+  const d = await draft(id, "checkin");
+  assert.equal(d.subject, "Checking in");
+  assert.match(d.body, /^Hi Riley, it's been a little while since our last session/);
+  assert.match(d.body, /\n\n\{button\}\n\nHope you're well\.\nAvery$/);
   const sent = async (template: string) => {
-    const r = await nudge(id, { template, force: true });
+    const r = await sendDraft(id, template, { force: true });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     return world.state.emails.at(-1)!;
   };
   const a = await sent("checkin");
   assert.equal(a.subject, "Checking in");
   assert.deepEqual(a.to, ["riley@example.com"]);
-  assert.match(a.text, /^Hi Riley, it's been a little while since our last session/);
-  assert.match(a.text, /Book a session: https:\/\/[^\s]+\/book\/\n/);
-  assert.match(a.text, /Hope you're well\.\nAvery/);
+  assert.match(a.text, /You can grab a time here:\n\nBook a session: https:\/\/[^\s]+\/book\/\n\nHope you're well\.\nAvery/);
   assert.match(a.text, /reply and I'll stop checking in/);
+  assert.match(a.html, /checking-in\.png/, "heading is the drawn image");
   assert.equal((await sent("coming_up")).subject, "Anything coming up?");
   const intro = await sent("intro");
   assert.equal(intro.subject, "Let's catch up");
@@ -2500,6 +2508,28 @@ test("check-in emails: the four templates, with the right link and no email-dash
   assert.match(intro.text, /\/book\/\?service=intro-15/);
   for (const e of world.state.emails) { assert.ok(noEmDash(e.text) && noEmDash(e.html) && noEmDash(e.subject)); }
   assert.equal(nudgeRows(id).filter((n) => n.status === "sent").length, 3);
+});
+
+test("check-in emails: edits to a template are what's sent", async () => {
+  adminEnv();
+  const id = await quietStudent();
+  const d = await draft(id, "coming_up");
+  const r = await nudge(id, { template: "coming_up", subject: "Pilot season?", body: d.body.replace("openings this week and next", "openings all week"), force: true });
+  assert.equal(r.status, 200);
+  const e = world.state.emails.at(-1)!;
+  assert.equal(e.subject, "Pilot season?");
+  assert.match(e.text, /I have openings all week\./);
+  assert.doesNotMatch(e.text, /this week and next/);
+  assert.match(e.text, /Book a session: /, "still has its button");
+  assert.match(e.html, /anything-coming-up\.png/);
+  // Take {button} out and there's no button.
+  await nudge(id, { template: "checkin", subject: "Hey", body: "Hi Riley, just saying hello.\n\nAvery", force: true });
+  assert.doesNotMatch(world.state.emails.at(-1)!.text, /Book a session:/);
+  // Edits survive scheduling.
+  await nudge(id, { template: "intro", subject: "Custom subject", body: "Hello there {button}", force: true, sendDate: etDate(Date.now() + 2 * DAY), sendTime: "09:00" });
+  const row = nudgeRows(id).find((n) => n.status === "scheduled")!;
+  assert.equal(row.subject, "Custom subject");
+  assert.equal(row.body, "Hello there {button}");
 });
 
 test("check-in emails: 120+ days suggests the intro chat; unused bundle sessions suggest (and fill in) the credits email", async () => {
@@ -2514,27 +2544,30 @@ test("check-in emails: 120+ days suggests the intro chat; unused bundle sessions
   assert.equal(info.suggested, "credits");
   assert.equal(info.credits.n, 4);
   assert.ok(info.templates.some((t: any) => t.kind === "credits"));
-  const preview = await api.call("POST", `/api/admin/students/${jamie}/nudge/preview`, { headers: asAdmin(), body: { template: "credits" } });
-  assert.equal(preview.data.subject, "You still have 4 prepaid sessions");
-  assert.equal(world.state.emails.length, 0, "a preview sends nothing");
-  assert.equal((await nudge(jamie, { template: "credits" })).status, 200);
+  const d = await draft(jamie, "credits");
+  assert.equal(d.subject, "You still have 4 prepaid sessions");
+  assert.match(d.body, /you still have 4 sessions left in your bundle that are good through \w+day, \w+ \d+\. Book one here, whenever you have a chance:\n\n\{button\}\n\nBest,\nAvery/);
+  assert.equal(world.state.emails.length, 0, "a draft sends nothing");
+  assert.equal((await nudge(jamie, { template: "credits", ...d })).status, 200);
   const e = world.state.emails.at(-1)!;
-  assert.match(e.text, /you still have 4 sessions left in your bundle that are good through \w+day, \w+ \d+\. Book one here, whenever you have a chance:/);
   assert.match(e.text, /book\/package\/\?p=[0-9a-f-]{36}&t=[\w-]{32}/);
   assert.match(e.text, /Best,\nAvery/);
+  assert.match(e.html, /sessions-waiting\.png/);
 });
 
-test("check-in emails: write your own, with {first name} filled in and the button optional", async () => {
+test("check-in emails: write your own, with {first name} filled in and a subject and message required", async () => {
   adminEnv();
   const id = await quietStudent();
   assert.equal((await nudge(id, { template: "custom", subject: "", body: "Hi" })).status, 400);
   assert.equal((await nudge(id, { template: "custom", subject: "Hello", body: "" })).status, 400);
-  assert.equal((await nudge(id, { template: "custom", subject: "Hey {first name}", body: "Hi {first name},\n\nPilot season is close.\nBest,\nAvery", button: false })).status, 200);
+  assert.equal((await nudge(id, { template: "checkin", subject: "Hello" })).status, 400, "a template still needs its text");
+  assert.equal((await nudge(id, { template: "custom", subject: "Hey {first name}", body: "Hi {first name},\n\nPilot season is close.\nBest,\nAvery" })).status, 200);
   const e = world.state.emails.at(-1)!;
   assert.equal(e.subject, "Hey Riley");
   assert.match(e.text, /Hi Riley,\n\nPilot season is close\.\nBest,\nAvery/);
   assert.doesNotMatch(e.text, /Book a session:/);
   assert.match(e.html, /Pilot season is close\.<br>Best,<br>Avery/);
+  assert.match(e.html, /a-note-from-avery\.png/);
   assert.equal((await nudge(id, { template: "custom", subject: "Again", body: "<b>Hi</b>", force: true })).status, 200);
   assert.match(world.state.emails.at(-1)!.html, /&lt;b&gt;Hi&lt;\/b&gt;/, "their text is escaped");
 });
@@ -2542,11 +2575,11 @@ test("check-in emails: write your own, with {first name} filled in and the butto
 test("check-in emails: warnings need confirming (upcoming session, recent email, under 60 days), and don't-email blocks", async () => {
   adminEnv();
   const id = await quietStudent();
-  assert.equal((await nudge(id, { template: "checkin" })).status, 200);
-  const again = await nudge(id, { template: "checkin" });
+  assert.equal((await sendDraft(id, "checkin")).status, 200);
+  const again = await sendDraft(id, "checkin");
   assert.equal(again.status, 409);
   assert.match(again.data.error, /You emailed Riley on/);
-  assert.equal((await nudge(id, { template: "checkin", force: true })).status, 200);
+  assert.equal((await sendDraft(id, "checkin", { force: true })).status, 200);
 
   await adminBook({ students: [student("Riley Park", "riley@example.com", { priceCents: 0 })] });
   const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
@@ -2557,7 +2590,7 @@ test("check-in emails: warnings need confirming (upcoming session, recent email,
 
   const off = await api.call("POST", `/api/admin/students/${fresh}/no-email`, { headers: asAdmin(), body: { value: true } });
   assert.equal(off.status, 200);
-  const blocked = await nudge(fresh, { template: "checkin", force: true });
+  const blocked = await sendDraft(fresh, "checkin", { force: true });
   assert.equal(blocked.status, 409);
   assert.match(blocked.data.error, /don't email/);
   const list = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
@@ -2568,9 +2601,9 @@ test("scheduled check-in emails: wait for their time, then send; can be cancelle
   adminEnv();
   const id = await quietStudent();
   const at = (days: number) => ({ sendDate: etDate(Date.now() + days * DAY), sendTime: "10:00" });
-  assert.equal((await nudge(id, { template: "checkin", sendDate: etDate(Date.now() - 2 * DAY), sendTime: "10:00" })).status, 400, "not in the past");
-  assert.equal((await nudge(id, { template: "checkin", sendDate: "nope", sendTime: "10:00" })).status, 400);
-  const r = await nudge(id, { template: "checkin", ...at(2) });
+  assert.equal((await sendDraft(id, "checkin", { sendDate: etDate(Date.now() - 2 * DAY), sendTime: "10:00" })).status, 400, "not in the past");
+  assert.equal((await sendDraft(id, "checkin", { sendDate: "nope", sendTime: "10:00" })).status, 400);
+  const r = await sendDraft(id, "checkin", { ...at(2) });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.scheduled, true);
   assert.match(r.data.message, /^Scheduled for /);
@@ -2591,7 +2624,7 @@ test("scheduled check-in emails: wait for their time, then send; can be cancelle
   assert.equal(world.state.emails.filter((e) => e.subject === "Checking in").length, 1, "only once");
 
   // Cancelled ones never go out.
-  const r2 = await nudge(id, { template: "intro", force: true, ...at(3) });
+  const r2 = await sendDraft(id, "intro", { force: true, ...at(3) });
   const n2 = nudgeRows(id).find((n) => n.status === "scheduled")!;
   assert.equal((await api.call("POST", `/api/admin/nudges/${n2.id}/cancel`, { headers: asAdmin() })).status, 200);
   assert.equal((await api.call("POST", `/api/admin/nudges/${n2.id}/cancel`, { headers: asAdmin() })).status, 409, "only once");
@@ -2601,7 +2634,7 @@ test("scheduled check-in emails: wait for their time, then send; can be cancelle
 
   // Booked in the meantime: skipped, with the reason on record.
   assert.equal(r2.status, 200);
-  await nudge(id, { template: "coming_up", force: true, ...at(5) });
+  await sendDraft(id, "coming_up", { force: true, ...at(5) });
   await adminBook({ students: [student("Riley Park", "riley@example.com", { priceCents: 0 })] });
   const n3 = nudgeRows(id).find((n) => n.status === "scheduled")!;
   db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n3.id);
@@ -2615,12 +2648,12 @@ test("scheduled check-in emails: wait for their time, then send; can be cancelle
 test("scheduled check-in emails: marking don't-email cancels them; a failed send is retried", async () => {
   adminEnv();
   const id = await quietStudent();
-  await nudge(id, { template: "checkin", sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  await sendDraft(id, "checkin", { sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
   await api.call("POST", `/api/admin/students/${id}/no-email`, { headers: asAdmin(), body: { value: true } });
   assert.equal(nudgeRows(id)[0].status, "cancelled");
   await api.call("POST", `/api/admin/students/${id}/no-email`, { headers: asAdmin(), body: { value: false } });
 
-  await nudge(id, { template: "checkin", force: true, sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  await sendDraft(id, "checkin", { force: true, sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
   const n = nudgeRows(id).find((x) => x.status === "scheduled")!;
   db.prepare("UPDATE nudge_emails SET send_at = ? WHERE id = ?").run(new Date(Date.now() - 60000).toISOString(), n.id);
   world.state.resendFailNext = 1;
@@ -2637,8 +2670,8 @@ test("check-in emails: deleting or merging a student takes their history along; 
   adminEnv();
   const a = await quietStudent("Sam One", "sam1@example.com");
   const b = await quietStudent("Sam Two", "sam2@example.com");
-  await nudge(a, { template: "checkin" });
-  await nudge(b, { template: "checkin" });
+  await sendDraft(a, "checkin");
+  await sendDraft(b, "checkin");
   assert.equal((await api.call("GET", `/api/admin/students/${a}/nudge`)).status, 403);
   assert.equal((await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: a, mergeIds: [b] } })).status, 200);
   assert.equal(nudgeRows(a).length, 2, "both histories on the kept student");
