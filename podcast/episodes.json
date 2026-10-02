@@ -104,6 +104,37 @@
           "url": "https://secure.masongross.rutgers.edu/25329/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 4,
+      "slug": "mike-donovan",
+      "title": "Mike Donovan: Own the Room",
+      "guest": "Mike Donovan",
+      "headline": "Own the Room",
+      "guid": "e9b27bba-ddeb-4a2f-bff5-122775b90946",
+      "published": "2026-10-02T04:00:00Z",
+      "duration_seconds": 2704,
+      "apple_episode_id": "1000792692524",
+      "apple_episode_slug": "mike-donovan-own-the-room",
+      "summary": "Actor and writer Mike Donovan (Cloak & Dagger, This is the Night, The Noel Diary) talks about stepping back, breathing, and relaxing into the daily practice of being an actor. He breaks down how to \"do less\" on camera, the pressure of being a leading man type, and tells the story of a particularly messy commercial audition.",
+      "meta_description": "Actor and writer Mike Donovan (Cloak & Dagger, This is the Night, The Noel Diary) talks about stepping back, breathing, and... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Mike on Instagram",
+          "text": "@michaelvincentdonovan",
+          "url": "https://www.instagram.com/michaelvincentdonovan/"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted/"
+        },
+        {
+          "text": "Broom Play tickets",
+          "url": "https://www.broomplay.com/"
+        }
+      ]
     }
   ]
 }
