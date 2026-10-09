@@ -135,6 +135,33 @@
           "url": "https://www.broomplay.com/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 5,
+      "slug": "tyler-fauntleroy",
+      "title": "Tyler Fauntleroy: Catching the Loose Ball",
+      "guest": "Tyler Fauntleroy",
+      "headline": "Catching the Loose Ball",
+      "guid": "627abef7-4b69-4998-a467-6d3d1ec56ad4",
+      "published": "2026-10-09T04:00:00Z",
+      "duration_seconds": 4017,
+      "apple_episode_id": "1000793986669",
+      "apple_episode_slug": "tyler-fauntleroy-catching-the-loose-ball",
+      "summary": "Tyler Fauntleroy (Hamilton national tour, Tambo & Bones, Succession, and a whole lot more) talks about auditioning for Hamilton 20+ times over seven years, what kept him going back, and what happens when you finally catch the loose ball. Plus, the worst audition he ever had, featuring a plate of very, very thin roast beef.",
+      "meta_description": "Tyler Fauntleroy (Hamilton national tour, Tambo & Bones, Succession, and a whole lot more) talks about auditioning for Hamilton... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Tyler on Instagram",
+          "text": "@earthwindandtyler_",
+          "url": "https://www.instagram.com/earthwindandtyler_/"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted/"
+        }
+      ]
     }
   ]
 }

@@ -10,6 +10,10 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://averywhitted.com/podcast/tyler-fauntleroy/</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://averywhitted.com/podcast/mike-donovan/</loc>
     <priority>0.6</priority>
   </url>
