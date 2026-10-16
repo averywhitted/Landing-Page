@@ -162,6 +162,37 @@
           "url": "https://www.instagram.com/avery_whitted/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 6,
+      "slug": "elijah-coleman",
+      "title": "Elijah Coleman: The Weather's Going to Change",
+      "guest": "Elijah Coleman",
+      "headline": "The Weather's Going to Change",
+      "guid": "190ae80e-8dcc-4c63-ab1d-0b2e6798d966",
+      "published": "2026-10-16T06:16:51Z",
+      "duration_seconds": 2758,
+      "apple_episode_id": "1000796610363",
+      "apple_episode_slug": "elijah-coleman-the-weathers-going-to-change",
+      "summary": "Elijah Coleman (10 Minutes, The Founder's Keeper, To Us, and a whole lot more) talks about giving yourself an engine in an audition, bringing more than one choice, and always remembering... it's not that deep. Plus, the time he learned the wrong character for an audition and committed to it completely.",
+      "meta_description": "Elijah Coleman (10 Minutes, The Founder's Keeper, To Us, and a whole lot more) talks about giving yourself an engine in an... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Elijah on Instagram: @",
+          "text": "elijahj.coleman",
+          "url": "https://www.instagram.com/elijahj.coleman"
+        },
+        {
+          "label": "Follow Avery on Instagram: @",
+          "text": "avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted"
+        },
+        {
+          "text": "Dance Class with Elijah",
+          "url": "https://www.facebook.com/share/r/1Fto5QAPFz/"
+        }
+      ]
     }
   ]
 }
