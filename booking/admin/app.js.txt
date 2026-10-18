@@ -3,6 +3,9 @@
 (() => {
   "use strict";
   const TZ = "America/New_York";
+  // Appearance (Settings): "light" or "dark" overrides the device; anything else follows it.
+  const applyTheme = (t) => { if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; };
+  try { applyTheme(localStorage.getItem("admin-theme")); } catch { /* private mode */ }
   const $main = document.getElementById("main");
   const $tabs = document.getElementById("tabs");
   const $dlg = document.getElementById("dlg");
@@ -14,8 +17,8 @@
   let tab = (location.hash || "#sessions").slice(1);
   if (tab === "upcoming" || tab === "recent") tab = "sessions";
   let view = store.get("admin-view") === "calendar" ? "calendar" : "list";
-  // Day view by default on a phone (a week of columns is cramped there).
-  let scale = ["day", "week", "month"].includes(store.get("admin-scale")) ? store.get("admin-scale") : (innerWidth < 700 ? "day" : "week");
+  // Week view by default (on a phone too; its columns shrink to fit).
+  let scale = ["day", "week", "month"].includes(store.get("admin-scale")) ? store.get("admin-scale") : "week";
   let calDate = null;           // "YYYY-MM-DD" the calendar is showing (Eastern)
   const calData = new Map();    // range -> { bookings, busy }
   // Which sessions to show: when ("upcoming", "past", "all") and whether cancelled ones are included.
@@ -74,6 +77,7 @@
   // A labelled dropdown for the phone toolbars (in place of rows of filter chips).
   const pick = (name, label, options, cur) => `<label class="pick"><span>${label}</span><select data-pick="${name}" aria-label="${esc(label)}">${options.map(([v, text]) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(text)}</option>`).join("")}</select></label>`;
   document.addEventListener("change", (e) => {
+    if (e.target.id === "theme-pick") { applyTheme(e.target.value); store.set("admin-theme", e.target.value); return; }
     const name = e.target.dataset && e.target.dataset.pick;
     if (!name) return;
     const v = e.target.value;
@@ -93,9 +97,10 @@
     return `<div class="${cls}">${main.map((a) => asButton(a, small)).join("")}${more.length > 1 ? menuHtml(more, label, small) : ""}</div>`;
   }
 
-  async function api(method, path, body) {
+  async function api(method, path, body, keepalive = false) {
     const r = await fetch(path, {
       method,
+      keepalive,
       headers: { "X-Admin": "1", ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
@@ -106,14 +111,55 @@
     return out;
   }
 
-  function toast(text, isErr = false) {
+  // One message at a time. With `undo`, it has an Undo button and stays up longer (or `ms`).
+  function toast(text, isErr = false, undo = null, ms = 0) {
+    for (const old of document.querySelectorAll(".toast")) old.remove();
     const t = document.createElement("div");
     t.className = `toast${isErr ? " err" : ""}`;
     t.setAttribute("role", isErr ? "alert" : "status");
-    t.textContent = text;
+    const words = document.createElement("span");
+    words.textContent = text;
+    t.appendChild(words);
+    const timer = setTimeout(() => t.remove(), ms || (undo ? 7000 : 4500));
+    if (undo) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "toast-undo";
+      b.textContent = "Undo";
+      b.addEventListener("click", () => { clearTimeout(timer); t.remove(); undo(); });
+      t.appendChild(b);
+    }
     document.body.appendChild(t);
-    setTimeout(() => t.remove(), 4500);
   }
+
+  /* ── Undo for quick actions ── */
+
+  // Easy to take back: done straight away, with Undo in the message.
+  async function undoable(b, { run, undo, done, undone }) {
+    if (b) b.disabled = true;
+    try { await run(); } catch (err) { if (b) b.disabled = false; toast(err.message, true); return; }
+    students = null;
+    await afterAction(null);
+    toast(done, false, async () => {
+      try { await undo(); students = null; await afterAction(undone); } catch (err) { toast(err.message, true); }
+    });
+  }
+  // An email can't be unsent, so these wait a few seconds first. If the page is
+  // closed in the meantime it goes out right away.
+  const pending = new Set();
+  function delayed(b, { label, run, done, after }) {
+    if (b) b.disabled = true;
+    const job = { go: () => run(true) };
+    const finish = () => { pending.delete(job); clearTimeout(job.timer); };
+    job.timer = setTimeout(async () => {
+      finish();
+      try { await run(false); toast(typeof done === "function" ? done() : done); if (after) await after(); } catch (err) { toast(err.message, true); }
+      if (b) b.disabled = false;
+    }, 5000);
+    pending.add(job);
+    toast(label, false, () => { finish(); if (b) b.disabled = false; toast("Cancelled. Nothing was sent."); }, 5000);
+  }
+  addEventListener("pagehide", () => { for (const job of pending) { clearTimeout(job.timer); job.go(); } pending.clear(); });
 
   async function load() {
     try {
@@ -469,7 +515,7 @@
         const x = label(it);
         const s0 = minsOf(x.b.start), e0 = minsOf(x.b.end) || 1440;
         return `<button type="button" class="tg-item${x.due ? " due" : ""}${x.cancelled ? " cancelled" : ""}" style="top:${(s0 - lo) * PX}px;height:${Math.max(18, (e0 - s0) * PX - 2)}px" data-session="${esc(x.b.id)}" title="${esc(x.tip)}">
-          <strong>${esc(clock(x.b.start))}</strong> ${esc(x.who)}</button>`;
+          <strong>${esc(clock(x.b.start))}</strong> <span>${esc(x.who.split(" ")[0])}</span><span class="tg-rest">${esc(x.who.slice(x.who.split(" ")[0].length))}</span></button>`;
       }).join("");
       let shade = "";
       if (dayOff(d)) shade = `<div class="tg-off" style="top:0;height:${(hi - lo) * PX}px" title="Day off (Settings, Working days): clients can't book"><span>Day off</span></div>`;
@@ -481,7 +527,7 @@
       return `<div class="tg-col${d === today ? " today" : ""}" style="height:${(hi - lo) * PX}px">${shade}${bz}${ss}</div>`;
     }).join("");
     return `<div class="panel cal">${head}
-      <div class="tg" style="--cols:${dates.length}">
+      <div class="tg${dates.length > 1 ? " week" : ""}" style="--cols:${dates.length}">
         <div class="tg-head"><div></div>${dates.map((d) => `<button type="button" class="tg-day${d === today ? " today" : ""}" data-day="${d}" title="Open this day">${esc(fmt(`${d}T12:00:00Z`, { weekday: "short" }))} <b>${Number(d.slice(8))}</b></button>`).join("")}</div>
         <div class="tg-body"><div class="tg-times">${hours.map((m) => `<span style="height:${60 * PX}px">${hourText(m)}</span>`).join("")}</div>${cols}</div>
       </div>
@@ -551,6 +597,12 @@
     return `<button type="button" class="btn sm sr-nudge" data-nudge="${esc(s.id)}" title="${esc(tip)}" aria-label="${esc(tip)}">${s.nudgeAt ? "Scheduled" : label}</button>`;
   }
 
+  // A phone's one-line row: what they owe, else their next session, else their last.
+  const monthDay = (iso) => fmt(iso, { month: "short", day: "numeric" });
+  const briefStat = (s) => s.owedCents ? `<span class="chip bad">Owes ${money(s.owedCents)}</span>`
+    : s.nextStart ? `Next ${esc(monthDay(s.nextStart))}${s.upcoming > 1 ? ` +${s.upcoming - 1}` : ""}`
+    : s.lastStart ? `Last ${esc(monthDay(s.lastStart))}` : "No sessions";
+
   function renderStudents() {
     if (!students) {
       loadStudents().then(() => { if (tab === "students") render(); }).catch((err) => { $main.innerHTML = `<p class="empty">${esc(err.message)}</p>`; });
@@ -591,6 +643,7 @@
       <div class="panel student-list">
         <div class="student-row student-head">${head("name", "Name")}${head("next", "Next")}${head("last", "Last session")}${head("owes", "Owes")}${head("bundle", "Bundle")}</div>
         ${list.length ? list.map((s) => `<div class="student-item"><button type="button" class="student-row" data-student="${esc(s.id)}" title="Open ${esc(s.name)}'s profile">
+          <span class="sr-brief narrow-only">${briefStat(s)}</span>
           <span class="sr-name"><strong>${esc(s.name)}${s.pronouns ? ` <span class="pn">(${esc(s.pronouns)})</span>` : ""}${unsubChip(s)}</strong><small>${esc(s.email)}</small></span>
           <span class="sr-stat"><small>Next</small>${s.nextStart ? esc(shortDate(s.nextStart)) : "None"}${s.upcoming > 1 ? ` <span class="count">+${s.upcoming - 1}</span>` : ""}</span>
           <span class="sr-stat"><small>Last session</small>${s.lastStart ? esc(shortDate(s.lastStart)) : "None"}</span>
@@ -1290,6 +1343,10 @@
       <fieldset><legend>Payments</legend>
         <p class="mode-line"><span class="mode ${data.mode}">${data.mode === "test" ? "Test mode" : "Live"}</span> ${data.mode === "test" ? "Stripe is in test mode: no real cards are charged." : "Stripe is live: real cards are charged."}</p>
       </fieldset>
+      <fieldset><legend>Appearance</legend>
+        <label>Theme on this device <select id="theme-pick">${[["", "Match my device"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<option value="${v}"${(document.documentElement.dataset.theme || "") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <p class="hint">Saved in this browser only, not with the settings below.</p>
+      </fieldset>
       <fieldset><legend>Working hours</legend>
         <div class="row2">
           <label>First start <select name="dayStartHour">${opt(hours, v.dayStartHour, hourLabel)}</select></label>
@@ -1588,35 +1645,28 @@
     });
   }
 
-  async function setNoShow(id, noShow, b) {
-    b.disabled = true;
-    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/attendance`, { noShow }); await afterAction(noShow ? "Marked as a no-show." : "No-show removed."); }
-    catch (err) { b.disabled = false; toast(err.message, true); }
+  function setNoShow(id, noShow, b) {
+    const mark = (value) => api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/attendance`, { noShow: value });
+    return undoable(b, {
+      run: () => mark(noShow), undo: () => mark(!noShow),
+      done: noShow ? "Marked as a no-show." : "No-show removed.", undone: noShow ? "No-show removed." : "Marked as a no-show again.",
+    });
   }
 
   // Bundles by id with what can still be refunded (from the Bundles list and student profiles).
   const bundlesKnown = new Map();
 
-  async function remind(path, b) {
-    b.disabled = true;
-    try {
-      const r = await api("POST", path);
-      toast(r.sent > 1 ? `${r.sent} payment reminders sent.` : "Payment reminder sent.");
-    } catch (err) { toast(err.message, true); }
-    b.disabled = false;
+  function remind(path, b) {
+    let sent = 0;
+    delayed(b, { label: "Sending a payment reminder...", run: async (k) => { sent = (await api("POST", path, null, k)).sent || 1; }, done: () => (sent > 1 ? `${sent} payment reminders sent.` : "Payment reminder sent.") });
   }
 
-  async function keepHeld(id, b) {
-    b.disabled = true;
-    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/keep`); toast("Kept. The invite is on its way."); await load(); }
-    catch (err) { toast(err.message, true); b.disabled = false; }
+  function keepHeld(id, b) {
+    delayed(b, { label: "Keeping this time and sending the invite...", run: (k) => api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/keep`, null, k), done: "Kept. The invite is on its way.", after: load });
   }
 
-  async function resend(id, b) {
-    b.disabled = true;
-    try { await api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`); toast("Invite sent again."); }
-    catch (err) { toast(err.message, true); }
-    b.disabled = false;
+  function resend(id, b) {
+    delayed(b, { label: "Sending the invite again...", run: (k) => api("POST", `/api/admin/bookings/${encodeURIComponent(id)}/resend`, null, k), done: "Invite sent again." });
   }
 
   // Refund all or part of a session or bundle. `left` is what hasn't been refunded yet.
@@ -1907,13 +1957,19 @@
     else if (d.connTestemail !== undefined) connAction("/api/admin/status/resend/test", "Test email sent. Check your inbox.", t, "resend");
     else if (d.connFilter) { connProblemsOnly = d.connFilter === "problems"; render(); }
     else if (d.nudge) openNudge(d.nudge);
-    else if (d.followupDismiss) requestAction(`/api/admin/students/${encodeURIComponent(d.followupDismiss)}/follow-up/dismiss`, "Dismissed until after their next session.", t);
+    else if (d.followupDismiss) {
+      const path = `/api/admin/students/${encodeURIComponent(d.followupDismiss)}/follow-up`;
+      undoable(t, { run: () => api("POST", `${path}/dismiss`), undo: () => api("POST", `${path}/restore`), done: "Dismissed until after their next session.", undone: "Back on the list." });
+    }
     else if (d.resubscribe) {
       if (confirm("They chose to stop or pause these emails themselves. Turn them back on only if they asked you to. Turn them back on?")) {
         requestAction(`/api/admin/students/${encodeURIComponent(d.resubscribe)}/resubscribe`, "Check-in emails are back on.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); });
       }
     }
-    else if (d.nudgeCancel) { if (confirm("Don't send this email?")) requestAction(`/api/admin/nudges/${encodeURIComponent(d.nudgeCancel)}/cancel`, "Cancelled.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); }); }
+    else if (d.nudgeCancel) {
+      const path = `/api/admin/nudges/${encodeURIComponent(d.nudgeCancel)}`;
+      undoable(t, { run: () => api("POST", `${path}/cancel`), undo: () => api("POST", `${path}/restore`), done: "Scheduled email cancelled.", undone: "It's scheduled again." });
+    }
     else if (d.addStudent !== undefined) { studentOpen = null; openAddStudent(); }
     else if (d.dupes !== undefined) openDuplicates();
     else if (d.dupMerge !== undefined) dupAction("merge", Number(d.dupMerge), t);
@@ -1972,7 +2028,7 @@
     else if (d.keep) keepHeld(d.keep, t);
     else if (d.request) openRequest(d.request);
     else if (d.requestStudent) openRequest(null);
-    else if (d.requestRemind) requestAction(`/api/admin/payment-requests/${encodeURIComponent(d.requestRemind)}/remind`, "Reminder sent.", t);
+    else if (d.requestRemind) delayed(t, { label: "Sending the payment request again...", run: (k) => api("POST", `/api/admin/payment-requests/${encodeURIComponent(d.requestRemind)}/remind`, null, k), done: "Reminder sent.", after: load });
     else if (d.requestCancel) { if (confirm("Withdraw this payment request? Their Pay button will stop working.")) requestAction(`/api/admin/payment-requests/${encodeURIComponent(d.requestCancel)}/cancel`, "Request withdrawn.", t); }
   });
 

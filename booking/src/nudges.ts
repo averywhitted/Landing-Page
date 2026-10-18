@@ -191,6 +191,15 @@ export async function adminCancelNudge(env: Env, nudgeId: string) {
   return { ok: true };
 }
 
+// Undo for a cancel: back on the schedule, if it hasn't been called off for another reason
+// (those have a note) and its time hasn't passed. It's checked again when it goes out.
+export async function adminRestoreNudge(env: Env, nudgeId: string, now: number) {
+  const r = await env.DB.prepare("UPDATE nudge_emails SET status = 'scheduled' WHERE id = ?1 AND status = 'cancelled' AND note IS NULL AND send_at > ?2")
+    .bind(nudgeId, iso(now + MIN)).run();
+  if (!r.meta.changes) throw new BookingError(409, "That email can't be put back. Schedule a new one instead.");
+  return { ok: true };
+}
+
 export async function adminSetNoEmail(env: Env, customerId: string, value: unknown) {
   const s = await loadStudent(env, customerId);
   const on = value === true;

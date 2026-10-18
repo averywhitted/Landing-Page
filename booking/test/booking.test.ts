@@ -2905,3 +2905,22 @@ test("follow-ups: the number of days and the daily email come from Settings; one
   const bad = await api.call("POST", "/api/admin/settings", { headers: asAdmin(), body: { ...(await scheduling(env)), followUpDays: 4 } });
   assert.equal(bad.status, 400);
 });
+
+test("undo: a dismissed follow-up comes back; a cancelled scheduled email goes back on the schedule (not one the student's pause called off)", async () => {
+  adminEnv();
+  const riley = await pastSession("Riley Park", "riley@example.com", 8);
+  await api.call("POST", `/api/admin/students/${riley.id}/follow-up/dismiss`, { headers: asAdmin() });
+  assert.equal((await followUps()).length, 0);
+  assert.equal((await api.call("POST", `/api/admin/students/${riley.id}/follow-up/restore`, { headers: asAdmin() })).status, 200);
+  assert.equal((await followUps()).length, 1);
+
+  const id = await quietStudent("Sam Lee", "sam@example.com");
+  await sendDraft(id, "checkin", { sendDate: etDate(Date.now() + 2 * DAY), sendTime: "10:00" });
+  const n = nudgeRows(id)[0];
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/cancel`, { headers: asAdmin() })).status, 200);
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/restore`, { headers: asAdmin() })).status, 200);
+  assert.equal(nudgeRows(id)[0].status, "scheduled");
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/restore`, { headers: asAdmin() })).status, 409, "only a cancelled one");
+  db.prepare("UPDATE nudge_emails SET status = 'cancelled', note = 'They paused or unsubscribed.' WHERE id = ?").run(n.id);
+  assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/restore`, { headers: asAdmin() })).status, 409, "not one their pause called off");
+});

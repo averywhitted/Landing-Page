@@ -498,6 +498,16 @@ app.post("/api/admin/students/:id/follow-up/dismiss", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/students/:id/follow-up/restore", async (c) => {
+  try { const { restoreFollowUp } = await import("./followups"); return c.json(await restoreFollowUp(c.env, c.req.param("id"))); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
+app.post("/api/admin/nudges/:id/restore", async (c) => {
+  try { const { adminRestoreNudge } = await import("./nudges"); return c.json(await adminRestoreNudge(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/students/:id/resubscribe", async (c) => {
   try { const { adminResubscribe } = await import("./nudges"); return c.json(await adminResubscribe(c.env, c.req.param("id"))); }
   catch (err) { return bookingErrorResponse(c, err); }

@@ -1,38 +1,46 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-18 11:24 EDT · branch `master` @ `6099805` · working tree: uncommitted: follow-up prompts + admin phone layout (booking/), DEVLOG.md, `_config.yml` exclude_
+_Updated 2026-10-18 12:05 EDT · branch `master` @ `07a918c` · working tree: phone polish + dark mode committed in the same commit as this entry_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Booking admin: "time to follow up" prompts and a usable phone layout.
+**Current goal:** Ship the follow-up prompts and the admin phone/dark-mode work (Avery runs the deploy).
 
 **Where things stand:**
-- Follow-up prompts built and tested (144 tests pass): a student whose last session was 7+ days ago (Settings: Off/3/5/7/10/14/21/30) with nothing booked shows in Needs attention (Email / Book / Dismiss), gets a "Follow up" button in Students, and is listed in a once-a-day 9 AM email to Avery (Settings toggle). New "After a recent session" email template, suggested under 60 days.
-- Admin phone layout reworked: bottom tab bar, Connections collapsed to one chip, full-width filter rows with Show/Sort dropdowns, card buttons as 1-2 main buttons + "⋯" menu, "Live" badge moved to Settings (header only flags Test mode). Checked at 375px and 1200px in a mock page; not yet seen on a real phone or live data.
-- NOT committed, migration NOT applied, worker NOT deployed.
+- Committed on master, not live: follow-up prompts (07a918c) and phone polish + dark mode (next commit). 145 tests pass.
+- Admin on phones: slim one-row header, one-line student rows, week calendar by default (first names only in narrow columns), bottom tabs, Connections chip, "⋯" card menus.
+- Undo: dismissing a follow-up, marking/unmarking a no-show, and cancelling a scheduled check-in email happen at once with Undo; payment reminders, resending an invite, Keep this time, and re-sending a payment request wait 5 seconds with Undo (sent at once if the page closes). Refunds, withdrawing a payment request, merging, turning emails back on, and settings resets still ask for confirmation.
+- Dark mode follows the device; Settings > Appearance can force Light or Dark (saved per browser).
 
 **Next steps:**
-1. Avery reviews, then commit on master (include DEVLOG.md and `_config.yml`).
-2. Avery applies migration 0019 to remote D1, then deploys the worker (commands in the History entry below). No site files depend on this, so pushing master can happen any time.
-3. Avery opens the admin on their phone and reports anything off.
-4. Then, if wanted: the suggestions list from the 2026-10-18 entry.
+1. Avery runs the go-live command (migration 0019, worker deploy, push master); see the newest History entry.
+2. Avery tries the admin on their phone, in both themes, and reports anything off.
 
 **Waiting on the user / open questions:**
-- Approval to commit; Avery runs the migration and deploy themself.
-- Whether the "⋯" menu on desktop is OK (applied at all widths, not only phones).
+- Running the deploy; feedback from a real phone.
 
 **Watch out for:**
 - Never push, deploy, or run remote migrations yourself; Avery does (memory: booking-wip-no-public).
-- Migration 0019 rebuilds `nudge_emails` (SQLite can't change its CHECK to allow 'followup'). Apply it before deploying, or sending the new template fails.
-- Test "refund safety: a cancellation racing a reschedule…" is flaky (failed once, passed 3 reruns); unrelated to this work.
-- Admin UI preview: `booking/.test-build/dump.mjs` (built from a scratchpad script) makes mock API data from the real code; `booking/.test-build/mock-sync.sh` copies the admin into `.test-build/mock/`; view via the static-site preview at `/booking/.test-build/mock/index.html`. All git-ignored.
-- New email headings need a PNG from `booking/tools/render-headings.html` plus entries in `src/email-headings.ts` and `HEADING_TITLES` (a test enforces it).
+- Migration 0019 rebuilds `nudge_emails`; apply it before deploying.
+- Admin colours are theme tokens in `booking/admin/index.html` (`:root`, plus a dark block under `prefers-color-scheme` and `[data-theme="dark"]`). Use tokens, not hex, for new styles. The CSP blocks inline scripts, so a forced theme is applied by `app.js` (a brief flash is possible).
+- Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated.
+- Admin UI preview: `booking/.test-build/mock-sync.sh` copies the admin into `.test-build/mock/` (mock data from `.test-build/dump.mjs`); view at `/booking/.test-build/mock/index.html` on the static-site preview. All git-ignored.
 
-**Key files:** `booking/src/followups.ts` (who's due, dismiss, daily email), `booking/src/nudges.ts` (templates, warnings), `booking/src/config.ts` (followUpDays/followUpEmail), `booking/admin/app.js.txt` + `booking/admin/index.html` (admin UI), `booking/migrations/0019_followups.sql`
-**Run / test:** `cd booking && npm test` · `npm run preview-emails` then open `/booking/.email-previews/` on the static-site preview
+**Key files:** `booking/admin/app.js.txt` + `booking/admin/index.html` (admin UI), `booking/src/followups.ts`, `booking/src/nudges.ts`, `booking/migrations/0019_followups.sql`
+**Run / test:** `cd booking && npm test` · `npm run preview-emails`
 
 ## History
 <!-- newest first -->
+
+### 2026-10-18 12:05 — Admin: phone header, one-line students, week view, Undo, dark mode
+**Asked:** For phones: smaller header, one-line student rows, week view by default (day and month still available), Undo for quick actions while keeping confirmation for risky ones, dark mode; then the command to push and migrate.
+**Done:**
+- `booking/admin/index.html`: phone header in one row (Test mode badge moved under the name at all widths, link icon, "+ Book"); one-line student rows (name, then owes / next / last; Edit only in the profile on phones); week grid fits 7 columns; all colours turned into theme tokens with a dark set; Undo button in toasts.
+- `booking/admin/app.js.txt`: `toast(text, isErr, undo, ms)`, `undoable()` (act now, Undo reverses) and `delayed()` (5 s wait, flushed with keepalive on pagehide); week is the default scale everywhere; Appearance select in Settings (`admin-theme` in localStorage).
+- Worker: `POST /api/admin/students/:id/follow-up/restore`, `POST /api/admin/nudges/:id/restore` (only admin-cancelled, still in the future). 1 new test.
+**Decisions:** Things that send an email can't be unsent, so they wait 5 s instead of offering a reverse action. Refunds, withdrawals, merges, resubscribes and resets keep confirm(). The header fix also fixed a bug where the too-wide header pushed the bottom tabs off screen.
+**State:** Committed with this entry. `npm test` 145/145. Checked in the mock admin at 375px, light and dark (Undo flows and theme switch exercised). Not deployed. Go-live: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run cf -- d1 migrations apply averywhitted-booking --remote && npm run deploy && cd .. && git push origin master`.
+**Next:** Avery deploys and checks on a real phone.
 
 ### 2026-10-18 11:24 — Follow-up prompts; admin phone layout
 **Asked:** Be prompted to re-engage a student one week after their latest session if nothing is booked; asked whether a "seen recently" email existed (it didn't: all four templates assumed 60+ days and warned under 60). Phone fixes: Connections as one expandable chip, tabs and sort filters overflowing, cluttered card buttons, move "Live" to Settings, plus suggestions.

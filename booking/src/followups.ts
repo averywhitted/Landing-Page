@@ -62,6 +62,12 @@ export async function dismissFollowUp(env: Env, customerId: string, now: number)
   return { ok: true };
 }
 
+// Undo for a dismiss: they're listed again (if they still qualify).
+export async function restoreFollowUp(env: Env, customerId: string) {
+  await env.DB.prepare("UPDATE customers SET followup_done_for = NULL WHERE id = ?1").bind(customerId).run();
+  return { ok: true };
+}
+
 const etHourAndDate = (ms: number) => {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: RULES.timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" })
     .formatToParts(ms).map((x) => [x.type, x.value]));
