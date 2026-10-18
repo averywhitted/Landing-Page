@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "./scripts/wrangler.sh deploy",
+    "release": "./scripts/release.sh",
     "cf": "./scripts/wrangler.sh",
     "dev:local": "wrangler dev --local --port 8787 --test-scheduled --var LOCAL_FAKES:1 --var STRIPE_API_BASE:http://localhost:8799 --var STRIPE_SECRET_KEY:sk_test_fake --var STRIPE_WEBHOOK_SECRET:whsec_localtest --var SITE_URL:http://localhost:8743 --var REMINDERS_ENABLED:1 --var ICLOUD_APP_PASSWORD:unused",
     "fake-stripe": "python3 scripts/fake-stripe.py",

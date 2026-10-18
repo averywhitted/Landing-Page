@@ -1,23 +1,24 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-18 12:05 EDT · branch `master` @ `07a918c` · working tree: phone polish + dark mode committed in the same commit as this entry_
+_Updated 2026-10-18 12:17 EDT · branch `master` @ `08a81fe` · working tree: release script committed in the same commit as this entry_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Ship the follow-up prompts and the admin phone/dark-mode work (Avery runs the deploy).
+**Current goal:** Avery tries the new admin (follow-ups, phone layout, dark mode) on a real phone.
 
 **Where things stand:**
-- Committed on master, not live: follow-up prompts (07a918c) and phone polish + dark mode (next commit). 145 tests pass.
+- LIVE (Avery deployed 2026-10-18, migration 0019 applied, master pushed): follow-up prompts and phone polish + dark mode. 145 tests pass.
+- Releases: `cd booking && npm run release` (pull, stamp check, tests, migrations, deploy, push, in that order); `npm run release -- --check` does the safe steps only.
 - Admin on phones: slim one-row header, one-line student rows, week calendar by default (first names only in narrow columns), bottom tabs, Connections chip, "⋯" card menus.
 - Undo: dismissing a follow-up, marking/unmarking a no-show, and cancelling a scheduled check-in email happen at once with Undo; payment reminders, resending an invite, Keep this time, and re-sending a payment request wait 5 seconds with Undo (sent at once if the page closes). Refunds, withdrawing a payment request, merging, turning emails back on, and settings resets still ask for confirmation.
 - Dark mode follows the device; Settings > Appearance can force Light or Dark (saved per browser).
 
 **Next steps:**
-1. Avery runs the go-live command (migration 0019, worker deploy, push master); see the newest History entry.
-2. Avery tries the admin on their phone, in both themes, and reports anything off.
+1. Avery tries the admin on their phone, in both themes, and reports anything off.
+2. Future releases: Avery runs `npm run release` from `booking/`.
 
 **Waiting on the user / open questions:**
-- Running the deploy; feedback from a real phone.
+- Feedback from a real phone.
 
 **Watch out for:**
 - Never push, deploy, or run remote migrations yourself; Avery does (memory: booking-wip-no-public).
@@ -31,6 +32,13 @@ _Updated 2026-10-18 12:05 EDT · branch `master` @ `07a918c` · working tree: ph
 
 ## History
 <!-- newest first -->
+
+### 2026-10-18 12:17 — One-command release script
+**Asked:** After a push was refused (GitHub had two "Sync podcast episodes" commits from the 6-hourly Action), make sure future releases pull first and run in the right order.
+**Done:** `booking/scripts/release.sh` (`npm run release`): stops unless on a clean master; `git pull --rebase`; runs `stamp-assets.py` and stops if booking.js/css tags were stale; `npm test`; `d1 migrations apply --remote`; `npm run deploy`; `git push` (pulls and retries once if the podcast bot pushed meanwhile). `--check` runs the safe steps and lists pending migrations (read only).
+**Decisions:** The podcast Action only touches `podcast/` and `sitemap.xml`, so it can't conflict with booking work and needs no change; the only effect was the refused push. Migrations come before the deploy so new code never meets an old database.
+**State:** Committed with this entry. Checked locally: refuses a dirty tree; `--check` passes steps 1-4 (the live migration list was blocked in my test on purpose). Not run for real.
+**Next:** Avery uses it for the next release.
 
 ### 2026-10-18 12:05 — Admin: phone header, one-line students, week view, Undo, dark mode
 **Asked:** For phones: smaller header, one-line student rows, week view by default (day and month still available), Undo for quick actions while keeping confirmation for risky ones, dark mode; then the command to push and migrate.
