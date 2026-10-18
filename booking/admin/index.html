@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Booking Admin | Avery Whitted</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -40,7 +40,7 @@
     .tab[aria-selected="true"] { border-bottom-color: var(--text); color: var(--text); background: none; }
     .count { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--bg1); color: var(--text); font-size: .6875rem; text-align: center; }
     .tab[aria-selected="true"] .count { background: var(--text); color: #fff; }
-    .count.alert { background: var(--danger); color: #fff; }
+    .count.alert, .tab[aria-selected="true"] .count.alert { background: var(--danger); color: #fff; }
     .day { margin: 22px 0 8px; font-size: .6875rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
     .card { display: grid; grid-template-columns: 110px 1fr; gap: 14px 16px; align-items: start; padding: 16px 18px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 10px 26px rgba(20,28,40,.05); }
     .card.muted { background: rgba(255,255,255,.55); box-shadow: none; }
@@ -314,6 +314,26 @@
     .ev-msg { min-width: 0; overflow-wrap: anywhere; }
     .ev .chip { justify-self: start; }
     @media (max-width: 700px) { .ev { grid-template-columns: 1fr; } }
+    /* Buttons with a "..." menu for the rest (cards, rows, a student's profile) */
+    .actions .menu-wrap, .seat-actions .menu-wrap { margin-left: auto; }
+    .sd-actions .menu-wrap { margin-left: 0; }
+    .menu.up { top: auto; bottom: calc(100% + 6px); }
+    .menu-btn.sm { padding: 6px 10px; font-size: .875rem; }
+    a.menu-item { text-decoration: none; }
+    .menu-item:disabled { opacity: .45; cursor: not-allowed; background: none; }
+    .menu-item .pn { display: none; }
+    .seat-actions { align-items: center; }
+    /* Phone-only and wide-only pieces */
+    .narrow-only { display: none !important; }
+    .picks { gap: 8px; width: 100%; }
+    .pick { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; padding: 6px 6px 0 11px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+    .pick span { font: 700 .5625rem var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+    .pick select { width: 100%; min-width: 0; margin: 0 0 0 -2px; padding: 1px 0 6px; border: 0; background: transparent; font: 600 16px var(--body); color: var(--text); }
+    .pick:focus-within { border-color: var(--a); }
+    .lights-toggle { display: none; }
+    .lights-list { display: contents; }
+    .tab-icon { display: none; }
+    .mode-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0 4px; font-size: .8125rem; color: var(--muted); }
     /* Narrower than a laptop: the buttons sit under the row instead of beside it. */
     @media (max-width: 900px) { .student-item { align-items: start; grid-template-columns: 1fr; } .student-item .sr-actions { justify-content: flex-start; margin: 0 8px 10px; } .student-head { padding-right: 0; } .sr-edit { visibility: visible; } }
     @media (max-width: 700px) {
@@ -336,7 +356,64 @@
       .student-row .sr-name { grid-column: 1 / -1; }
       .cal-cell { min-height: 64px; padding: 3px; }
       .cal-item { font-size: .5625rem; padding: 2px 3px; }
-      .head-actions { flex-wrap: wrap; }
+      .head-actions { flex-wrap: wrap; width: 100%; }
+      .head-actions .btn { flex: 1 1 auto; }
+      .head-actions #refresh, .head-actions .mode { flex: none; }
+      header { padding-bottom: 14px; }
+      .wide-only { display: none !important; }
+      .narrow-only { display: flex !important; }
+      /* Typing in a field under 16px makes iPhones zoom in. */
+      .toolbar input[type=search], dialog input[type=text], dialog input[type=email], dialog input[type=date], dialog input[type=time], dialog input[type=number], dialog select, dialog textarea, textarea.notes, .settings select { font-size: 16px; }
+
+      /* Tabs: a bar along the bottom, in reach of a thumb. */
+      body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+      nav.tabs { position: fixed; z-index: 15; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin: 0; padding: 5px 6px calc(5px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); border-bottom: 0; background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 -8px 24px rgba(20,28,40,.06); }
+      .tab { position: relative; flex-direction: column; justify-content: center; gap: 3px; min-height: 52px; margin: 0; padding: 6px 2px 5px; border: 0; border-radius: 12px; font: 600 .6875rem var(--body); letter-spacing: 0; text-transform: none; }
+      .tab:hover { background: none; color: var(--muted); }
+      .tab[aria-selected="true"], .tab[aria-selected="true"]:hover { color: var(--a); background: var(--a-soft); }
+      .tab-icon { display: block; }
+      .tab-label > span { display: none; }
+      .tab-label::after { content: attr(data-short); }
+      .tab .count { position: absolute; top: 3px; left: calc(50% + 5px); min-width: 17px; padding: 1px 5px; font-size: .5625rem; line-height: 1.4; }
+      .tab .count.zero { display: none; }
+      .tab[aria-selected="true"] .count { background: var(--a); }
+      .toast { bottom: calc(84px + env(safe-area-inset-bottom)); width: max-content; max-width: calc(100vw - 32px); }
+
+      main { padding-top: 14px; }
+      main > .toolbar:first-child { margin-top: 0; }
+      /* Connections: one full-width chip that opens. */
+      .lights { display: block; margin: 14px 0 0; padding: 0; background: none; }
+      .lights-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 16px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font: 600 .8125rem var(--body); color: var(--text); text-align: left; cursor: pointer; }
+      .lights-toggle.warn { border-color: #f0c879; background: var(--warn-bg); }
+      .lights-toggle.error { border-color: #f1b9b3; background: #fff6f5; }
+      .lights-toggle .lights-title { margin: 0; }
+      .lights-toggle .lights-note { margin-left: auto; }
+      .chev { width: 7px; height: 7px; margin: 0 2px 3px 2px; border-right: 2px solid var(--faint); border-bottom: 2px solid var(--faint); transform: rotate(45deg); transition: transform .15s; }
+      .lights.open .chev { margin-bottom: -3px; transform: rotate(-135deg); }
+      .lights-list { display: none; }
+      .lights.open .lights-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; padding: 8px; border-radius: 16px; background: rgba(14,17,22,.045); }
+      .lights-list .lights-title, .lights-list .lights-note { display: none; }
+      .lights-list .light { min-width: 0; padding: 9px 11px; }
+
+      /* Toolbars: whole-width rows instead of a wrapping pile of chips. */
+      .toolbar { padding: 8px; }
+      .toolbar > .filters, .toolbar > .views, .toolbar > .picks { flex: 1 1 100%; flex-wrap: nowrap; }
+      .toolbar > h3 { flex: 1 1 100%; }
+      .toolbar .seg { display: flex; flex: 1 1 0; min-width: 0; }
+      .toolbar .seg button { flex: 1 1 0; min-width: 0; padding: 8px 4px; }
+      .toolbar .fchip { flex: none; padding: 8px 12px; white-space: nowrap; }
+      .toolbar input[type=search] { flex: 1 1 0; min-width: 0; max-width: none; }
+      .toolbar > .btn { flex: none; }
+      .toolbar > .btn.warnbtn { flex: 1 1 100%; }
+
+      /* Card buttons: the main ones share one row, the menu sits at the end. */
+      .actions { flex-wrap: nowrap; }
+      .actions > .btn { flex: 1 1 auto; min-width: 0; white-space: normal; text-align: center; line-height: 1.25; }
+      .actions .menu-btn { flex: none; }
+      .seat .who-line { flex-basis: 100%; }
+      .sd-head > .seat-actions { width: 100%; }
+      .sd-actions { flex-wrap: nowrap; }
+      .sd-actions > .btn { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.25; }
     }
   </style>
   <script src="/admin/app.js" defer></script>
@@ -349,10 +426,10 @@
         <div class="brand-sub">Booking admin</div>
       </div>
       <div class="head-actions">
-        <button type="button" class="btn" id="refresh" title="Load the latest bookings">&#8635; Refresh</button>
+        <button type="button" class="btn" id="refresh" title="Load the latest bookings" aria-label="Refresh">&#8635;<span class="wide-only">&nbsp;Refresh</span></button>
         <button type="button" class="btn" id="copy-link" title="Get a link students can use to book themselves">Booking link</button>
         <button type="button" class="btn primary" id="new-session" title="Book one student, or several for a group session">Book a student</button>
-        <span class="mode" id="mode"></span>
+        <span class="mode" id="mode" hidden></span>
       </div>
     </header>
     <div class="lights" id="lights" role="group" aria-label="Connection status"></div>

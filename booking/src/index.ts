@@ -493,6 +493,11 @@ app.post("/api/admin/nudges/:id/cancel", async (c) => {
   catch (err) { return bookingErrorResponse(c, err); }
 });
 
+app.post("/api/admin/students/:id/follow-up/dismiss", async (c) => {
+  try { const { dismissFollowUp } = await import("./followups"); return c.json(await dismissFollowUp(c.env, c.req.param("id"), Date.now())); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/students/:id/resubscribe", async (c) => {
   try { const { adminResubscribe } = await import("./nudges"); return c.json(await adminResubscribe(c.env, c.req.param("id"))); }
   catch (err) { return bookingErrorResponse(c, err); }
@@ -745,6 +750,7 @@ async function scheduled(env: Env): Promise<void> {
   await run("payment reminders", () => sendPaymentReminders(env, now));
   await run("group sessions", () => maintainGroups(env, now));
   await run("scheduled check-in emails", async () => (await import("./nudges")).sendScheduledNudges(env, now));
+  await run("follow-up email", async () => (await import("./followups")).sendFollowUpDigest(env, now));
   const series = await import("./series");
   const repeats = await run("repeating sessions", () => series.bookNextSessions(env, now));
   await run("abandoned repeats", () => series.dropAbandonedSeries(env, now));

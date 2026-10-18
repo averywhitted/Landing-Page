@@ -216,8 +216,11 @@ export async function adminOverview(env: Env, now: number) {
       refundRequests: await (await import("./refunds")).openRefundRequests(env),
       paymentRequests: await (await import("./requests")).openRequests(env),
       icloud: await (await import("./extras")).calendarHealth(env),
+      // A week (Settings) after their last session with nothing booked: time to get in touch.
+      followUps: (await (await import("./followups")).followUpsDue(env, now)).map(({ emailedFor: _, ...f }) => f),
     },
     backups: { on: !!env.BACKUPS, last: await (await import("./extras")).lastBackup(env) },
+    followUpDays: (await loadScheduling(env)).values.followUpDays,
   };
 }
 
@@ -294,7 +297,8 @@ export async function adminResetIcloudPassword(env: Env, by: string, now: number
 
 export async function adminSaveSettings(env: Env, input: unknown, by: string) {
   let values;
-  try { values = validate(input); } catch (err) {
+  // Anything left out keeps its current value.
+  try { values = validate({ ...(await loadScheduling(env)).values, ...(input && typeof input === "object" ? input : {}) }); } catch (err) {
     if (err instanceof SettingsError) throw new BookingError(400, err.message);
     throw err;
   }

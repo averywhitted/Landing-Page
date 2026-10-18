@@ -3,3 +3,4 @@
 exclude:
   - booking
   - "sidetrack-*.md"
+  - DEVLOG.md

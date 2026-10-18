@@ -2480,7 +2480,7 @@ test("check-in emails: the four templates start as editable drafts, with the rig
   const id = await quietStudent();
   const info = (await api.call("GET", `/api/admin/students/${id}/nudge`, { headers: asAdmin() })).data;
   assert.equal(info.suggested, "checkin");
-  assert.deepEqual(info.templates.map((t: any) => t.kind), ["checkin", "coming_up", "intro", "custom"], "no credits template without credits");
+  assert.deepEqual(info.templates.map((t: any) => t.kind), ["followup", "checkin", "coming_up", "intro", "custom"], "no credits template without credits");
   assert.equal(info.warnings.length, 0);
   assert.equal((await api.call("POST", `/api/admin/students/${id}/nudge/draft`, { headers: asAdmin(), body: { template: "credits" } })).status, 409, "no bundle sessions to mention");
   assert.equal((await api.call("POST", `/api/admin/students/${id}/nudge/draft`, { headers: asAdmin(), body: { template: "bogus" } })).status, 400);
@@ -2587,7 +2587,10 @@ test("check-in emails: warnings need confirming (upcoming session, recent email,
   assert.ok(info.warnings.some((w: string) => /session coming up/.test(w)));
 
   const fresh = await quietStudent("New Person", "new@example.com", 10);
-  assert.match((await api.call("GET", `/api/admin/students/${fresh}/nudge`, { headers: asAdmin() })).data.warnings[0], /only 10 days ago/);
+  const freshInfo = (await api.call("GET", `/api/admin/students/${fresh}/nudge`, { headers: asAdmin() })).data;
+  assert.match(freshInfo.recentWarning, /only 10 days ago/, "for every template but the follow-up");
+  assert.equal(freshInfo.suggested, "followup");
+  assert.equal((await sendDraft(fresh, "checkin")).status, 409);
 
   const off = await api.call("POST", `/api/admin/students/${fresh}/no-email`, { headers: asAdmin(), body: { value: true } });
   assert.equal(off.status, 200);
@@ -2802,4 +2805,103 @@ test("unsubscribe: a scheduled email is skipped if they paused after it was chec
   assert.equal((await api.call("POST", "/api/admin/duplicates/merge", { headers: asAdmin(), body: { keepId: keep, mergeIds: [dupe] } })).status, 200);
   const merged = (await api.call("GET", `/api/admin/students/${keep}`, { headers: asAdmin() })).data;
   assert.ok(merged.unsub && Date.parse(merged.unsub.until) > Date.now() + 19 * DAY, "the pause carried over");
+});
+
+/* ── Follow-up prompts: a week after the last session, nothing booked ── */
+
+// A student whose only session ended `daysAgo` days before `at`.
+let pastSlot = 0;
+async function pastSession(name: string, email: string, daysAgo: number, at = Date.now()) {
+  const r = await adminBook({ students: [student(name, email, { priceCents: 0 })], date: nyDate(5 + pastSlot++) });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const end = at - daysAgo * DAY;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(end - 3600000).toISOString(), new Date(end).toISOString(), r.data.bookingId);
+  world.state.emails.length = 0;
+  return { id: row(r.data.bookingId).customer_id as string, bookingId: r.data.bookingId as string };
+}
+const followUps = async () => (await api.call("GET", "/api/admin/overview", { headers: asAdmin() })).data.problems.followUps as any[];
+
+test("follow-ups: a week after the last session with nothing booked; gone once they book, you email them, or you dismiss", async () => {
+  adminEnv();
+  const riley = await pastSession("Riley Park", "riley@example.com", 8);
+  await pastSession("Sam Lee", "sam@example.com", 5);
+  await pastSession("Old Friend", "old@example.com", 70);
+  let list = await followUps();
+  assert.deepEqual(list.map((f) => f.name), ["Riley Park"], "5 days is too soon; 70 days is a quiet check-in instead");
+  assert.equal(list[0].days, 8);
+  assert.equal(list[0].service, "Private Coaching Session, 1 hour");
+
+  // The suggested email is the follow-up, without the "only 8 days ago" warning (the other templates still get it).
+  const info = (await api.call("GET", `/api/admin/students/${riley.id}/nudge`, { headers: asAdmin() })).data;
+  assert.equal(info.suggested, "followup");
+  assert.deepEqual(info.warnings, []);
+  assert.match(info.recentWarning, /only 8 days ago/);
+  const d = await draft(riley.id, "followup");
+  assert.equal(d.subject, "Following up");
+  assert.match(d.body, /^Hi Riley, it was great working with you recently\./);
+  assert.ok(noEmDash(d.body));
+  assert.equal((await sendDraft(riley.id, "checkin")).status, 409, "a check-in still warns");
+  assert.equal((await sendDraft(riley.id, "followup")).status, 200);
+  const e = world.state.emails.at(-1)!;
+  assert.match(e.text, /Book a session: /);
+  assert.match(e.html, /checking-in\.png/);
+  assert.equal((await followUps()).length, 0, "emailing them settles it");
+
+  // Dismissing: gone until their next session.
+  const sam = await pastSession("Sam Lee", "sam2@example.com", 9);
+  assert.equal((await followUps()).length, 1);
+  assert.equal((await api.call("POST", `/api/admin/students/${sam.id}/follow-up/dismiss`, { headers: asAdmin() })).status, 200);
+  assert.equal((await followUps()).length, 0);
+  const newer = await pastSession("Sam Lee", "sam2@example.com", 7.5);
+  assert.equal(row(newer.bookingId).customer_id, sam.id);
+  assert.equal((await followUps()).length, 1, "a newer session brings it back");
+
+  // Booking something takes them off.
+  await adminBook({ students: [student("Sam Lee", "sam2@example.com", { priceCents: 0 })] });
+  assert.equal((await followUps()).length, 0);
+
+  // Unsubscribed or "don't email" students aren't listed.
+  const kim = await pastSession("Kim Ito", "kim@example.com", 10);
+  assert.equal((await followUps()).length, 1);
+  await api.call("POST", `/api/admin/students/${kim.id}/no-email`, { headers: asAdmin(), body: { value: true } });
+  assert.equal((await followUps()).length, 0);
+});
+
+test("follow-ups: the number of days and the daily email come from Settings; one email a day from 9am, each student once per session", async () => {
+  adminEnv();
+  const { followUpsDue, sendFollowUpDigest } = await import("../src/followups");
+  const { saveScheduling, scheduling } = await import("../src/config");
+  // 10am Eastern on some day, and 8am the same day.
+  const noonUtc = Date.parse(`${etDate(Date.now())}T14:00:00Z`);
+  const etHour = (ms: number) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(ms));
+  const at10 = noonUtc + (10 - etHour(noonUtc)) * 3600000;
+  const at8 = at10 - 2 * 3600000;
+  await pastSession("Riley Park", "riley@example.com", 8, at10);
+  await pastSession("Sam Lee", "sam@example.com", 4, at10);
+
+  assert.equal(await sendFollowUpDigest(env, at8), 0, "not before 9am");
+  assert.equal(await sendFollowUpDigest(env, at10), 1);
+  const mail = world.state.emails.at(-1)!;
+  assert.deepEqual(mail.to, [env.ADMIN_EMAIL]);
+  assert.equal(mail.subject, "Time to follow up with Riley Park");
+  assert.match(mail.text, /Riley Park: last session \w+day, \w+ \d+ \(Private Coaching Session, 1 hour\)/);
+  assert.ok(noEmDash(mail.text) && noEmDash(mail.html));
+  assert.equal(await sendFollowUpDigest(env, at10 + 3600000), 0, "once a day");
+  assert.equal(await sendFollowUpDigest(env, at10 + DAY), 0, "Riley was already in one");
+  assert.equal((await followUpsDue(env, at10 + DAY)).length, 1, "still listed in Needs attention");
+
+  // Sam turns 7 days the next day... but with 3 days set, Sam is due right away.
+  await saveScheduling(env, { ...(await scheduling(env)), followUpDays: 3 }, "test");
+  assert.deepEqual((await followUpsDue(env, at10)).map((f) => f.name).sort(), ["Riley Park", "Sam Lee"]);
+  await saveScheduling(env, { ...(await scheduling(env)), followUpEmail: false }, "test");
+  assert.equal(await sendFollowUpDigest(env, at10 + 2 * DAY), 0, "email switched off");
+  await saveScheduling(env, { ...(await scheduling(env)), followUpEmail: true, followUpDays: 0 }, "test");
+  assert.equal((await followUpsDue(env, at10)).length, 0, "prompts switched off");
+  await saveScheduling(env, { ...(await scheduling(env)), followUpDays: 3 }, "test");
+  assert.equal(await sendFollowUpDigest(env, at10 + 2 * DAY), 1, "just Sam");
+  assert.equal(world.state.emails.at(-1)!.subject, "Time to follow up with Sam Lee");
+
+  // Settings: saved from the admin page, with a bad value refused.
+  const bad = await api.call("POST", "/api/admin/settings", { headers: asAdmin(), body: { ...(await scheduling(env)), followUpDays: 4 } });
+  assert.equal(bad.status, 400);
 });

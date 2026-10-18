@@ -950,6 +950,31 @@ export function attentionAlert(problemsIn: Problem[]): Email {
   };
 }
 
+// ── Avery: students to follow up with (a week after their last session, nothing booked) ──
+
+export type FollowUpNote = { name: string; lastStart: number; service: string; days: number; credits: number };
+export function adminFollowUps(list: FollowUpNote[], afterDays: number): Email {
+  const when = (f: FollowUpNote) => `${day(f.lastStart, AVERY_TZ)} (${f.service})`;
+  const extra = (f: FollowUpNote) => (f.credits ? `, ${plural(f.credits, "bundle session")} left` : "");
+  const one = list.length === 1;
+  const intro = `${one ? "This student's" : "These students'"} last session was ${afterDays} or more days ago, and nothing else is booked:`;
+  return {
+    to: "",
+    subject: one ? `Time to follow up with ${list[0].name}` : `Time to follow up with ${list.length} students`,
+    html: layout({
+      preheader: list.map((f) => f.name).join(", "), tag: "Follow up", title: "Time to follow up",
+      body: [
+        para(intro),
+        `<ul style="margin:0 0 18px;padding-left:20px;font:14px/1.6 ${FONT};color:#2c3138;">${list.map((f) => `<li style="margin:0 0 8px;"><strong>${esc(f.name)}</strong>: last session ${esc(when(f))}${esc(extra(f))}</li>`).join("")}</ul>`,
+        button(`${ADMIN_URL}#attention`, "Open Admin"),
+        small("Email them, book them, or dismiss them from Needs attention. Each student is only in one of these emails per session. Change or turn this off in Settings."),
+      ].join("\n"),
+    }),
+    text: [intro, "",
+      ...list.map((f) => `- ${f.name}: last session ${when(f)}${extra(f)}`), "", `Open Admin: ${ADMIN_URL}#attention`].join("\n"),
+  };
+}
+
 // ── Client: checkout wasn't finished ──
 
 export function checkoutReminder(b: BookingView, bookUrl: string): Email {
@@ -1021,15 +1046,15 @@ export const HEADING_TITLES = [
   "Bundle confirmed", "Bundle purchased", "Sessions expiring", "Bundle cancelled",
   "Payment due", "Payment received", "Bundle updated", "Refund issued",
   "About your request", "Refund request", "Session skipped", "Repeats stopped", "Issue resolved", "Password updated",
-  "Checking in", "Anything coming up?", "Let's catch up", "Sessions waiting", "A note from Avery",
+  "Checking in", "Anything coming up?", "Let's catch up", "Sessions waiting", "A note from Avery", "Time to follow up",
 ];
 
 /* ── "Been a while" emails, sent from a student's profile ── */
 
-export type NudgeKind = "checkin" | "coming_up" | "intro" | "credits" | "custom";
+export type NudgeKind = "followup" | "checkin" | "coming_up" | "intro" | "credits" | "custom";
 
 export const NUDGE_LABELS: Record<NudgeKind, string> = {
-  checkin: "Gentle check-in", coming_up: "Something coming up?", intro: "Free intro chat", credits: "Unused credits", custom: "Written by me",
+  followup: "After a recent session", checkin: "Gentle check-in", coming_up: "Something coming up?", intro: "Free intro chat", credits: "Unused credits", custom: "Written by me",
 };
 
 export type NudgeCredits = { n: number; until: number; url: string; several: boolean };
@@ -1041,6 +1066,8 @@ const plural = (n: number, word: string) => `${n} ${n === 1 ? word : `${word}s`}
 export function nudgeDraft(kind: NudgeKind, name: string, credits?: NudgeCredits): { subject: string; body: string } {
   const first = firstName(name);
   switch (kind) {
+    case "followup":
+      return { subject: "Following up", body: `Hi ${first}, it was great working with you recently. How did it go? If you'd like to keep the momentum going, you can grab your next session here:\n\n{button}\n\nBest,\nAvery` };
     case "checkin":
       return { subject: "Checking in", body: `Hi ${first}, it's been a little while since our last session, and I wanted to see how things are going. If you have an audition, a project, or just want to get back into it, I'd love to work with you again. You can grab a time here:\n\n{button}\n\nHope you're well.\nAvery` };
     case "coming_up":
@@ -1066,7 +1093,7 @@ export type NudgeInput = {
   unsubscribeUrl: string;                            // where "Click here" at the bottom goes
 };
 
-const TITLES: Record<NudgeKind, string> = { checkin: "Checking in", coming_up: "Anything coming up?", intro: "Let's catch up", credits: "Sessions waiting", custom: "A note from Avery" };
+const TITLES: Record<NudgeKind, string> = { followup: "Checking in", checkin: "Checking in", coming_up: "Anything coming up?", intro: "Let's catch up", credits: "Sessions waiting", custom: "A note from Avery" };
 
 // Plain text -> paragraphs (blank line between paragraphs, single line breaks kept).
 const paragraphs = (text: string) => text.trim().split(/\n{2,}/).filter((p) => p.trim()).map((p) => para(esc(p.trim()).replace(/\n/g, "<br>"))).join("\n");

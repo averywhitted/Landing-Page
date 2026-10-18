@@ -16,7 +16,11 @@ export type Scheduling = {
   busyCalendars: string[];    // iCloud calendars that block booking
   bookingCalendar: string;    // iCloud calendar new bookings are written to
   remindersEnabled: boolean;  // "finish your booking" emails
+  followUpDays: number;       // prompt Avery this many days after a student's last session if nothing's booked (0 = off)
+  followUpEmail: boolean;     // also email her a daily list of new ones
 };
+
+export const FOLLOW_UP_DAYS = [0, 3, 5, 7, 10, 14, 21, 30];
 
 export function defaults(env: Env): Scheduling {
   return {
@@ -30,6 +34,8 @@ export function defaults(env: Env): Scheduling {
     busyCalendars: [...CALENDARS.busy],
     bookingCalendar: CALENDARS.booking,
     remindersEnabled: env.REMINDERS_ENABLED === "1",
+    followUpDays: 7,
+    followUpEmail: true,
   };
 }
 
@@ -60,11 +66,14 @@ export function validate(input: unknown): Scheduling {
   const bookingCalendar = typeof v.bookingCalendar === "string" ? v.bookingCalendar.trim() : "";
   if (!bookingCalendar || bookingCalendar.length > 100) throw new SettingsError("Pick the calendar new bookings go into.");
   if (busyCalendars.some((n) => n.length > 100)) throw new SettingsError("Calendar names are too long.");
+  const followUpDays = int("followUpDays", 0, 30, "Follow-up days");
+  if (!FOLLOW_UP_DAYS.includes(followUpDays)) throw new SettingsError(`Follow-up days must be one of ${FOLLOW_UP_DAYS.join(", ")}.`);
   // The bookings calendar always blocks time too, or you could be double-booked.
   if (!busyCalendars.includes(bookingCalendar)) busyCalendars.push(bookingCalendar);
   return {
     dayStartHour, dayEndHour, workDays, bufferMinutes, minNoticeHours, slotStepMinutes, packageValidDays,
     busyCalendars, bookingCalendar, remindersEnabled: v.remindersEnabled === true,
+    followUpDays, followUpEmail: v.followUpEmail === true,
   };
 }
 

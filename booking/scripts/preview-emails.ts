@@ -118,6 +118,7 @@ const groups: [string, Entry[]][] = [
     const credits = { n: 2, until: start + 30 * D, url: bundlePage, several: false };
     const make = (kind: T.NudgeKind, cr?: typeof credits) => T.studentNudge({ ...base, kind, credits: cr, ...T.nudgeDraft(kind, base.name, cr) });
     return [
+      { who: "Student", title: "After a recent session", when: "You send it (or schedule it) a week or so after their last session. Suggested from Needs attention.", email: make("followup") },
       { who: "Student", title: "Gentle check-in", when: "You send it (or schedule it) to someone quiet for a while. You can edit it first.", email: make("checkin") },
       { who: "Student", title: "Something coming up?", when: "Same.", email: make("coming_up") },
       { who: "Student", title: "Free intro chat", when: "Same; suggested after 120+ days.", email: make("intro") },
@@ -126,6 +127,12 @@ const groups: [string, Entry[]][] = [
       { who: "Student", title: "Written by you", when: "You write your own from scratch.", email: T.studentNudge({ ...base, kind: "custom", subject: "Pilot season", body: "Hi Jamie,\n\nPilot season is close and I have a few evenings open. {button}\n\nBest,\nAvery" }) },
     ] as Entry[];
   })()],
+  ["To you: follow-ups", [
+    { who: "You", title: "Time to follow up", when: "Once a day from 9 AM, when someone's last session was 7+ days ago (Settings) and nothing's booked.", email: T.adminFollowUps([
+      { name: "Jamie Rivera", lastStart: start - 8 * D, service: "Private Coaching Session, 1 hour", days: 8, credits: 0 },
+      { name: "Sam Lee", lastStart: start - 9 * D, service: "Private Coaching Session, 1 hour", days: 9, credits: 2 },
+    ], 7) },
+  ]],
   ["To you: system alerts", [
     { who: "You", title: "Something needs attention", when: "Failures that didn't fix themselves (at most hourly).", email: T.attentionAlert(["1 \"client confirmation\" email failed to send.", "Jamie Rivera's session on Thu, Oct 1, 11:00 AM isn't in your Coaching calendar.", { text: "The automatic refund of $130.00 to Jamie Rivera hasn't gone through. It will keep retrying; you can also refund it in Stripe.", fix: ["Resolve in Stripe", stripe] }]) },
     { who: "You", title: "Can't reach iCloud", when: "Your calendars have been unreachable for 15 minutes.", email: T.icloudStatus(false, "iCloud PROPFIND failed with status 401") },

@@ -32,6 +32,7 @@ import anythingComingUp from "../assets/headings/anything-coming-up.png";
 import letsCatchUp from "../assets/headings/lets-catch-up.png";
 import sessionsWaiting from "../assets/headings/sessions-waiting.png";
 import aNoteFromAvery from "../assets/headings/a-note-from-avery.png";
+import timeToFollowUp from "../assets/headings/time-to-follow-up.png";
 
 export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number }> = {
   "You're booked": { file: "youre-booked.png", w: 316, h: 23 },
@@ -64,6 +65,7 @@ export const HEADING_IMAGES: Record<string, { file: string; w: number; h: number
   "Let's catch up": { file: "lets-catch-up.png", w: 302, h: 23 },
   "Sessions waiting": { file: "sessions-waiting.png", w: 373, h: 23 },
   "A note from Avery": { file: "a-note-from-avery.png", w: 409, h: 23 },
+  "Time to follow up": { file: "time-to-follow-up.png", w: 388, h: 23 },
 };
 
 // Image bytes by file name, served at /email/h/<file>.
@@ -98,4 +100,5 @@ export const HEADING_BYTES: Record<string, ArrayBuffer> = {
   "lets-catch-up.png": letsCatchUp,
   "sessions-waiting.png": sessionsWaiting,
   "a-note-from-avery.png": aNoteFromAvery,
+  "time-to-follow-up.png": timeToFollowUp,
 };

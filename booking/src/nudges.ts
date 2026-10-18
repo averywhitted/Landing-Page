@@ -1,5 +1,5 @@
 // "Been a while" emails: Avery sends (or schedules) one from a student's list
-// entry or profile. Four written templates plus one Avery writes herself.
+// entry or profile. Five written templates plus one Avery writes herself.
 //
 // Guard rails: warnings (upcoming session, emailed recently, or seen recently)
 // have to be confirmed; a student marked "don't email" can't be sent to at all;
@@ -56,15 +56,17 @@ async function facts(env: Env, s: Student, now: number) {
   };
 }
 
-function warningsFor(f: Awaited<ReturnType<typeof facts>>, first: string, now: number): string[] {
+// The "only N days ago" warning is left out for the follow-up email, which is meant for just after a session.
+function warningsFor(f: Awaited<ReturnType<typeof facts>>, first: string, now: number, kind?: T.NudgeKind): string[] {
   const out: string[] = [];
   if (f.upcoming) out.push(`${first} has a session coming up on ${dayText(f.nextStart!)}.`);
-  else if (f.days < QUIET_DAYS) out.push(`Their last session was only ${f.days} day${f.days === 1 ? "" : "s"} ago.`);
+  else if (f.days < QUIET_DAYS && kind !== "followup") out.push(recentWarning(f.days));
   if (f.waiting) out.push(`An email to ${first} is already scheduled for ${dayText(f.waiting)}.`);
   if (f.lastSent && now - f.lastSent < REPEAT_DAYS * DAY) out.push(`You emailed ${first} on ${dayText(f.lastSent)}.`);
   return out;
 }
 
+const recentWarning = (days: number) => `Their last session was only ${days} day${days === 1 ? "" : "s"} ago.`;
 const firstOf = (name: string) => name.trim().split(/\s+/)[0] || "them";
 
 /* ── Pauses: the student's own choice from the link in each email ── */
@@ -95,10 +97,12 @@ export async function adminNudgeInfo(env: Env, customerId: string, now: number) 
   const credits = await creditsFor(env, s.id, now);
   return {
     name: s.name, email: s.email, noEmail: !!s.no_email, blocked: blockedReason(s, now), days: f.days, upcoming: f.upcoming,
-    warnings: warningsFor(f, firstOf(s.name), now),
+    // Every template but the follow-up also warns when their last session was recent (recentWarning).
+    warnings: warningsFor(f, firstOf(s.name), now, "followup"),
+    recentWarning: !f.upcoming && f.days < QUIET_DAYS ? recentWarning(f.days) : null,
     credits: credits ? { n: credits.n, until: new Date(credits.until).toISOString() } : null,
     // Credits are the strongest reason to write; after that, the longer they've been away the softer the ask.
-    suggested: credits ? "credits" : f.days >= 120 ? "intro" : "checkin",
+    suggested: credits ? "credits" : f.days < QUIET_DAYS ? "followup" : f.days >= 120 ? "intro" : "checkin",
     templates: KINDS.filter((k) => k !== "credits" || credits).map((kind) => ({ kind, label: T.NUDGE_LABELS[kind] })),
   };
 }
@@ -164,7 +168,7 @@ export async function adminSendNudge(env: Env, customerId: string, raw: Record<s
   // A scheduled email is checked again when it goes out, so their pause has to be over by then.
   const blocked = blockedReason(s, sendAt);
   if (blocked) throw new BookingError(409, scheduled && !s.no_email && !pauseAt(s, sendAt)?.forever ? `${blocked} Pick a later date.` : blocked);
-  const warnings = warningsFor(await facts(env, s, now), firstOf(s.name), now);
+  const warnings = warningsFor(await facts(env, s, now), firstOf(s.name), now, d.kind);
   if (warnings.length && raw.force !== true) throw new BookingError(409, `${warnings.join(" ")} Send anyway?`);
   const email = await build(env, s, d, now);
 
