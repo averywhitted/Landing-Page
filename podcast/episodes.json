@@ -193,6 +193,41 @@
           "url": "https://www.facebook.com/share/r/1Fto5QAPFz/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 7,
+      "slug": "zak-stevens",
+      "title": "Zak Stevens: You Can't Plan for Everything",
+      "guest": "Zak Stevens",
+      "headline": "You Can't Plan for Everything",
+      "guid": "2c279ad2-c7b5-40a0-98e1-bb6cf05dfc47",
+      "published": "2026-10-23T04:15:40Z",
+      "duration_seconds": 3833,
+      "apple_episode_id": "1000797722909",
+      "apple_episode_slug": "zak-stevens-you-cant-plan-for-everything",
+      "summary": "Zak Stevens (Stick, Wiretap, Avenue Q, and a whole lot more) talks about treating a commercial audition like a pitch instead of a test, why them having no idea what they want is freeing, and how to make the waiting part of the job. Plus, the disastrous first audition in Vancouver that a musical director remembered years later...for the strangest reason.",
+      "meta_description": "Zak Stevens (Stick, Wiretap, Avenue Q, and a whole lot more) talks about treating a commercial audition like a pitch instead of a... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Zak on Instagram: @",
+          "text": "thezakstevens",
+          "url": "https://www.instagram.com/thezakstevens/#"
+        },
+        {
+          "label": "Follow Avery on Instagram: @",
+          "text": "avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted"
+        },
+        {
+          "text": "Avenue Q at Metro Theatre in Vancouver, BC",
+          "url": "https://metrotheatre.com/avenue-q/"
+        },
+        {
+          "text": "Queens for a Day",
+          "url": "https://www.imdb.com/title/tt44111567/"
+        }
+      ]
     }
   ]
 }
