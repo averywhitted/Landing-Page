@@ -2059,7 +2059,8 @@ test("repeating: a set number of sessions ends by itself; groups and bundle cred
   await api.cron();
   const all = inSeries(sid);
   assert.equal(all.length, 2);
-  assert.equal(Date.parse(all[1].start_utc) - past, 14 * DAY, "every 2 weeks");
+  // Same Eastern clock time, so across a clock change it's 14 days give or take an hour.
+  assert.ok(Math.abs(Date.parse(all[1].start_utc) - past - 14 * DAY) <= 3600000, "every 2 weeks");
   assert.equal(all[1].price_cents, 0, "free, so no pay link");
   assert.equal(seriesOf(first).status, "ended");
   endSession(all[1].id);
@@ -2923,4 +2924,155 @@ test("undo: a dismissed follow-up comes back; a cancelled scheduled email goes b
   assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/restore`, { headers: asAdmin() })).status, 409, "only a cancelled one");
   db.prepare("UPDATE nudge_emails SET status = 'cancelled', note = 'They paused or unsubscribed.' WHERE id = ?").run(n.id);
   assert.equal((await api.call("POST", `/api/admin/nudges/${n.id}/restore`, { headers: asAdmin() })).status, 409, "not one their pause called off");
+});
+
+/* ── Other lengths Avery books (15-minute steps) ── */
+
+test("book a student: any length in 15-minute steps, priced from the hour unless set; not on the public booking page", async () => {
+  adminEnv();
+  const r = await adminBook({ serviceId: "coaching-75", students: [student("Leslie Davis", "leslie@example.com", { priceCents: 13000 })] });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const b0 = row(r.data.bookingId);
+  assert.equal(Date.parse(b0.end_utc) - Date.parse(b0.start_utc), 75 * 60000);
+  assert.equal(b0.price_cents, 13000, "Avery's price");
+  assert.equal(claims(b0.id), 5, "five 15-minute blocks");
+  assert.match(inviteFor("leslie@example.com").subject, /75 minute session/);
+  const dflt = await adminBook({ serviceId: "coaching-45", time: "17:00", students: [student("Default Price", "dp@example.com")] });
+  assert.equal(row(dflt.data.bookingId).price_cents, 9750, "pro rata from $130 an hour");
+  for (const bad of ["coaching-70", "coaching-195", "coaching-15"]) {
+    assert.equal((await adminBook({ serviceId: bad, time: "19:00", students: [student("X", "x@example.com")] })).status, 400, bad);
+  }
+
+  // The public page can't book or look up those lengths...
+  const slots = await openSlots();
+  assert.equal((await book("coaching-75", slots[0])).status, 400);
+  assert.equal((await api.call("GET", `/api/availability?service=coaching-75&from=${nyDate(4)}&days=2`)).status, 400);
+  // ...but Leslie can find times to move her own session to, from her link.
+  const { b, t } = linkIn(inviteFor("leslie@example.com").text);
+  const moving = await api.call("GET", `/api/availability?service=coaching-75&from=${nyDate(5)}&days=2&b=${b}&t=${t}`);
+  assert.equal(moving.status, 200, JSON.stringify(moving.data));
+  assert.equal(moving.data.durationMinutes, 75);
+  const other = linkIn(inviteFor("dp@example.com").text);
+  assert.equal((await api.call("GET", `/api/availability?service=coaching-75&from=${nyDate(5)}&days=2&b=${other.b}&t=${other.t}`)).status, 400,
+    "only for the booking's own length");
+});
+
+/* ── Payments outside Stripe ── */
+
+const recordPayment = (id: string, body: Record<string, unknown>) =>
+  api.call("POST", `/api/admin/bookings/${id}/offline-payment`, { headers: asAdmin(), body });
+
+test("cash: part paid leaves the rest by link, drops the deadline, and the card pays only what's left", async () => {
+  adminEnv();
+  const r = await adminBook({ payBy: "after48", students: [student("Leslie Davis", "leslie@example.com", { priceCents: 13000 })] });
+  const id = r.data.bookingId;
+  const { b, t } = linkIn(inviteFor("leslie@example.com").text);
+  await api.call("POST", "/api/pay", { body: { b, t } });
+  const openCheckout = row(id).stripe_checkout_session_id;
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/offline-payment`, { body: { amountCents: 10000, method: "cash" } })).status, 403, "admin only");
+
+  assert.equal((await recordPayment(id, { amountCents: 13001, method: "cash" })).status, 400, "not more than owed");
+  assert.equal((await recordPayment(id, { amountCents: 10000, method: "barter" })).status, 400);
+  const rec = await recordPayment(id, { amountCents: 10000, method: "cash", note: "Paid after class" });
+  assert.equal(rec.status, 201, JSON.stringify(rec.data));
+  assert.equal(rec.data.dueCents, 3000);
+  assert.match(rec.data.message, /\$100 recorded\. \$30 left to pay/);
+  const after = row(id);
+  assert.equal(after.offline_cents, 10000);
+  assert.equal(after.paid_at, null);
+  assert.equal(after.pay_by, null, "won't be released for being unpaid");
+  assert.equal(world.state.stripeSessions.get(openCheckout)!.status, "expired", "the old $130 payment page is closed");
+  const receipt = world.state.emails.find((e) => e.to[0] === "leslie@example.com" && /^\$30 left to pay/.test(e.subject))!;
+  assert.ok(receipt, "receipt sent");
+  assert.match(receipt.text, /your payment of \$100 in cash/);
+  assert.match(receipt.text, /pay=1/);
+  assert.ok(noEmDash(receipt.text));
+  assert.match(world.state.calendarEvents.get(after.calendar_event_url)!.replace(/\r\n[ \t]/g, ""), /Not paid yet: 30\.00 USD due \(100\.00 USD paid outside Stripe\)/);
+
+  const students = (await api.call("GET", "/api/admin/students", { headers: asAdmin() })).data;
+  assert.equal(students.find((s: any) => s.email === "leslie@example.com").owedCents, 3000, "profile shows $30, not $130");
+  assert.equal((await api.call("GET", `/api/manage?b=${b}&t=${t}`)).data.payment.dueCents, 3000);
+
+  const pay = await api.call("POST", "/api/pay", { body: { b, t } });
+  const s = world.state.stripeSessions.get(row(id).stripe_checkout_session_id)!;
+  assert.equal(pay.status, 200);
+  assert.equal(s.amount_total, 3000, "card pays only the $30");
+  await api.webhook("checkout.session.completed", paid(s));
+  const done = row(id);
+  assert.ok(done.paid_at);
+  assert.equal(done.amount_cents, 3000);
+  assert.match(world.state.calendarEvents.get(done.calendar_event_url)!.replace(/\r\n[ \t]/g, ""), /Paid 130\.00 USD \(30\.00 USD by card\\, 100\.00 USD paid outside Stripe\)/);
+  assert.equal((await recordPayment(id, { amountCents: 100, method: "cash" })).status, 409, "nothing left");
+  const p = (await api.call("GET", `/api/admin/students/${done.customer_id}`, { headers: asAdmin() })).data.offlinePayments;
+  assert.equal(p.length, 1);
+  assert.equal(p[0].canRemove, false, "the rest was paid since");
+  assert.equal((await api.call("POST", `/api/admin/offline-payments/${p[0].id}/remove`, { headers: asAdmin() })).status, 409);
+});
+
+test("cash: paying it all marks the session paid with the Zoom link; Undo puts it back to owed", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Full Cash", "full@example.com", { priceCents: 13000 })] });
+  const id = r.data.bookingId;
+  db.prepare("UPDATE bookings SET zoom_join_url = 'https://zoom.us/j/123' WHERE id = ?").run(id);
+  assert.doesNotMatch(inviteFor("full@example.com").text, /zoom\.us/, "held back until paid");
+  const rec = await recordPayment(id, { amountCents: 13000, method: "venmo" });
+  assert.equal(rec.status, 201, JSON.stringify(rec.data));
+  assert.equal(rec.data.settled, true);
+  const paidRow = row(id);
+  assert.ok(paidRow.paid_at);
+  assert.equal(paidRow.amount_cents, 0, "nothing by card, so nothing Stripe could refund");
+  const receipt = world.state.emails.find((e) => e.to[0] === "full@example.com" && /^Paid: /.test(e.subject))!;
+  assert.match(receipt.text, /by Venmo/);
+  assert.match(receipt.text, /Zoom: https:\/\/zoom\.us\/j\/123/);
+  assert.ok(receipt.attachments?.length, "calendar update with the Zoom link");
+  assert.match(world.state.calendarEvents.get(paidRow.calendar_event_url)!.replace(/\r\n[ \t]/g, ""), /Paid 130\.00 USD paid outside Stripe/);
+
+  const removed = await api.call("POST", `/api/admin/offline-payments/${rec.data.id}/remove`, { headers: asAdmin() });
+  assert.equal(removed.status, 200, JSON.stringify(removed.data));
+  assert.equal(removed.data.dueCents, 13000);
+  assert.equal(row(id).paid_at, null);
+  assert.equal(row(id).offline_cents, 0);
+  assert.equal((await api.call("POST", `/api/admin/offline-payments/${rec.data.id}/remove`, { headers: asAdmin() })).status, 409, "only once");
+});
+
+test("cash: waiving the rest, no email when asked, and nothing over the price even straight in the database", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Wave Ive", "waive@example.com", { priceCents: 13000 })] });
+  const id = r.data.bookingId;
+  const before = world.state.emails.length;
+  await recordPayment(id, { amountCents: 10000, method: "zelle", notifyClient: false });
+  const w = await recordPayment(id, { amountCents: 3000, method: "waived", notifyClient: false });
+  assert.equal(w.status, 201);
+  assert.equal(world.state.emails.length, before, "nothing sent");
+  assert.ok(row(id).paid_at);
+  assert.equal(row(id).waived_cents, 3000);
+  assert.throws(() => db.prepare("UPDATE bookings SET offline_cents = 13001, waived_cents = 0 WHERE id = ?").run(id), /exceed the price/);
+  assert.equal((await recordPayment(id, { amountCents: 100, method: "cash", receivedOn: "2999-01-01" })).status, 409);
+});
+
+test("cash: cancelling never refunds it through Stripe; Avery is told it's hers to give back", async () => {
+  adminEnv();
+  const a = await adminBook({ students: [student("Cash Cancel", "cc@example.com", { priceCents: 13000 })] });
+  await recordPayment(a.data.bookingId, { amountCents: 13000, method: "cash" });
+  const c1 = await api.call("POST", `/api/admin/bookings/${a.data.bookingId}/cancel`, { headers: asAdmin(), body: { notifyClient: true, refund: true } });
+  assert.equal(c1.status, 200, JSON.stringify(c1.data));
+  assert.equal(world.state.refunds.length, 0, "no Stripe refund for cash");
+  assert.equal(row(a.data.bookingId).refund_requested_at, null);
+
+  const b = await adminBook({ time: "16:00", students: [student("Self Cancel", "sc@example.com", { priceCents: 13000 })] });
+  await recordPayment(b.data.bookingId, { amountCents: 5000, method: "cash" });
+  const link = linkIn(inviteFor("sc@example.com").text);
+  assert.equal((await api.call("POST", "/api/manage/cancel", { body: link })).status, 200);
+  assert.equal(world.state.refunds.length, 0);
+  const note = world.state.emails.find((e) => /^Cancelled: Self Cancel/.test(e.subject))!;
+  assert.match(note.text, /paid you \$50 outside Stripe/);
+});
+
+test("cash: in the CSV export as its own row", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Csv Cash", "csv@example.com", { priceCents: 13000 })] });
+  await recordPayment(r.data.bookingId, { amountCents: 10000, method: "cash", note: "end of class" });
+  const csv = await api.call("GET", `/api/admin/export?from=${etDate(Date.now() - 3 * DAY)}&to=${etDate(Date.now() + 30 * DAY)}`, { headers: asAdmin() });
+  assert.match(csv.data, /"Payment outside Stripe","[\d-]+","[^"]+","Csv Cash","csv@example.com","1 hour session, [\d-]+ \(end of class\)","Received","Avery","100\.00","100\.00","0\.00","100\.00","Cash"/);
+  assert.match(csv.data, /"Session",.*"Csv Cash".*"Outside Stripe"/);
 });

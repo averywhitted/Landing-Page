@@ -29,7 +29,7 @@ import { createMeeting, deleteMeeting, updateMeeting } from "./zoom";
 import { buildIcs } from "./ics";
 import { manageUrl, validManageToken } from "./manage";
 import {
-  BookingError, CLIENT_COLUMNS, UNIQUE_CLAIM, afterConfirm, afterReschedule, clean, clientIcs, dueCents, issueRefund,
+  BookingError, CLIENT_COLUMNS, DUE_SQL, UNIQUE_CLAIM, afterConfirm, afterReschedule, clean, clientIcs, dueCents, issueRefund,
   loadBooking, payUrl, refreshCalendarEvent, removeCancelled, serviceLabel, view, type BookingRow,
 } from "./bookings";
 
@@ -268,7 +268,7 @@ function groupEventIcs(g: GroupRow, seats: BookingRow[]): string {
   const service = findService(g.service_id)!;
   const lines = seats.map((s) => {
     const due = dueCents(s);
-    const pay = s.package_id ? "bundle credit" : s.paid_at ? `paid ${money(s.amount_cents)}` : due ? `${money(due)} due` : "free";
+    const pay = s.package_id ? "bundle credit" : s.paid_at ? `paid ${money(s.amount_cents + s.offline_cents)}` : due ? `${money(due)} due` : "free";
     return `${s.name}${s.pronouns ? ` (${s.pronouns})` : ""}, ${s.email}: ${pay}`;
   });
   return buildIcs({
@@ -486,8 +486,7 @@ export async function adminStudents(env: Env, now: number) {
        (SELECT MIN(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc > ?1) AS next_start,
        (SELECT MAX(b.start_utc) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS last_start,
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.start_utc <= ?1) AS past,
-       (SELECT COALESCE(SUM(b.price_cents), 0) FROM bookings b WHERE b.customer_id = c.id AND b.status = 'confirmed' AND b.price_cents IS NOT NULL
-          AND b.paid_at IS NULL AND b.package_id IS NULL AND b.price_cents > 0) AS owed_cents,
+       (SELECT COALESCE(SUM(${DUE_SQL("b")}), 0) FROM bookings b WHERE b.customer_id = c.id) AS owed_cents,
        (SELECT MAX(b.created_at) FROM bookings b WHERE b.customer_id = c.id AND b.status IN ('confirmed', 'cancelled')) AS last_booked,
        (SELECT COUNT(*) FROM bookings b WHERE b.customer_id = c.id AND b.attendance = 'no_show') AS no_shows,
        c.no_email, c.created_at AS since, c.email_paused_until, c.email_paused_at,
@@ -537,7 +536,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
         id: b.id, service: serviceLabel(service), serviceId: b.service_id, start: b.start_utc, end: b.end_utc,
         status: b.status === "confirmed" ? (Date.parse(b.end_utc) <= now ? "past" : "upcoming") : "cancelled",
         cancelReason: b.cancel_reason, group: !!b.group_id, groupId: b.group_id, byAvery: b.created_by === "admin",
-        paid: b.package_id ? "bundle" : b.amount_cents, dueCents: dueCents(b), payBy: b.pay_by, refunded: !!b.refunded_at,
+        paid: b.package_id ? "bundle" : b.amount_cents, offlineCents: b.offline_cents, waivedCents: b.waived_cents, dueCents: dueCents(b), payBy: b.pay_by, refunded: !!b.refunded_at,
         refundedCents: b.refunded_cents ?? 0, noShow: b.attendance === "no_show", remindersSent: b.payment_reminders_sent,
         lastReminderAt: b.last_payment_reminder_at, nextReminderAt: nextAutoReminder(b, now),
         intake: b.intake_json ? JSON.parse(b.intake_json) : null, message: b.invite_message, seriesId: b.series_id,
@@ -545,6 +544,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
       };
     }),
     paymentRequests: await (await import("./requests")).openRequests(env, customerId),
+    offlinePayments: await (await import("./offline")).offlinePaymentsFor(env, customerId),
     series: (await env.DB.prepare(
       "SELECT id, service_id, every_weeks, sessions_left, last_start, price_cents, started_by FROM series WHERE customer_id = ?1 AND status IN ('pending', 'active')",
     ).bind(customerId).all<Record<string, any>>()).results.map((x) => ({
@@ -585,7 +585,7 @@ const recordReminder = (env: Env, id: string, now: number) => env.DB.prepare(
 ).bind(iso(now), id).run();
 
 // When the one automatic reminder is due (null if it's been sent or isn't needed).
-export function nextAutoReminder(row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status" | "payment_reminder_sent_at" | "pay_by" | "start_utc" | "created_at" | "last_payment_reminder_at">, now: number): string | null {
+export function nextAutoReminder(row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status" | "offline_cents" | "waived_cents" | "payment_reminder_sent_at" | "pay_by" | "start_utc" | "created_at" | "last_payment_reminder_at">, now: number): string | null {
   if (!dueCents(row) || row.payment_reminder_sent_at) return null;
   const start = Date.parse(row.start_utc);
   let at = row.pay_by ? Date.parse(row.pay_by) - 24 * 60 * MIN : start - 2 * 24 * 60 * MIN;

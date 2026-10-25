@@ -8,7 +8,7 @@
 
 import type { Env } from "./env";
 import { iso } from "./time";
-import { BookingError, clean, refreshCalendarEvent } from "./bookings";
+import { BookingError, DUE_SQL, clean, refreshCalendarEvent } from "./bookings";
 
 const MIN = 60000;
 
@@ -94,8 +94,7 @@ export async function adminDeletePreview(env: Env, customerId: string, now: numb
 
   const upcoming = await count(env, "SELECT COUNT(*) AS n FROM bookings WHERE customer_id = ?1 AND status = 'confirmed' AND end_utc > ?2", customerId, t);
   const holds = await count(env, "SELECT COUNT(*) AS n FROM bookings WHERE customer_id = ?1 AND status = 'held' AND hold_expires_at > ?2", customerId, t);
-  const owed = await count(env, `SELECT COALESCE(SUM(price_cents), 0) AS n FROM bookings WHERE customer_id = ?1 AND status = 'confirmed'
-    AND price_cents IS NOT NULL AND price_cents > 0 AND paid_at IS NULL AND package_id IS NULL`, customerId);
+  const owed = await count(env, `SELECT COALESCE(SUM(${DUE_SQL("b")}), 0) AS n FROM bookings b WHERE b.customer_id = ?1`, customerId);
   const requests = await count(env, "SELECT COUNT(*) AS n FROM payment_requests WHERE customer_id = ?1 AND status = 'open'", customerId);
   const refundAsks = await count(env, "SELECT COUNT(*) AS n FROM refund_requests WHERE customer_id = ?1 AND status = 'open'", customerId);
   const refundsOut = await count(env, `SELECT COUNT(*) AS n FROM bookings WHERE customer_id = ?1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL`, customerId)
@@ -120,7 +119,8 @@ export async function adminDeletePreview(env: Env, customerId: string, now: numb
   const cancelled = await count(env, "SELECT COUNT(*) AS n FROM bookings WHERE customer_id = ?1 AND status = 'cancelled'", customerId);
   const paid = await count(env, "SELECT COALESCE(SUM(amount_cents), 0) AS n FROM bookings WHERE customer_id = ?1 AND package_id IS NULL", customerId)
     + await count(env, "SELECT COALESCE(SUM(amount_cents), 0) AS n FROM packages WHERE customer_id = ?1 AND stripe_payment_intent_id IS NOT NULL", customerId)
-    + await count(env, "SELECT COALESCE(SUM(paid_cents), 0) AS n FROM payment_requests WHERE customer_id = ?1 AND status = 'paid'", customerId);
+    + await count(env, "SELECT COALESCE(SUM(paid_cents), 0) AS n FROM payment_requests WHERE customer_id = ?1 AND status = 'paid'", customerId)
+    + await count(env, "SELECT COALESCE(SUM(amount_cents), 0) AS n FROM offline_payments WHERE customer_id = ?1 AND status = 'active' AND method <> 'waived'", customerId);
   const bundleCount = await count(env, "SELECT COUNT(*) AS n FROM packages WHERE customer_id = ?1 AND status IN ('active', 'cancelled')", customerId);
   const requestsTotal = await count(env, "SELECT COUNT(*) AS n FROM payment_requests WHERE customer_id = ?1", customerId);
 
@@ -142,6 +142,7 @@ export async function adminDeleteStudent(env: Env, customerId: string, confirm: 
     env.DB.prepare(`DELETE FROM email_log WHERE booking_id IN ${mine}`).bind(customerId),
     env.DB.prepare(`DELETE FROM credit_ledger WHERE package_id IN ${myPackages} OR booking_id IN ${mine}`).bind(customerId),
     env.DB.prepare("DELETE FROM payment_requests WHERE customer_id = ?1").bind(customerId),
+    env.DB.prepare("DELETE FROM offline_payments WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM refund_requests WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM bookings WHERE customer_id = ?1").bind(customerId),
     env.DB.prepare("DELETE FROM packages WHERE customer_id = ?1").bind(customerId),
@@ -262,7 +263,7 @@ export async function adminMergeStudents(env: Env, keepId: unknown, mergeRaw: un
   for (const o of others) {
     if (o.notes) notes = `${notes}${notes ? "\n\n" : ""}From ${o.name} (${o.email}):\n${o.notes}`;
     pronouns = pronouns || o.pronouns;
-    for (const t of ["bookings", "packages", "series", "payment_requests", "refund_requests", "nudge_emails"]) {
+    for (const t of ["bookings", "packages", "series", "payment_requests", "offline_payments", "refund_requests", "nudge_emails"]) {
       stmts.push(env.DB.prepare(`UPDATE ${t} SET customer_id = ?1 WHERE customer_id = ?2`).bind(keepId, o.id));
     }
     stmts.push(

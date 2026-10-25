@@ -705,7 +705,8 @@
         state.servicesError = true;
       }
       if (reschedule && state.services) {
-        state.service = state.services.find((s) => s.id === reschedule.serviceId) || null;
+        // A length Avery booked specially isn't in the public list; the manage page passes it in.
+        state.service = state.services.find((s) => s.id === reschedule.serviceId) || reschedule.service || null;
         // Open on the day of their current session (or the first open day after today).
         if (reschedule.currentStart) state.day = dateKey(reschedule.currentStart, state.tz);
         if (state.service) return loadWeek();

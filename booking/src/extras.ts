@@ -53,13 +53,18 @@ const timeOf = (ms: number) => new Intl.DateTimeFormat("en-US", { timeZone: RULE
 
 type Rec = Record<string, any>;
 
-function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[]): string {
+const METHOD_NAMES: Record<string, string> = { cash: "Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other" };
+
+function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[], offline: Rec[]): string {
   const rows: unknown[][] = [["Type", "Date", "Time (Eastern)", "Student", "Email", "What", "Status", "Booked by", "Price", "Paid", "Refunded", "Net", "Paid with", "Promo code", "Attendance"]];
   for (const b of sessions) {
     const start = Date.parse(b.start_utc);
     const paid = b.package_id ? 0 : b.amount_cents;
     const refunded = b.refunded_cents ?? 0;
-    const method = b.package_id ? "Bundle credit" : paid > 0 ? "Card" : b.price_cents !== null && b.price_cents > 0 && !b.paid_at ? "Unpaid" : "Free";
+    // Money paid outside Stripe has its own rows below; here it's only named.
+    const method = b.package_id ? "Bundle credit"
+      : [paid > 0 ? "Card" : "", b.offline_cents > 0 ? "Outside Stripe" : "", b.waived_cents > 0 ? "Part waived" : ""].filter(Boolean).join(" + ")
+        || (b.price_cents !== null && b.price_cents > 0 && !b.paid_at ? "Unpaid" : "Free");
     rows.push([
       b.group_id ? "Group session" : "Session", dayOf(start), timeOf(start), b.name, b.email, serviceLabel(findService(b.service_id)!),
       b.status === "confirmed" ? (start < Date.now() ? "Happened" : "Upcoming") : `Cancelled (${String(b.cancel_reason ?? "").replace(/_/g, " ")})`,
@@ -72,6 +77,15 @@ function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[]): string {
     rows.push([
       "Payment request", dayOf(at), timeOf(at), r.name, r.email, serviceLabel(findService(r.service_id)!), "Paid", "Avery",
       dollars(r.amount_cents), dollars(r.paid_cents ?? 0), "0.00", dollars(r.paid_cents ?? 0), "Card", "", "",
+    ]);
+  }
+  for (const o of offline) {
+    const at = Date.parse(o.created_at);
+    const waived = o.method === "waived";
+    rows.push([
+      waived ? "Waived" : "Payment outside Stripe", o.received_on, timeOf(at), o.name, o.email,
+      `${serviceLabel(findService(o.service_id)!)}, ${dayOf(Date.parse(o.start_utc))}${o.note ? ` (${o.note})` : ""}`, waived ? "Let go" : "Received", "Avery",
+      dollars(o.amount_cents), dollars(waived ? 0 : o.amount_cents), "0.00", dollars(waived ? 0 : o.amount_cents), waived ? "" : METHOD_NAMES[o.method] ?? o.method, "", "",
     ]);
   }
   for (const p of bundles) {
@@ -87,6 +101,7 @@ function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[]): string {
 
 const SESSION_SQL = `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.status IN ('confirmed', 'cancelled')`;
 const BUNDLE_SQL = `SELECT p.*, ${CLIENT_COLUMNS("p")} FROM packages p JOIN customers c ON c.id = p.customer_id WHERE p.status IN ('active', 'cancelled') AND p.stripe_payment_intent_id IS NOT NULL`;
+const OFFLINE_SQL = `SELECT o.*, b.service_id, b.start_utc, ${CLIENT_COLUMNS("b")} FROM offline_payments o JOIN bookings b ON b.id = o.booking_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'active'`;
 const REQUEST_SQL = `SELECT r.*, b.service_id, ${CLIENT_COLUMNS("b")} FROM payment_requests r JOIN bookings b ON b.id = r.booking_id JOIN customers c ON c.id = r.customer_id WHERE r.status = 'paid'`;
 
 export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
@@ -99,7 +114,10 @@ export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
   const sessions = await env.DB.prepare(`${SESSION_SQL} AND b.start_utc >= ?1 AND b.start_utc < ?2 ORDER BY b.start_utc`).bind(iso(from), iso(to)).all<Rec>();
   const bundles = await env.DB.prepare(`${BUNDLE_SQL} AND p.created_at >= ?1 AND p.created_at < ?2 ORDER BY p.created_at`).bind(iso(from), iso(to)).all<Rec>();
   const requests = await env.DB.prepare(`${REQUEST_SQL} AND r.paid_at >= ?1 AND r.paid_at < ?2 ORDER BY r.paid_at`).bind(iso(from), iso(to)).all<Rec>();
-  return exportCsv(sessions.results, requests.results, bundles.results);
+  // By the day it was received (a date in Avery's time zone).
+  const offline = await env.DB.prepare(`${OFFLINE_SQL} AND o.received_on >= ?1 AND o.received_on <= ?2 ORDER BY o.received_on, o.created_at`)
+    .bind(`${f[1]}-${f[2]}-${f[3]}`, `${t[1]}-${t[2]}-${t[3]}`).all<Rec>();
+  return exportCsv(sessions.results, requests.results, bundles.results, offline.results);
 }
 
 // Everything on record for one student, all dates.
@@ -109,7 +127,8 @@ export async function adminExportStudent(env: Env, customerId: string) {
   const sessions = await env.DB.prepare(`${SESSION_SQL} AND b.customer_id = ?1 ORDER BY b.start_utc`).bind(customerId).all<Rec>();
   const bundles = await env.DB.prepare(`${BUNDLE_SQL} AND p.customer_id = ?1 ORDER BY p.created_at`).bind(customerId).all<Rec>();
   const requests = await env.DB.prepare(`${REQUEST_SQL} AND r.customer_id = ?1 ORDER BY r.paid_at`).bind(customerId).all<Rec>();
-  return { name: c.name, csv: exportCsv(sessions.results, requests.results, bundles.results) };
+  const offline = await env.DB.prepare(`${OFFLINE_SQL} AND o.customer_id = ?1 ORDER BY o.received_on, o.created_at`).bind(customerId).all<Rec>();
+  return { name: c.name, csv: exportCsv(sessions.results, requests.results, bundles.results, offline.results) };
 }
 
 /* ── Is iCloud reachable? ── */
@@ -155,7 +174,7 @@ export async function calendarHealth(env: Env) {
 /* ── Backups ── */
 
 // Not included: stored_secrets (the encrypted iCloud password stays out of every copy).
-const BACKUP_TABLES = ["customers", "customer_aliases", "duplicate_ignores", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "payment_requests", "nudge_emails", "settings", "alerts_sent"];
+const BACKUP_TABLES = ["customers", "customer_aliases", "duplicate_ignores", "series", "bookings", "groups", "packages", "credit_ledger", "slot_claims", "refund_requests", "payment_requests", "offline_payments", "nudge_emails", "settings", "alerts_sent"];
 
 export async function backupJson(env: Env, now: number): Promise<string> {
   const out: Record<string, unknown> = { made: iso(now), tables: {} };
@@ -205,7 +224,7 @@ export async function clearTestData(env: Env, confirm: unknown) {
     if (l.cal) await cal.deleteEvent(l.cal).catch(() => { problems++; });
     if (l.zoom) await deleteMeeting(env, l.zoom).catch(() => { problems++; });
   }
-  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "bookings", "groups", "series", "packages", "nudge_emails", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
+  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "offline_payments", "bookings", "groups", "series", "packages", "nudge_emails", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
   await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
   return {
     ok: true,

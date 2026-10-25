@@ -1,37 +1,51 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-18 12:17 EDT · branch `master` @ `08a81fe` · working tree: release script committed in the same commit as this entry_
+_Updated 2026-10-25 19:25 EDT · branch `master` @ `005f340` · working tree: cash payments + custom lengths committed with this entry (not deployed)_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Avery tries the new admin (follow-ups, phone layout, dark mode) on a real phone.
+**Current goal:** Release "Record a payment" (cash/Venmo/Zelle/check/waive) and 15-minute session lengths, then record Leslie Davis's $100 cash so her balance shows $30.
 
 **Where things stand:**
-- LIVE (Avery deployed 2026-10-18, migration 0019 applied, master pushed): follow-up prompts and phone polish + dark mode. 145 tests pass.
-- Releases: `cd booking && npm run release` (pull, stamp check, tests, migrations, deploy, push, in that order); `npm run release -- --check` does the safe steps only.
-- Admin on phones: slim one-row header, one-line student rows, week calendar by default (first names only in narrow columns), bottom tabs, Connections chip, "⋯" card menus.
-- Undo: dismissing a follow-up, marking/unmarking a no-show, and cancelling a scheduled check-in email happen at once with Undo; payment reminders, resending an invite, Keep this time, and re-sending a payment request wait 5 seconds with Undo (sent at once if the page closes). Refunds, withdrawing a payment request, merging, turning emails back on, and settings resets still ask for confirmation.
-- Dark mode follows the device; Settings > Appearance can force Light or Dark (saved per browser).
+- Committed locally, NOT deployed: migration 0020 (`offline_payments` table, `bookings.offline_cents`/`waived_cents`, trigger capping them at the price), `booking/src/offline.ts`, admin "Record payment" on unpaid sessions (cards, group seats, profile rows, Payments due), profile "Paid outside Stripe" list with Remove, Undo in the toast.
+- Admin "Book a student" lengths: intro, then 30 min to 3 hr in 15-minute steps. Non-standard lengths are `coaching-<minutes>` ids generated in `findService` (`custom: true`), priced pro rata from $130/hr unless Avery sets a price; public pages use `findPublicService` and can't book them. Students can still reschedule one from their manage link.
+- 151 tests pass (`npm test`). Admin dialog checked in the mock preview; receipt email checked in `npm run preview-emails`.
 
 **Next steps:**
-1. Avery tries the admin on their phone, in both themes, and reports anything off.
-2. Future releases: Avery runs `npm run release` from `booking/`.
+1. Avery releases: `cd booking && npm run release` (applies migration 0020 remotely, deploys, pushes master incl. restamped `booking.js`).
+2. Avery opens Leslie Davis's profile, finds the $130 session, Record payment: $100, Cash, today. Profile then shows $30 owed; her link charges $30.
+3. Then the admin phone test from 2026-10-18 is still open.
 
 **Waiting on the user / open questions:**
-- Feedback from a real phone.
+- Release, and feedback on the Record payment dialog.
+- Not built (offered as later): recording a cash bundle purchase; applying cash to a payment request.
 
 **Watch out for:**
 - Never push, deploy, or run remote migrations yourself; Avery does (memory: booking-wip-no-public).
-- Migration 0019 rebuilds `nudge_emails`; apply it before deploying.
-- Admin colours are theme tokens in `booking/admin/index.html` (`:root`, plus a dark block under `prefers-color-scheme` and `[data-theme="dark"]`). Use tokens, not hex, for new styles. The CSP blocks inline scripts, so a forced theme is applied by `app.js` (a brief flash is possible).
+- `amount_cents` stays card-only (what Stripe can refund). Off-Stripe money is `offline_cents`; never fold it into `amount_cents` or refund paths may try to refund cash.
+- "Owed" must use `dueCents()` / `DUE_SQL()` in `src/bookings.ts`, not `price_cents` with `paid_at IS NULL`.
+- Recording a payment clears `pay_by` (no auto-release once money is in) and expires any open Stripe checkout.
 - Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated.
-- Admin UI preview: `booking/.test-build/mock-sync.sh` copies the admin into `.test-build/mock/` (mock data from `.test-build/dump.mjs`); view at `/booking/.test-build/mock/index.html` on the static-site preview. All git-ignored.
+- Admin UI preview: `sh booking/.test-build/mock-sync.sh`, then the static-site preview at `/booking/.test-build/mock/index.html` (mock POSTs just log).
 
-**Key files:** `booking/admin/app.js.txt` + `booking/admin/index.html` (admin UI), `booking/src/followups.ts`, `booking/src/nudges.ts`, `booking/migrations/0019_followups.sql`
-**Run / test:** `cd booking && npm test` · `npm run preview-emails`
+**Key files:** `booking/src/offline.ts`, `booking/migrations/0020_offline_payments.sql`, `booking/src/services.ts` (custom lengths), `booking/admin/app.js.txt` (`openRecordPayment`, length dropdown), `booking/src/templates.ts` (`offlinePaymentReceived`)
+**Run / test:** `cd booking && npm test` · `npm run preview-emails` · `npm run release -- --check`
 
 ## History
 <!-- newest first -->
+
+### 2026-10-25 19:25 — Payments outside Stripe; 15-minute session lengths
+**Asked:** Leslie Davis paid $100 cash on a $130 session but her profile showed $130 owed; Avery wanted a clean way to handle off-Stripe payments. Also: Avery gave Leslie 1 hr 15 min for $130, so booking needs 15-minute length steps (was 15/30/60/90 only).
+**Done:**
+- `booking/src/offline.ts` + migration 0020: record cash/Venmo/Zelle/check/other or "waive" against a session; partial leaves the rest payable by link; full marks it paid like a card payment (Zoom link, calendar, series). Remove/Undo reverses it. Endpoints `POST /api/admin/bookings/:id/offline-payment`, `POST /api/admin/offline-payments/:id/remove`.
+- Owed totals (Students list, delete check, reminders) subtract offline + waived via `dueCents`/`DUE_SQL`. Calendar event shows e.g. "30.00 USD due (100.00 USD paid outside Stripe)". CSV export gets "Payment outside Stripe"/"Waived" rows. Backup, clear-test-data, delete and merge include the new table.
+- Cancelling a cash-paid session never refunds through Stripe; admin cancel dialog and Avery's cancellation email say to return it by hand.
+- Receipt email `offlinePaymentReceived` (optional checkbox, on by default).
+- Custom lengths: `findService` generates `coaching-45/75/105/...180`; `findPublicService` for public booking and availability; availability allows the custom length only with a valid manage link for that booking; `book/booking.js` + `book/manage/index.html` pass the service to the reschedule picker. Assets restamped.
+- Fixed test "repeating: a set number of sessions ends by itself" (assumed exactly 14×24h; fails near a clock change since sessions keep Eastern clock time; failed on untouched HEAD too).
+**Decisions:** Separate table + running totals instead of reusing `amount_cents`, so cash can never reach Stripe refund code. Custom lengths admin-only and pro rata by default; standard public prices unchanged.
+**State:** committed with this entry, not deployed; 151/151 tests pass; admin dialog verified in mock preview only (not on the live admin).
+**Next:** Avery runs `npm run release`, then records Leslie's $100.
 
 ### 2026-10-18 12:17 — One-command release script
 **Asked:** After a push was refused (GitHub had two "Sync podcast episodes" commits from the 6-hourly Action), make sure future releases pull first and run in the right order.

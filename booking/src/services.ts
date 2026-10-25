@@ -12,6 +12,7 @@ export type Service = {
   // "only": in person only (for example, a future in-person workshop).
   inPerson: "on-request" | "only";
   blurb: string; // one line shown on the booking page
+  custom?: boolean; // a length only Avery books (see findService); never offered publicly
 };
 
 export const IN_PERSON_NOTE = "Sessions are on Zoom. Reach out before booking if you'd like to meet in person.";
@@ -33,6 +34,26 @@ export const SERVICES: Service[] = [
     blurb: "Four one-hour private coaching sessions over Zoom." },
 ];
 
+// Sessions Avery books from the admin page can also be any other length in
+// 15-minute steps, from 30 minutes to 3 hours (e.g. "coaching-75"). They're
+// priced pro rata from the 1 hour session unless a price is set.
+export const CUSTOM_MINUTES = { min: 30, max: 180, step: 15 };
+
 export function findService(id: string): Service | undefined {
-  return SERVICES.find((s) => s.id === id);
+  const listed = SERVICES.find((s) => s.id === id);
+  if (listed) return listed;
+  const m = id.match(/^coaching-(\d{2,3})$/);
+  const minutes = m ? Number(m[1]) : 0;
+  if (minutes < CUSTOM_MINUTES.min || minutes > CUSTOM_MINUTES.max || minutes % CUSTOM_MINUTES.step) return undefined;
+  const hourly = SERVICES.find((s) => s.id === "coaching-60")!.priceCents;
+  return {
+    id, name: `Private Coaching Session, ${minutes} min`, kind: "single", durationMinutes: minutes,
+    priceCents: Math.round((hourly * minutes) / 60), inPerson: "on-request", blurb: "", custom: true,
+  };
+}
+
+// Only what's on the public booking page.
+export function findPublicService(id: string): Service | undefined {
+  const s = findService(id);
+  return s && !s.custom ? s : undefined;
 }

@@ -13,7 +13,7 @@
 //   retryConfirmations  finishes any afterConfirm pieces that failed.
 
 import type { Env } from "./env";
-import { findService, type Service } from "./services";
+import { findPublicService, findService, type Service } from "./services";
 import { RULES } from "./settings";
 import { calendarFor } from "./calendar";
 import { blocksFor, openSlots } from "./availability";
@@ -138,7 +138,7 @@ export type CreateResult = { checkoutUrl?: string; confirmationUrl?: string; boo
 
 export async function createBooking(env: Env, body: unknown, ctx: { ip: string; now: number; waitUntil: (p: Promise<unknown>) => void }): Promise<CreateResult> {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
-  const service = findService(String(b.serviceId ?? ""));
+  const service = findPublicService(String(b.serviceId ?? ""));
   if (!service || service.kind === "bundle") throw new BookingError(400, "Unknown session type.");
   const start = Date.parse(String(b.start ?? ""));
   if (!Number.isFinite(start)) throw new BookingError(400, "Please pick a time.");
@@ -275,14 +275,21 @@ export type BookingRow = {
   group_id: string | null; created_by: string | null; price_cents: number | null; pay_by: string | null;
   paid_at: string | null; payment_reminder_sent_at: string | null; invite_message: string | null;
   series_conflict: string | null; series_conflict_at: string | null;
+  offline_cents: number; waived_cents: number;
 };
 
 // Still to pay on a session that's paid by link (booked by Avery, or a repeat
 // of a student's session): 0 if paid, free, or a bundle credit. Sessions a
-// student books and pays for at checkout have no price_cents.
+// student books and pays for at checkout have no price_cents. Money Avery
+// recorded outside Stripe, or let go, comes off it (see offline.ts).
 export const invoiced = (row: { price_cents: number | null }) => row.price_cents !== null && row.price_cents !== undefined;
-export const dueCents = (row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status">) =>
-  invoiced(row) && !row.package_id && !row.paid_at && row.status === "confirmed" ? Math.max(0, row.price_cents ?? 0) : 0;
+export const dueCents = (row: Pick<BookingRow, "created_by" | "package_id" | "paid_at" | "price_cents" | "status" | "offline_cents" | "waived_cents">) =>
+  invoiced(row) && !row.package_id && !row.paid_at && row.status === "confirmed"
+    ? Math.max(0, (row.price_cents ?? 0) - (row.offline_cents ?? 0) - (row.waived_cents ?? 0)) : 0;
+// The same, in SQL, for a bookings table aliased as `t`.
+export const DUE_SQL = (t: string) =>
+  `CASE WHEN ${t}.status = 'confirmed' AND ${t}.price_cents IS NOT NULL AND ${t}.paid_at IS NULL AND ${t}.package_id IS NULL
+     THEN MAX(0, ${t}.price_cents - ${t}.offline_cents - ${t}.waived_cents) ELSE 0 END`;
 
 // The name and pronouns given with this booking (older rows fall back to the customer's).
 export const CLIENT_COLUMNS = (t: string) =>
@@ -347,6 +354,7 @@ export function view(row: BookingRow): T.BookingView {
     end: Date.parse(row.end_utc),
     clientTimeZone: row.client_time_zone || AVERY_TZ,
     amountCents: row.amount_cents,
+    offlineCents: row.offline_cents ?? 0,
     name: row.name,
     email: row.email,
     pronouns: row.pronouns ?? undefined,
@@ -430,6 +438,17 @@ export async function confirmPaid(env: Env, session: stripe.CheckoutSession, now
 
 /* ── Follow-up after confirming ── */
 
+// What the calendar event says about payment.
+function paidLines(v: T.BookingView): string[] {
+  const usd = (c: number) => `${(c / 100).toFixed(2)} USD`;
+  const outside = v.offlineCents ? `${usd(v.offlineCents)} paid outside Stripe` : "";
+  if (v.dueCents) return [`Not paid yet: ${usd(v.dueCents)} due${outside ? ` (${outside})` : ""}`];
+  if (v.amountCents && outside) return [`Paid ${usd(v.amountCents + v.offlineCents!)} (${usd(v.amountCents)} by card, ${outside})`];
+  if (v.amountCents) return [`Paid ${usd(v.amountCents)}`];
+  if (outside) return [`Paid ${outside}`];
+  return [v.bundleNote ? "Bundle credit" : "Free"];
+}
+
 // The event written to Avery's Coaching calendar, with intake answers for prep.
 function averyEventIcs(row: BookingRow, v: T.BookingView): string {
   const service = findService(row.service_id)!;
@@ -441,8 +460,7 @@ function averyEventIcs(row: BookingRow, v: T.BookingView): string {
     ...(v.link ? [`Link: ${v.link}`] : []),
     ...(v.notes ? [`Notes: ${v.notes}`] : []),
     ...(row.student_notes ? ["", `Your notes: ${row.student_notes}`] : []),
-    "", v.amountCents ? `Paid ${(v.amountCents / 100).toFixed(2)} USD`
-      : v.dueCents ? `Not paid yet: ${(v.dueCents / 100).toFixed(2)} USD due` : v.bundleNote ? "Bundle credit" : "Free",
+    "", ...paidLines(v),
   ];
   return buildIcs({
     uid: row.ics_uid, sequence: row.ics_sequence, start: v.start, end: v.end,

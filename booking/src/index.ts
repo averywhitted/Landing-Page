@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./env";
 import { allowedPage } from "./env";
-import { SERVICES, findService } from "./services";
+import { SERVICES, findPublicService, findService } from "./services";
 import { RULES } from "./settings";
 import { calendarFor } from "./calendar";
 import { openSlots } from "./availability";
@@ -98,7 +98,14 @@ app.get("/api/health", async (c) => {
 // `from` is a date in Avery's time zone; results are UTC times the page
 // converts to the client's own zone for display.
 app.get("/api/availability", async (c) => {
-  const service = findService(c.req.query("service") ?? "");
+  // When rescheduling (?b=&t= from the manage link), the booking being moved
+  // shouldn't block times next to itself, and its own length counts even if
+  // it's one only Avery books.
+  const moving = (await validManageToken(c.env, c.req.query("b"), c.req.query("t")))
+    ? await c.env.DB.prepare("SELECT id, ics_uid, service_id FROM bookings WHERE id = ?1").bind(c.req.query("b")).first<{ id: string; ics_uid: string; service_id: string }>()
+    : null;
+  const asked = c.req.query("service") ?? "";
+  const service = findPublicService(asked) ?? (moving && moving.service_id === asked ? findService(asked) : undefined);
   if (!service || service.kind === "bundle") return c.json({ error: "Unknown session type." }, 400);
 
   const fromParam = c.req.query("from") ?? "";
@@ -134,11 +141,6 @@ app.get("/api/availability", async (c) => {
     return c.json({ error: "Availability is temporarily unavailable. Please try again shortly." }, 503);
   }
 
-  // When rescheduling (?b=&t= from the manage link), the booking being moved
-  // shouldn't block times next to itself.
-  const moving = (await validManageToken(c.env, c.req.query("b"), c.req.query("t")))
-    ? await c.env.DB.prepare("SELECT id, ics_uid FROM bookings WHERE id = ?1").bind(c.req.query("b")).first<{ id: string; ics_uid: string }>()
-    : null;
   if (moving) busy = busy.filter((b) => b.uid !== moving.ics_uid);
 
   // Blocks already taken by confirmed bookings, unexpired holds, and group sessions.
@@ -404,6 +406,21 @@ app.post("/api/admin/payment-requests/:id/remind", async (c) => {
 app.post("/api/admin/payment-requests/:id/cancel", async (c) => {
   try { const { adminCancelRequest } = await import("./requests"); return c.json(await adminCancelRequest(c.env, c.req.param("id"), Date.now())); }
   catch (err) { return bookingErrorResponse(c, err); }
+});
+
+// Money received outside Stripe (or waived) for a session, and taking one back.
+app.post("/api/admin/bookings/:id/offline-payment", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    const { adminRecordPayment } = await import("./offline");
+    return c.json(await adminRecordPayment(c.env, c.req.param("id"), body, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/offline-payments/:id/remove", async (c) => {
+  try {
+    const { adminRemovePayment } = await import("./offline");
+    return c.json(await adminRemovePayment(c.env, c.req.param("id"), { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }));
+  } catch (err) { return bookingErrorResponse(c, err); }
 });
 
 app.post("/api/admin/series/:id/stop", async (c) => {

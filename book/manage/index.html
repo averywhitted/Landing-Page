@@ -61,7 +61,7 @@
       }
     </style>
     <script>document.documentElement.classList.add("js");</script>
-    <script src="/book/booking.js?v=4995baf3" defer></script>
+    <script src="/book/booking.js?v=b6bda54e" defer></script>
   </head>
 
   <body>
@@ -404,6 +404,7 @@
             + '<div class="mg-picker" id="mg-picker"></div>';
           window.AWBooking.mountReschedule(document.getElementById("mg-picker"), {
             serviceId: booking.serviceId,
+            service: { id: booking.serviceId, kind: booking.kind, durationMinutes: booking.durationMinutes, name: booking.service },
             b, t,
             currentStart: Date.parse(booking.start),
             timeZone: booking.timeZone,

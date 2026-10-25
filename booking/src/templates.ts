@@ -13,7 +13,8 @@ export type BookingView = {
   start: number;
   end: number;
   clientTimeZone: string;
-  amountCents: number;
+  amountCents: number;        // paid by card (what Stripe can refund)
+  offlineCents?: number;      // paid to Avery outside Stripe (cash, Venmo...)
   name: string;
   email: string;
   pronouns?: string;
@@ -265,6 +266,38 @@ export function paymentReceived(b: BookingView, manageUrl: string, ics?: string)
       textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
       `Manage your session: ${manageUrl}`, "", "See you soon,", "Avery"].join("\n"),
     ...(ics ? { attachments: icsAttachment(ics, "REQUEST") } : {}),
+  };
+}
+
+// Avery recorded money she got outside Stripe (or let some go) for a session.
+// `b.dueCents` is what's still left; `upcoming` is false once the session is over.
+export function offlinePaymentReceived(b: BookingView, p: { amountCents: number; method: string; upcoming: boolean },
+  manageUrl: string, payUrl: string | null, ics?: string): Email {
+  const tz = b.clientTimeZone;
+  const how: Record<string, string> = { cash: " in cash", venmo: " by Venmo", zelle: " by Zelle", check: " by check" };
+  const what = `your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)}`;
+  const line = p.method === "waived"
+    ? `I've taken ${money(p.amountCents)} off what you owe for ${what}.`
+    : `Thanks, I've got your payment of ${money(p.amountCents)}${how[p.method] ?? ""} for ${what}.`;
+  const left = b.dueCents ?? 0;
+  const next = left ? `There's ${money(left)} left to pay.` : p.upcoming ? "You're all set." : "You're all paid up.";
+  const withZoom = !left && p.upcoming && !!zoomFor(b);
+  const body = [
+    para(`Hi ${esc(firstName(b.name))},`),
+    para(`${esc(line)} ${esc(next)}${withZoom ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
+    p.upcoming ? details(sessionRows(b, tz, false)) : "",
+    left && payUrl ? button(payUrl, `Pay ${money(left)}`) : withZoom ? zoomButton(zoomFor(b)!) : "",
+    para("Thanks,<br>Avery"),
+    p.upcoming ? manageLine(manageUrl, { group: b.group }) : "",
+  ].join("\n");
+  return {
+    to: b.email,
+    subject: left ? `${money(left)} left to pay: ${b.serviceName} on ${shortDay(b.start, tz)}` : `Paid: ${b.serviceName} on ${shortDay(b.start, tz)}`,
+    html: layout({ preheader: `${line} ${next}`, tag: b.group ? "Group coaching" : tagFor(b), title: p.method === "waived" ? "A note from Avery" : "Payment received", body }),
+    text: [`Hi ${firstName(b.name)},`, "", `${line} ${next}`, "",
+      ...(p.upcoming ? [textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ...(withZoom ? [["Zoom", zoomFor(b)!] as [string, string]] : [])]), ""] : []),
+      ...(left && payUrl ? [`Pay here: ${payUrl}`, ""] : []), ...(p.upcoming ? [`Manage your session: ${manageUrl}`, ""] : []), "Thanks,", "Avery"].join("\n"),
+    ...(ics && withZoom ? { attachments: icsAttachment(ics, "REQUEST") } : {}),
   };
 }
 
@@ -878,8 +911,10 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
     ...(r.calendarRemoved ? [] : [["It couldn't be removed from your Coaching calendar yet. It will keep retrying; if you still see it, delete it by hand.", FIX_CALENDAR] as [string, Fix]]),
     ...(r.zoomRemoved ? [] : [["The Zoom meeting couldn't be deleted yet. It will keep retrying; you can also delete it in Zoom.", FIX_ZOOM] as [string, Fix]]),
   ];
+  const outside = b.offlineCents ? `They'd paid you ${money(b.offlineCents)} outside Stripe for this. That isn't refunded automatically, so if they're owed it back, return it yourself.` : "";
   const body = [
     r.refund === "pending" || r.refund === "offer" || r.refund === "offer_reply" ? warn(refundNote) : refundNote ? small(refundNote) : "",
+    outside ? warn(outside) : "",
     stripePaymentUrl && r.refund !== "none" ? button(stripePaymentUrl, r.refund === "refunded" ? "View payment in Stripe" : `Refund ${amount} in Stripe`) : "",
     ...leftovers.map(([t, f]) => warn(t, f)),
     details(adminRows(b, { zoom: false })),
@@ -892,6 +927,7 @@ export function adminCancelled(b: BookingView, stripePaymentUrl: string | null,
     html: layout({ preheader: `${b.name} cancelled${tag}`, tag: tagFor(b), title: "Booking cancelled", subtitle: b.name, body }),
     text: [
       ...(refundNote ? [refundNote, ...(stripePaymentUrl ? [stripePaymentUrl] : []), ""] : []),
+      ...(outside ? [outside, ""] : []),
       ...leftovers.flatMap(([t, f]) => [t + fixText(f), ""]),
       textRows([["Client", b.name], ["Session", b.serviceName], ["Was", `${day(b.start, tz)}, ${timeRange(b, tz)}`]]),
     ].join("\n"),
