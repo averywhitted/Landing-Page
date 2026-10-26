@@ -3196,3 +3196,15 @@ test("bundle sold outside Stripe: a mistaken sale can be taken back before it's 
   const csv = await api.call("GET", `/api/admin/students/${c.customer_id}/export`, { headers: asAdmin() });
   assert.doesNotMatch(csv.data, /Payment outside Stripe/, "the removed sale isn't in the records");
 });
+
+test("closing a payment page that already timed out isn't logged as a Stripe error", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Timed Out", "timedout@example.com", { priceCents: 13000 })] });
+  const id = r.data.bookingId;
+  await api.call("POST", "/api/pay", { body: linkIn(inviteFor("timedout@example.com").text) });
+  world.state.stripeSessions.get(row(id).stripe_checkout_session_id)!.status = "expired"; // Stripe's hour ran out
+  const rec = await recordPayment(id, { amountCents: 10000, method: "cash" });
+  assert.equal(rec.status, 201, JSON.stringify(rec.data));
+  const errors = db.prepare("SELECT message FROM integration_events WHERE service = 'stripe' AND level = 'error'").all() as any[];
+  assert.deepEqual(errors.map((e) => e.message), [], "no amber Stripe light");
+});

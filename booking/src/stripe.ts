@@ -137,12 +137,17 @@ export async function promoCodeUsed(env: Env, sessionId: string): Promise<string
 }
 
 // Ends an unpaid checkout early. Returns the session's final state.
+// Stripe refuses to expire one that's already finished (paid, or its hour ran
+// out), and that refusal would show as a Stripe error, so it looks first.
 export async function expireCheckoutSession(env: Env, sessionId: string): Promise<CheckoutSession> {
+  const path = `checkout/sessions/${encodeURIComponent(sessionId)}`;
+  const now = await stripe<CheckoutSession>(env, "GET", path);
+  if (now.status !== "open") return now;
   try {
-    return await stripe<CheckoutSession>(env, "POST", `checkout/sessions/${encodeURIComponent(sessionId)}/expire`, {});
+    return await stripe<CheckoutSession>(env, "POST", `${path}/expire`, {});
   } catch (err) {
-    // Already finished (paid or expired): report its real state instead.
-    return stripe<CheckoutSession>(env, "GET", `checkout/sessions/${encodeURIComponent(sessionId)}`);
+    // Finished in the moment between: report its real state instead.
+    return stripe<CheckoutSession>(env, "GET", path);
   }
 }
 

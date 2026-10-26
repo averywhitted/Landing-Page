@@ -1,7 +1,7 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-25 20:40 EDT · branch `master` @ `37feffc` (= GitHub) · working tree: this log entry only, committed locally (goes out with the next release)_
+_Updated 2026-10-25 21:00 EDT · branch `master` @ `7092e0b` (GitHub at `37feffc`) · working tree: Stripe expire fix committed with this entry, NOT released_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
 **Current goal:** LIVE since 2026-10-25 20:15 EDT: payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths. Avery records Leslie Davis's $100 cash.
@@ -14,8 +14,9 @@ _Updated 2026-10-25 20:40 EDT · branch `master` @ `37feffc` (= GitHub) · worki
 - 154 tests pass. Dialogs checked in the mock admin (mock lacks `/api/services`; inject it to test Book a student / Add a bundle).
 
 **Next steps:**
-1. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
-2. Admin phone test from 2026-10-18 is still open.
+1. Release the Stripe expire fix: `cd booking && npm run release` (no migration; worker + this log).
+2. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
+3. Admin phone test from 2026-10-18 is still open.
 
 **Waiting on the user / open questions:**
 - Feedback on the new dialogs from real use.
@@ -32,6 +33,11 @@ _Updated 2026-10-25 20:40 EDT · branch `master` @ `37feffc` (= GitHub) · worki
 
 ## History
 <!-- newest first -->
+
+### 2026-10-25 21:00 — Closing an already-expired Stripe page showed as a Stripe error
+**Asked:** Avery saw "Stripe refused POST checkout/sessions/expire (400): ... has a status of `expired`".
+**Done:** `expireCheckoutSession` (`booking/src/stripe.ts`) now looks the page up first and only asks Stripe to expire it if it's still open. Before, Stripe's refusal was logged as an error (Connections > Stripe turned amber) even though the code then carried on correctly; recording payments and cancelling were never actually affected. New test "closing a payment page that already timed out isn't logged as a Stripe error".
+**State:** committed, not released; 155/155 tests pass. The amber light clears on the next successful Stripe action (a checkout page or refund) after release.
 
 ### 2026-10-25 20:10 — Cash for payment requests and bundles; then release
 **Asked:** Build the two follow-ups (recording a cash bundle purchase, applying cash to a payment request), then release.
