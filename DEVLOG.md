@@ -1,10 +1,10 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-25 20:10 EDT · branch `master` @ `6dc343c` · working tree: bundle/request cash work committed with this entry; release run right after_
+_Updated 2026-10-25 20:40 EDT · branch `master` @ `37feffc` (= GitHub) · working tree: this log entry only, committed locally (goes out with the next release)_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths are released; Avery records Leslie Davis's $100 cash.
+**Current goal:** LIVE since 2026-10-25 20:15 EDT: payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths. Avery records Leslie Davis's $100 cash.
 
 **Where things stand:**
 - Off-Stripe money: `booking/src/offline.ts`, migration 0020 (`offline_payments` rows point at a booking, a request + booking, or a package; running totals `offline_cents`/`waived_cents` on bookings and payment_requests, `offline_cents` on packages; triggers cap them at the price).
@@ -14,15 +14,14 @@ _Updated 2026-10-25 20:10 EDT · branch `master` @ `6dc343c` · working tree: bu
 - 154 tests pass. Dialogs checked in the mock admin (mock lacks `/api/services`; inject it to test Book a student / Add a bundle).
 
 **Next steps:**
-1. If the release didn't finish, run `cd booking && npm run release` (see History for what happened).
-2. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
-3. Admin phone test from 2026-10-18 is still open.
+1. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
+2. Admin phone test from 2026-10-18 is still open.
 
 **Waiting on the user / open questions:**
 - Feedback on the new dialogs from real use.
 
 **Watch out for:**
-- Releases: Avery runs them unless they explicitly ask me to in the chat (memory: booking-wip-no-public).
+- Releases: Avery runs them unless they explicitly ask me to in the chat (memory: booking-wip-no-public). From this app, `git push` hangs on the macOS Keychain helper; push with the GitHub CLI's login instead (memory has the command).
 - `amount_cents` (bookings, packages) and `paid_cents` (requests) are card-only: what Stripe can refund. Never fold off-Stripe money into them.
 - "Owed" must use `dueCents()` / `DUE_SQL()` (bookings.ts) and `requestDue()` (requests.ts).
 - Deleting rows: `offline_payments` before `payment_requests`, `bookings`, `packages` (foreign keys).
@@ -43,7 +42,7 @@ _Updated 2026-10-25 20:10 EDT · branch `master` @ `6dc343c` · working tree: bu
 - Endpoints: `POST /api/admin/payment-requests/:id/offline-payment`, `POST /api/admin/packages/sell`.
 - 3 new tests (154 total, all pass).
 **Decisions:** Cash bundles are full-price sales (no partial); students can't cancel them online because there's no card payment to refund. Avery asked me to release this time, overriding the usual "Avery runs releases" rule for this request.
-**State:** committed with this entry; release attempted right after (outcome in the next entry if it needed follow-up).
+**State:** RELEASED 2026-10-25 ~20:15-20:30 EDT. Migration 0020 applied to live D1 (`migrations list` shows none pending), worker deployed (version dac3227a), master pushed to `37feffc`, Pages build succeeded; live `booking.js?v=b6bda54e`, manage and bundle pages checked. First release run stopped safely on a pulled podcast page with an old `?v=` tag (stamped and committed as `37feffc`); the push step hung on the Keychain helper and was redone with the GitHub CLI's login.
 **Next:** Record Leslie's $100.
 
 ### 2026-10-25 19:25 — Payments outside Stripe; 15-minute session lengths
