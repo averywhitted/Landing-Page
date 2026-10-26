@@ -84,7 +84,9 @@ function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[], offline: Re
     const waived = o.method === "waived";
     rows.push([
       waived ? "Waived" : "Payment outside Stripe", o.received_on, timeOf(at), o.name, o.email,
-      `${serviceLabel(findService(o.service_id)!)}, ${dayOf(Date.parse(o.start_utc))}${o.note ? ` (${o.note})` : ""}`, waived ? "Let go" : "Received", "Avery",
+      `${o.package_id ? `${findService(o.bundle_service)?.credits ?? o.credits_total} session bundle`
+        : `${o.request_id ? "Payment request, " : ""}${serviceLabel(findService(o.service_id)!)}, ${dayOf(Date.parse(o.start_utc))}`}${o.note ? ` (${o.note})` : ""}`,
+      waived ? "Let go" : "Received", "Avery",
       dollars(o.amount_cents), dollars(waived ? 0 : o.amount_cents), "0.00", dollars(waived ? 0 : o.amount_cents), waived ? "" : METHOD_NAMES[o.method] ?? o.method, "", "",
     ]);
   }
@@ -101,8 +103,10 @@ function exportCsv(sessions: Rec[], requests: Rec[], bundles: Rec[], offline: Re
 
 const SESSION_SQL = `SELECT b.*, ${CLIENT_COLUMNS("b")} FROM bookings b JOIN customers c ON c.id = b.customer_id WHERE b.status IN ('confirmed', 'cancelled')`;
 const BUNDLE_SQL = `SELECT p.*, ${CLIENT_COLUMNS("p")} FROM packages p JOIN customers c ON c.id = p.customer_id WHERE p.status IN ('active', 'cancelled') AND p.stripe_payment_intent_id IS NOT NULL`;
-const OFFLINE_SQL = `SELECT o.*, b.service_id, b.start_utc, ${CLIENT_COLUMNS("b")} FROM offline_payments o JOIN bookings b ON b.id = o.booking_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'active'`;
-const REQUEST_SQL = `SELECT r.*, b.service_id, ${CLIENT_COLUMNS("b")} FROM payment_requests r JOIN bookings b ON b.id = r.booking_id JOIN customers c ON c.id = r.customer_id WHERE r.status = 'paid'`;
+const OFFLINE_SQL = `SELECT o.*, b.service_id, b.start_utc, p.service_id AS bundle_service, p.credits_total, ${CLIENT_COLUMNS("b")}
+  FROM offline_payments o LEFT JOIN bookings b ON b.id = o.booking_id LEFT JOIN packages p ON p.id = o.package_id JOIN customers c ON c.id = o.customer_id
+  WHERE o.status = 'active'`;
+const REQUEST_SQL = `SELECT r.*, b.service_id, ${CLIENT_COLUMNS("b")} FROM payment_requests r JOIN bookings b ON b.id = r.booking_id JOIN customers c ON c.id = r.customer_id WHERE r.status = 'paid' AND COALESCE(r.paid_cents, 0) > 0`;
 
 export async function adminExport(env: Env, fromRaw: unknown, toRaw: unknown) {
   const d = (v: unknown) => String(v ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -224,7 +228,7 @@ export async function clearTestData(env: Env, confirm: unknown) {
     if (l.cal) await cal.deleteEvent(l.cal).catch(() => { problems++; });
     if (l.zoom) await deleteMeeting(env, l.zoom).catch(() => { problems++; });
   }
-  const tables = ["slot_claims", "credit_ledger", "refund_requests", "payment_requests", "offline_payments", "bookings", "groups", "series", "packages", "nudge_emails", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
+  const tables = ["slot_claims", "credit_ledger", "refund_requests", "offline_payments", "payment_requests", "bookings", "groups", "series", "packages", "nudge_emails", "customer_aliases", "duplicate_ignores", "customers", "email_log", "processed_webhooks", "alerts_sent"];
   await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
   return {
     ok: true,

@@ -23,15 +23,20 @@ export type RequestRow = {
   id: string; booking_id: string; customer_id: string; amount_cents: number; note: string | null; status: "open" | "paid" | "cancelled";
   stripe_checkout_session_id: string | null; stripe_payment_intent_id: string | null; paid_cents: number | null; paid_at: string | null;
   last_reminder_at: string | null; reminders_sent: number; created_at: string;
+  offline_cents: number; waived_cents: number;
 };
 
-const loadRequest = (env: Env, id: string) => env.DB.prepare("SELECT * FROM payment_requests WHERE id = ?1").bind(id).first<RequestRow>();
+// What's still to pay on a request, after anything Avery recorded outside Stripe (see offline.ts).
+export const requestDue = (r: Pick<RequestRow, "status" | "amount_cents" | "offline_cents" | "waived_cents">) =>
+  r.status === "open" ? Math.max(0, r.amount_cents - (r.offline_cents ?? 0) - (r.waived_cents ?? 0)) : 0;
+
+export const loadRequest = (env: Env, id: string) => env.DB.prepare("SELECT * FROM payment_requests WHERE id = ?1").bind(id).first<RequestRow>();
 export const requestPayUrl = (manage: string, id: string) => `${manage}&payreq=${encodeURIComponent(id)}`;
 
 async function requestEmail(env: Env, r: RequestRow, reminder: boolean) {
   const row = (await loadBooking(env, "id", r.booking_id))!;
   const manage = await manageUrl(env, row.id);
-  return T.paymentRequest({ ...view(row), dueCents: 0 }, { amountCents: r.amount_cents, note: r.note, reminder }, requestPayUrl(manage, r.id));
+  return T.paymentRequest({ ...view(row), dueCents: 0 }, { amountCents: requestDue(r), note: r.note, reminder }, requestPayUrl(manage, r.id));
 }
 
 /* ── Avery ── */
@@ -48,7 +53,7 @@ export async function adminCreateRequest(env: Env, body: unknown, now: number) {
   const r: RequestRow = {
     id: crypto.randomUUID(), booking_id: row.id, customer_id: row.customer_id, amount_cents: amount, note: clean(b.note, 1000, true) || null,
     status: "open", stripe_checkout_session_id: null, stripe_payment_intent_id: null, paid_cents: null, paid_at: null,
-    last_reminder_at: iso(now), reminders_sent: 0, created_at: iso(now),
+    last_reminder_at: iso(now), reminders_sent: 0, created_at: iso(now), offline_cents: 0, waived_cents: 0,
   };
   await env.DB.prepare(
     `INSERT INTO payment_requests (id, booking_id, customer_id, amount_cents, note, status, last_reminder_at, created_at, updated_at)
@@ -97,6 +102,7 @@ export async function openRequests(env: Env, customerId?: string) {
   return rows.results.map((r) => ({
     id: r.id, bookingId: r.booking_id, customerId: r.customer_id, name: r.name, email: r.email, pronouns: r.pronouns,
     session: serviceLabel(findService(r.service_id)!), start: r.start_utc, amountCents: r.amount_cents, note: r.note,
+    dueCents: requestDue(r), offlineCents: r.offline_cents, waivedCents: r.waived_cents,
     remindersSent: r.reminders_sent, lastReminderAt: r.last_reminder_at, createdAt: r.created_at,
   }));
 }
@@ -106,9 +112,10 @@ export async function openRequests(env: Env, customerId?: string) {
 // What their session page shows.
 export async function requestsForBooking(env: Env, bookingId: string) {
   const rows = await env.DB.prepare(
-    "SELECT id, amount_cents, note, status, paid_at FROM payment_requests WHERE booking_id = ?1 AND status IN ('open', 'paid') ORDER BY created_at",
-  ).bind(bookingId).all<{ id: string; amount_cents: number; note: string | null; status: string; paid_at: string | null }>();
-  return rows.results.map((r) => ({ id: r.id, amountCents: r.amount_cents, note: r.note, status: r.status, paidAt: r.paid_at }));
+    "SELECT id, amount_cents, offline_cents, waived_cents, note, status, paid_at FROM payment_requests WHERE booking_id = ?1 AND status IN ('open', 'paid') ORDER BY created_at",
+  ).bind(bookingId).all<{ id: string; amount_cents: number; offline_cents: number; waived_cents: number; note: string | null; status: "open" | "paid"; paid_at: string | null }>();
+  // An open request shows what's left to pay.
+  return rows.results.map((r) => ({ id: r.id, amountCents: r.status === "open" ? requestDue(r) : r.amount_cents, note: r.note, status: r.status, paidAt: r.paid_at }));
 }
 
 // From the Pay button: a Stripe checkout page for the request.
@@ -119,6 +126,8 @@ export async function startRequestPayment(env: Env, bookingId: unknown, token: u
   if (!r || r.booking_id !== bookingId) throw notFound;
   if (r.status === "paid") throw new BookingError(409, "This is already paid. Thank you!");
   if (r.status !== "open") throw new BookingError(409, "This payment request has been withdrawn. There's nothing to pay.");
+  const due = requestDue(r);
+  if (due < 50) throw new BookingError(409, "This amount is too small to pay by card. Please reply to your request email.");
 
   // Reuse a checkout that's still open, so two clicks don't make two payments.
   if (r.stripe_checkout_session_id) {
@@ -142,7 +151,7 @@ export async function startRequestPayment(env: Env, bookingId: unknown, token: u
     session = await stripe.createCheckoutSession(env, {
       bookingId: row.id, requestId: r.id, kind: "request", idempotencyKey: `payreq-${r.id}-${now}`,
       email: row.email, productName: `Private coaching, ${serviceLabel(findService(row.service_id)!).toLowerCase()}`,
-      description: `Session on ${when}`, amountCents: r.amount_cents, expiresAt: now + 60 * MIN,
+      description: `Session on ${when}`, amountCents: due, expiresAt: now + 60 * MIN,
       successUrl: `${manage}&paid=1`, cancelUrl: manage,
     });
   } catch (err) {

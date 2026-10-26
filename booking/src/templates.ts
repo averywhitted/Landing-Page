@@ -269,9 +269,11 @@ export function paymentReceived(b: BookingView, manageUrl: string, ics?: string)
   };
 }
 
-// Avery recorded money she got outside Stripe (or let some go) for a session.
-// `b.dueCents` is what's still left; `upcoming` is false once the session is over.
-export function offlinePaymentReceived(b: BookingView, p: { amountCents: number; method: string; upcoming: boolean },
+// Avery recorded money received outside Stripe (or let some go) for a session,
+// or for a payment request about one (`forRequest`, with what's left of it in
+// `leftCents`). Otherwise `b.dueCents` is what's left; `upcoming` is false once
+// the session is over.
+export function offlinePaymentReceived(b: BookingView, p: { amountCents: number; method: string; upcoming: boolean; forRequest?: boolean; leftCents?: number },
   manageUrl: string, payUrl: string | null, ics?: string): Email {
   const tz = b.clientTimeZone;
   const how: Record<string, string> = { cash: " in cash", venmo: " by Venmo", zelle: " by Zelle", check: " by check" };
@@ -279,13 +281,13 @@ export function offlinePaymentReceived(b: BookingView, p: { amountCents: number;
   const line = p.method === "waived"
     ? `I've taken ${money(p.amountCents)} off what you owe for ${what}.`
     : `Thanks, I've got your payment of ${money(p.amountCents)}${how[p.method] ?? ""} for ${what}.`;
-  const left = b.dueCents ?? 0;
+  const left = p.forRequest ? p.leftCents ?? 0 : b.dueCents ?? 0;
   const next = left ? `There's ${money(left)} left to pay.` : p.upcoming ? "You're all set." : "You're all paid up.";
-  const withZoom = !left && p.upcoming && !!zoomFor(b);
+  const withZoom = !p.forRequest && !left && p.upcoming && !!zoomFor(b);
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
     para(`${esc(line)} ${esc(next)}${withZoom ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
-    p.upcoming ? details(sessionRows(b, tz, false)) : "",
+    p.upcoming && !p.forRequest ? details(sessionRows(b, tz, false)) : "",
     left && payUrl ? button(payUrl, `Pay ${money(left)}`) : withZoom ? zoomButton(zoomFor(b)!) : "",
     para("Thanks,<br>Avery"),
     p.upcoming ? manageLine(manageUrl, { group: b.group }) : "",
@@ -435,7 +437,8 @@ export type BundleView = {
   sessionLength: string;      // "1 hour"
   expiresAt: number;
   clientTimeZone: string;
-  amountCents: number;
+  amountCents: number;        // what they paid (card, or directly to Avery)
+  paidOutside?: boolean;      // paid directly to Avery, not through Stripe
   bundleName: string;         // "4 session bundle"
   goal?: string;
 };
@@ -716,11 +719,12 @@ export function bundleCancelled(p: BundleCancelView): Email {
     para(`Your ${esc(p.bundleName)} has been cancelled.`),
     details([
       ["Sessions used", String(p.used)],
-      ["Refund", p.refundCents > 0 ? esc(money(p.refundCents)) : p.byAvery ? "None" : "None (all sessions were used)"],
+      ["Refund", p.refundCents > 0 ? esc(money(p.refundCents)) : p.paidOutside ? "From me directly" : p.byAvery ? "None" : "None (all sessions were used)"],
       ...(p.cancelledSessions.length ? [["Cancelled", p.cancelledSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
       ...(p.keptSessions.length ? [["Still on", p.keptSessions.map((ms) => esc(when(ms))).join("<br>")] as [string, string]] : []),
     ]),
     p.refundCents > 0 ? para(`Your refund of ${esc(money(p.refundCents))} is being processed and may take a few business days to appear.`) : "",
+    p.paidOutside && !p.refundCents ? para("You paid me directly for this bundle, so I'll settle anything you're owed with you myself.") : "",
     p.keptSessions.length && !p.byAvery ? small("Sessions less than 24 hours away can't be cancelled online, so they're still on. Reply to this email if you can't make it.") : "",
     p.cancelledSessions.length ? small("Calendar invites for the cancelled sessions will be removed.") : "",
     small(questionsLine),
@@ -731,8 +735,9 @@ export function bundleCancelled(p: BundleCancelView): Email {
     subject: `Your bundle is cancelled${p.refundCents > 0 ? `: ${money(p.refundCents)} refund on the way` : ""}`,
     html: layout({ preheader: p.refundCents > 0 ? `Refund of ${money(p.refundCents)} is processing.` : "Your bundle is cancelled.", tag: "Session bundle", title: "Bundle cancelled", body }),
     text: [`Hi ${firstName(p.name)},`, "", `Your ${p.bundleName} has been cancelled.`, "",
-      textRows([["Sessions used", String(p.used)], ["Refund", p.refundCents > 0 ? money(p.refundCents) : "None"]]),
+      textRows([["Sessions used", String(p.used)], ["Refund", p.refundCents > 0 ? money(p.refundCents) : p.paidOutside ? "From me directly" : "None"]]),
       ...(p.refundCents > 0 ? ["", `Your refund of ${money(p.refundCents)} is being processed and may take a few business days to appear.`] : []),
+      ...(p.paidOutside && !p.refundCents ? ["", "You paid me directly for this bundle, so I'll settle anything you're owed with you myself."] : []),
       "", questionsLine, "", "Avery"].join("\n"),
   };
 }

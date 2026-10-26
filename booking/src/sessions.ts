@@ -104,7 +104,7 @@ async function checkBundles(env: Env, students: Student[], service: Service, sta
   }
 }
 
-async function upsertCustomer(env: Env, s: Student): Promise<string> {
+export async function upsertCustomer(env: Env, s: Pick<Student, "name" | "email" | "pronouns">): Promise<string> {
   const aliased = await customerForAlias(env, s.email);
   if (aliased) return aliased;
   const row = await env.DB.prepare(
@@ -554,7 +554,7 @@ export async function adminStudentDetail(env: Env, customerId: string, now: numb
     bundles: packages.results.map((p) => ({
       id: p.id, bundle: `${findService(p.service_id)?.credits ?? p.credits_total} session bundle`, status: p.status,
       expired: !!p.expires_at && Date.parse(p.expires_at) <= now, creditsTotal: p.credits_total, creditsUsed: p.credits_used,
-      remaining: p.credits_total - p.credits_used, expiresAt: p.expires_at, paidCents: p.amount_cents, cancelReason: p.cancel_reason,
+      remaining: p.credits_total - p.credits_used, expiresAt: p.expires_at, paidCents: p.amount_cents, offlineCents: p.offline_cents, cancelReason: p.cancel_reason,
       refundDueCents: p.refund_due_cents, refunded: !!p.refunded_at, refundedCents: p.refunded_cents ?? 0, refundError: p.refund_error, createdAt: p.created_at,
     })),
   };

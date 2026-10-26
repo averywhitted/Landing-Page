@@ -3076,3 +3076,123 @@ test("cash: in the CSV export as its own row", async () => {
   assert.match(csv.data, /"Payment outside Stripe","[\d-]+","[^"]+","Csv Cash","csv@example.com","1 hour session, [\d-]+ \(end of class\)","Received","Avery","100\.00","100\.00","0\.00","100\.00","Cash"/);
   assert.match(csv.data, /"Session",.*"Csv Cash".*"Outside Stripe"/);
 });
+
+test("cash on a payment request: part leaves the rest by card; all of it marks it paid; Remove reopens it", async () => {
+  adminEnv();
+  const r = await adminBook({ students: [student("Req Cash", "reqcash@example.com", { priceCents: 0 })] });
+  const id = r.data.bookingId;
+  const made = await api.call("POST", "/api/admin/payment-requests", { headers: asAdmin(), body: { bookingId: id, amountCents: 4000 } });
+  const reqId = made.data.id;
+  const invite = linkIn(inviteFor("reqcash@example.com").text);
+  await api.call("POST", "/api/pay-request", { body: { ...invite, r: reqId } });
+  const firstCheckout = (db.prepare("SELECT stripe_checkout_session_id s FROM payment_requests WHERE id = ?").get(reqId) as any).s;
+
+  const rec = (body: Record<string, unknown>) => api.call("POST", `/api/admin/payment-requests/${reqId}/offline-payment`, { headers: asAdmin(), body });
+  assert.equal((await rec({ amountCents: 4001, method: "cash" })).status, 400);
+  const part = await rec({ amountCents: 1500, method: "zelle" });
+  assert.equal(part.status, 201, JSON.stringify(part.data));
+  assert.equal(part.data.dueCents, 2500);
+  assert.equal(world.state.stripeSessions.get(firstCheckout)!.status, "expired", "old $40 page closed");
+  const receipt = world.state.emails.find((e) => e.to[0] === "reqcash@example.com" && /^\$25 left to pay/.test(e.subject))!;
+  assert.match(receipt.text, /\$15 by Zelle/);
+  assert.match(receipt.text, /payreq=/);
+  assert.equal((await api.call("GET", `/api/manage?b=${invite.b}&t=${invite.t}`)).data.paymentRequests[0].amountCents, 2500, "student sees what's left");
+  const overview = await api.call("GET", "/api/admin/overview", { headers: asAdmin() });
+  assert.equal(overview.data.problems.paymentRequests[0].dueCents, 2500);
+
+  await api.call("POST", "/api/pay-request", { body: { ...invite, r: reqId } });
+  const cs = [...world.state.stripeSessions.values()].find((x: any) => x.metadata.request_id === reqId && x.status === "open")!;
+  assert.equal(cs.amount_total, 2500, "card pays what's left");
+
+  // Instead, the rest comes in cash too: the request is paid, and the open card page is closed.
+  const rest = await rec({ amountCents: 2500, method: "cash" });
+  assert.equal(rest.data.settled, true);
+  const after = db.prepare("SELECT status, paid_at, paid_cents, offline_cents FROM payment_requests WHERE id = ?").get(reqId) as any;
+  assert.equal(after.status, "paid");
+  assert.ok(after.paid_at);
+  assert.equal(after.offline_cents, 4000);
+  assert.equal(world.state.stripeSessions.get(cs.id)!.status, "expired");
+
+  const list = (await api.call("GET", `/api/admin/students/${row(id).customer_id}`, { headers: asAdmin() })).data.offlinePayments;
+  assert.deepEqual(list.map((x: any) => [x.kind, x.amountCents, x.canRemove]), [["request", 2500, true], ["request", 1500, false]]);
+  assert.equal((await api.call("POST", `/api/admin/offline-payments/${list[1].id}/remove`, { headers: asAdmin() })).status, 409, "the rest was paid since");
+  const back = await api.call("POST", `/api/admin/offline-payments/${list[0].id}/remove`, { headers: asAdmin() });
+  assert.equal(back.status, 200, JSON.stringify(back.data));
+  assert.equal(back.data.dueCents, 2500);
+  assert.equal((db.prepare("SELECT status FROM payment_requests WHERE id = ?").get(reqId) as any).status, "open");
+  assert.throws(() => db.prepare("UPDATE payment_requests SET offline_cents = 5000 WHERE id = ?").run(reqId), /exceed the request/);
+});
+
+test("bundle sold outside Stripe: active with credits, emailed, never refunded by Stripe, cancelled only by Avery", async () => {
+  adminEnv();
+  const add = await api.call("POST", "/api/admin/students", { headers: asAdmin(), body: { name: "Bun Dle", email: "bundle@example.com" } });
+  assert.equal(add.status, 201, JSON.stringify(add.data));
+  const customerId = add.data.id ?? (db.prepare("SELECT id FROM customers WHERE email = ?").get("bundle@example.com") as any).id;
+  const sell = (body: Record<string, unknown>) => api.call("POST", "/api/admin/packages/sell", { headers: asAdmin(), body: { customerId, serviceId: "bundle-4", ...body } });
+  assert.equal((await api.call("POST", "/api/admin/packages/sell", { body: {} })).status, 403, "admin only");
+  assert.equal((await sell({ amountCents: 40000, method: "waived" })).status, 400, "a bundle is bought, not waived");
+  const sold = await sell({ amountCents: 40000, method: "cash", note: "Paid at the workshop" });
+  assert.equal(sold.status, 201, JSON.stringify(sold.data));
+  const pkg = db.prepare("SELECT * FROM packages WHERE id = ?").get(sold.data.packageId) as any;
+  assert.equal(pkg.status, "active");
+  assert.equal(pkg.credits_total, 4);
+  assert.equal(pkg.amount_cents, 0, "nothing by card");
+  assert.equal(pkg.offline_cents, 40000);
+  assert.ok(Date.parse(pkg.expires_at) > Date.now() + 80 * DAY);
+  const conf = world.state.emails.find((e) => e.to[0] === "bundle@example.com" && /ready to book/.test(e.subject))!;
+  assert.ok(conf, "confirmation with the bundle link");
+  assert.match(conf.text, /\$400/);
+  assert.ok(!world.state.emails.some((e) => /^Bundle purchased: Bun Dle/.test(e.subject)), "Avery isn't emailed about their own sale");
+
+  // The student books with it like any bundle, but can't cancel it online.
+  const m = conf.text.match(/book\/package\/\?p=([0-9a-f-]{36})&t=([\w-]{32})/)!;
+  const v = await api.call("GET", `/api/packages?p=${m[1]}&t=${m[2]}`);
+  assert.equal(v.data.remaining, 4);
+  assert.equal(v.data.paidOutside, true);
+  assert.equal(v.data.cancelQuote.canCancel, false);
+  const tryCancel = await api.call("POST", "/api/packages/cancel", { body: { p: m[1], t: m[2] } });
+  assert.equal(tryCancel.status, 409);
+  assert.match(tryCancel.data.error, /paid for this bundle directly/);
+  const slots = await openSlots();
+  assert.equal((await api.call("POST", "/api/packages/book", { body: { p: m[1], t: m[2], start: slots[0] } })).status, 201);
+
+  // Taking the sale back isn't possible once a session is booked; Avery cancels it instead, with no Stripe refund.
+  const list = (await api.call("GET", `/api/admin/students/${customerId}`, { headers: asAdmin() })).data;
+  assert.equal(list.offlinePayments[0].kind, "bundle");
+  assert.equal(list.offlinePayments[0].canRemove, false);
+  assert.equal(list.bundles[0].offlineCents, 40000);
+  const preview = await api.call("GET", `/api/admin/packages/${pkg.id}/cancel`, { headers: asAdmin() });
+  assert.equal(preview.data.canRefund, false);
+  assert.equal(preview.data.offlineCents, 40000);
+  assert.equal(preview.data.policyRefundCents, 40000, "nothing used yet: by the policy it all goes back");
+  assert.equal((await api.call("POST", `/api/admin/packages/${pkg.id}/cancel`, { headers: asAdmin(), body: { refundCents: 100, notifyClient: true } })).status, 400);
+  const cancel = await api.call("POST", `/api/admin/packages/${pkg.id}/cancel`, { headers: asAdmin(), body: { refundCents: 0, notifyClient: true } });
+  assert.equal(cancel.status, 200, JSON.stringify(cancel.data));
+  assert.equal(world.state.refunds.length, 0);
+  const note = world.state.emails.find((e) => e.to[0] === "bundle@example.com" && /^Your bundle is cancelled/.test(e.subject))!;
+  assert.match(note.text, /Refund: From me directly/);
+  assert.match(note.text, /You paid me directly/);
+});
+
+test("bundle sold outside Stripe: a mistaken sale can be taken back before it's used; a free one needs no payment", async () => {
+  adminEnv();
+  const sold = await api.call("POST", "/api/admin/packages/sell", { headers: asAdmin(), body: { name: "Oops Sale", email: "oops@example.com", serviceId: "bundle-2", amountCents: 23000, method: "venmo", notifyClient: false } });
+  assert.equal(sold.status, 201, JSON.stringify(sold.data));
+  assert.ok(!world.state.emails.some((e) => e.to[0] === "oops@example.com"), "not emailed");
+  const c = db.prepare("SELECT customer_id FROM packages WHERE id = ?").get(sold.data.packageId) as any;
+  const pay = (await api.call("GET", `/api/admin/students/${c.customer_id}`, { headers: asAdmin() })).data.offlinePayments[0];
+  assert.equal(pay.canRemove, true);
+  assert.equal((await api.call("POST", `/api/admin/offline-payments/${pay.id}/remove`, { headers: asAdmin() })).status, 200);
+  const gone = db.prepare("SELECT status, offline_cents FROM packages WHERE id = ?").get(sold.data.packageId) as any;
+  assert.deepEqual([gone.status, gone.offline_cents], ["cancelled", 0]);
+  await api.cron();
+  assert.ok(!world.state.emails.some((e) => e.to[0] === "oops@example.com"), "cron doesn't send a confirmation later either");
+
+  const free = await api.call("POST", "/api/admin/packages/sell", { headers: asAdmin(), body: { customerId: c.customer_id, serviceId: "bundle-2", amountCents: 0, notifyClient: false } });
+  assert.equal(free.status, 201);
+  assert.match(free.data.message, /for free/);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM offline_payments WHERE package_id = ?").get(free.data.packageId) as any).n, 0);
+
+  const csv = await api.call("GET", `/api/admin/students/${c.customer_id}/export`, { headers: asAdmin() });
+  assert.doesNotMatch(csv.data, /Payment outside Stripe/, "the removed sale isn't in the records");
+});

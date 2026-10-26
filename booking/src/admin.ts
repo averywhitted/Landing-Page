@@ -153,7 +153,7 @@ export async function adminOverview(env: Env, now: number) {
   const bookings = { results: rows };
 
   const packages = await env.DB.prepare(
-    `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.promo_code,
+    `SELECT p.id, p.service_id, p.status, p.credits_total, p.credits_used, p.expires_at, p.amount_cents, p.offline_cents, p.promo_code,
             p.created_at, p.refund_due_cents, p.refunded_at, p.refunded_cents, p.cancelled_at, p.stripe_payment_intent_id, p.refund_error, p.cancel_reason,
             c.id AS customer_id, ${CLIENT_COLUMNS("p")}
      FROM packages p JOIN customers c ON c.id = p.customer_id
@@ -187,6 +187,7 @@ export async function adminOverview(env: Env, now: number) {
       expiresAt: p.expires_at,
       expired: !!p.expires_at && Date.parse(p.expires_at) <= now,
       amountCents: p.amount_cents,
+      offlineCents: p.offline_cents,
       promoCode: p.promo_code,
       name: p.name,
       pronouns: p.pronouns,

@@ -33,6 +33,7 @@ export type PackageRow = {
   admin_email_sent_at: string | null; expiry_notice_sent_at: string | null; created_at: string;
   cancel_reason: string | null; cancelled_at: string | null; refund_due_cents: number | null; refunded_at: string | null; refunded_cents: number;
   reminder_sent_at: string | null;
+  offline_cents: number; // sold outside Stripe (offline.ts): what they paid Avery directly
   name: string; email: string; pronouns: string | null;
 };
 
@@ -54,7 +55,8 @@ export function bundleView(p: PackageRow): T.BundleView {
     sessionLength: lengthLabel(sessionService().durationMinutes),
     expiresAt: p.expires_at ? Date.parse(p.expires_at) : Date.now() + RULES.packageValidDays * DAY,
     clientTimeZone: p.client_time_zone || RULES.timeZone,
-    amountCents: p.amount_cents,
+    amountCents: p.amount_cents + (p.offline_cents ?? 0),
+    paidOutside: (p.offline_cents ?? 0) > 0,
     bundleName: bundleName(findService(p.service_id)!),
     goal: intake.goal,
   };
@@ -223,6 +225,7 @@ export async function packageView(env: Env, id: unknown, token: unknown, now: nu
     status: pkg.status === "active" ? (expired ? "expired" : "active") : pkg.status === "pending" ? "processing" : "cancelled",
     cancelQuote: quote,
     refundDueCents: pkg.cancel_reason === "client_cancelled" ? pkg.refund_due_cents : null,
+    paidOutside: (pkg.offline_cents ?? 0) > 0,
     refunded: !!pkg.refunded_at,
     canRequestRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents - (pkg.refunded_cents ?? 0) > 0
       && !(pkg.status === "active" && !expired && remaining > 0)
@@ -360,11 +363,13 @@ async function cancelQuote(env: Env, pkg: PackageRow, now: number) {
   const paidSessions = findService(pkg.service_id)?.credits ?? pkg.credits_total;
   // Extra sessions Avery added for free are never refunded or charged for.
   const charged = Math.min(used, paidSessions) * sessionService().priceCents;
-  // Anything already refunded by hand comes off what's still owed.
-  const refundCents = Math.max(0, pkg.amount_cents - (pkg.refunded_cents ?? 0) - charged);
+  // Anything already refunded by hand comes off what's still owed. For a
+  // bundle paid outside Stripe this is what Avery's policy says to give back.
+  const refundCents = Math.max(0, pkg.amount_cents + (pkg.offline_cents ?? 0) - (pkg.refunded_cents ?? 0) - charged);
   const expired = !!pkg.expires_at && Date.parse(pkg.expires_at) <= now;
   return {
-    canCancel: pkg.status === "active" && !expired,
+    // Paid directly to Avery: there's nothing to refund online, so only Avery cancels it.
+    canCancel: pkg.status === "active" && !expired && !pkg.offline_cents,
     used,
     refundCents,
     cancellable,
@@ -376,7 +381,11 @@ export async function cancelPackage(env: Env, id: unknown, token: unknown, ctx: 
   const pkg = await loadManagedPackage(env, id, token);
   if (pkg.status === "cancelled") throw new BookingError(409, "This bundle is already cancelled.");
   const q = await cancelQuote(env, pkg, ctx.now);
-  if (!q.canCancel) throw new BookingError(409, "This bundle's use-by date has passed, so it can't be cancelled online. Please email info@averywhitted.com.");
+  if (!q.canCancel) {
+    throw new BookingError(409, pkg.offline_cents
+      ? "You paid for this bundle directly, so it can't be cancelled online. Please email info@averywhitted.com."
+      : "This bundle's use-by date has passed, so it can't be cancelled online. Please email info@averywhitted.com.");
+  }
   let res;
   try {
     res = await env.DB.batch([
@@ -508,6 +517,7 @@ export async function adminPackageCancelPreview(env: Env, id: string, now: numbe
   const upcoming = await upcomingFromBundle(env, pkg.id, now);
   return {
     name: pkg.name, pronouns: pkg.pronouns, bundleName: bundleName(findService(pkg.service_id)!), paidCents: pkg.amount_cents,
+    offlineCents: pkg.offline_cents ?? 0,
     leftCents: pkg.amount_cents - (pkg.refunded_cents ?? 0),
     canRefund: !!pkg.stripe_payment_intent_id && pkg.amount_cents - (pkg.refunded_cents ?? 0) > 0,
     policyRefundCents: q.refundCents, used: pkg.credits_used - upcoming.length,

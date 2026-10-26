@@ -212,7 +212,8 @@
           }
           const hi = pkg.firstName ? `Hi ${pkg.firstName}` : "Your sessions";
           const cancelLink = pkg.cancelQuote && pkg.cancelQuote.canCancel
-            ? `<div class="pk-cancel-link" id="pk-cancel-area"><button type="button" id="pk-cancel">Cancel this bundle</button></div>` : "";
+            ? `<div class="pk-cancel-link" id="pk-cancel-area"><button type="button" id="pk-cancel">Cancel this bundle</button></div>`
+            : pkg.paidOutside && pkg.status === "active" ? `<p class="pk-note">Need to cancel this bundle? Email <a href="mailto:${CONTACT}">${CONTACT}</a>.</p>` : "";
           show("Your sessions", hi, meter + actions + sessionsHtml()
             + `<p class="pk-note">Each session can be rescheduled or cancelled up to 24 hours before it starts, and it goes back into your bundle.</p>` + cancelLink + refundAskHtml());
           wireRefundAsk();

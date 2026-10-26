@@ -416,6 +416,21 @@ app.post("/api/admin/bookings/:id/offline-payment", async (c) => {
     return c.json(await adminRecordPayment(c.env, c.req.param("id"), body, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
   } catch (err) { return bookingErrorResponse(c, err); }
 });
+app.post("/api/admin/payment-requests/:id/offline-payment", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    const { adminRecordRequestPayment } = await import("./offline");
+    return c.json(await adminRecordRequestPayment(c.env, c.req.param("id"), body, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
+// A bundle sold outside Stripe (or given for free).
+app.post("/api/admin/packages/sell", async (c) => {
+  const body = await jsonBody(c);
+  try {
+    const { adminSellBundle } = await import("./offline");
+    return c.json(await adminSellBundle(c.env, body, { now: Date.now(), waitUntil: (p) => c.executionCtx.waitUntil(p) }), 201);
+  } catch (err) { return bookingErrorResponse(c, err); }
+});
 app.post("/api/admin/offline-payments/:id/remove", async (c) => {
   try {
     const { adminRemovePayment } = await import("./offline");

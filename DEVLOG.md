@@ -1,38 +1,50 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-25 19:25 EDT · branch `master` @ `005f340` · working tree: cash payments + custom lengths committed with this entry (not deployed)_
+_Updated 2026-10-25 20:10 EDT · branch `master` @ `6dc343c` · working tree: bundle/request cash work committed with this entry; release run right after_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Release "Record a payment" (cash/Venmo/Zelle/check/waive) and 15-minute session lengths, then record Leslie Davis's $100 cash so her balance shows $30.
+**Current goal:** Payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths are released; Avery records Leslie Davis's $100 cash.
 
 **Where things stand:**
-- Committed locally, NOT deployed: migration 0020 (`offline_payments` table, `bookings.offline_cents`/`waived_cents`, trigger capping them at the price), `booking/src/offline.ts`, admin "Record payment" on unpaid sessions (cards, group seats, profile rows, Payments due), profile "Paid outside Stripe" list with Remove, Undo in the toast.
-- Admin "Book a student" lengths: intro, then 30 min to 3 hr in 15-minute steps. Non-standard lengths are `coaching-<minutes>` ids generated in `findService` (`custom: true`), priced pro rata from $130/hr unless Avery sets a price; public pages use `findPublicService` and can't book them. Students can still reschedule one from their manage link.
-- 151 tests pass (`npm test`). Admin dialog checked in the mock preview; receipt email checked in `npm run preview-emails`.
+- Off-Stripe money: `booking/src/offline.ts`, migration 0020 (`offline_payments` rows point at a booking, a request + booking, or a package; running totals `offline_cents`/`waived_cents` on bookings and payment_requests, `offline_cents` on packages; triggers cap them at the price).
+- Admin: "Record payment" on unpaid sessions and open payment requests; profile "⋯ > Add a bundle" sells a bundle outside Stripe (or free at $0); profile "Paid outside Stripe" list with Remove (a bundle sale only while unused).
+- Cash bundles can't be cancelled online (bundle page says to email); Avery cancels from admin, dialog shows the policy amount to give back by hand; no Stripe refund ever.
+- Book a student lengths: 30 min to 3 hr in 15-minute steps (`coaching-<minutes>`, admin-only, pro rata by default).
+- 154 tests pass. Dialogs checked in the mock admin (mock lacks `/api/services`; inject it to test Book a student / Add a bundle).
 
 **Next steps:**
-1. Avery releases: `cd booking && npm run release` (applies migration 0020 remotely, deploys, pushes master incl. restamped `booking.js`).
-2. Avery opens Leslie Davis's profile, finds the $130 session, Record payment: $100, Cash, today. Profile then shows $30 owed; her link charges $30.
-3. Then the admin phone test from 2026-10-18 is still open.
+1. If the release didn't finish, run `cd booking && npm run release` (see History for what happened).
+2. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
+3. Admin phone test from 2026-10-18 is still open.
 
 **Waiting on the user / open questions:**
-- Release, and feedback on the Record payment dialog.
-- Not built (offered as later): recording a cash bundle purchase; applying cash to a payment request.
+- Feedback on the new dialogs from real use.
 
 **Watch out for:**
-- Never push, deploy, or run remote migrations yourself; Avery does (memory: booking-wip-no-public).
-- `amount_cents` stays card-only (what Stripe can refund). Off-Stripe money is `offline_cents`; never fold it into `amount_cents` or refund paths may try to refund cash.
-- "Owed" must use `dueCents()` / `DUE_SQL()` in `src/bookings.ts`, not `price_cents` with `paid_at IS NULL`.
-- Recording a payment clears `pay_by` (no auto-release once money is in) and expires any open Stripe checkout.
+- Releases: Avery runs them unless they explicitly ask me to in the chat (memory: booking-wip-no-public).
+- `amount_cents` (bookings, packages) and `paid_cents` (requests) are card-only: what Stripe can refund. Never fold off-Stripe money into them.
+- "Owed" must use `dueCents()` / `DUE_SQL()` (bookings.ts) and `requestDue()` (requests.ts).
+- Deleting rows: `offline_payments` before `payment_requests`, `bookings`, `packages` (foreign keys).
 - Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated.
-- Admin UI preview: `sh booking/.test-build/mock-sync.sh`, then the static-site preview at `/booking/.test-build/mock/index.html` (mock POSTs just log).
 
-**Key files:** `booking/src/offline.ts`, `booking/migrations/0020_offline_payments.sql`, `booking/src/services.ts` (custom lengths), `booking/admin/app.js.txt` (`openRecordPayment`, length dropdown), `booking/src/templates.ts` (`offlinePaymentReceived`)
+**Key files:** `booking/src/offline.ts`, `booking/migrations/0020_offline_payments.sql`, `booking/src/requests.ts`, `booking/src/packages.ts`, `booking/admin/app.js.txt` (`openRecordPayment`, `openSellBundle`)
 **Run / test:** `cd booking && npm test` · `npm run preview-emails` · `npm run release -- --check`
 
 ## History
 <!-- newest first -->
+
+### 2026-10-25 20:10 — Cash for payment requests and bundles; then release
+**Asked:** Build the two follow-ups (recording a cash bundle purchase, applying cash to a payment request), then release.
+**Done:**
+- Migration 0020 extended before it was ever applied: `offline_payments` gains `request_id`/`package_id` (exactly one of booking or package; waived not allowed for bundles); `payment_requests.offline_cents/waived_cents` + trigger; `packages.offline_cents`.
+- `offline.ts`: `adminRecordRequestPayment` (part or all, closes an open checkout; all marks the request paid), `adminSellBundle` (active bundle, 90-day use-by, ledger entry, confirmation email unless unticked, no admin email), Remove handles all three kinds.
+- `requests.ts`: `requestDue`; checkout, reminder emails and the student page use what's left. `packages.ts`: cash bundles show the total paid, `cancelQuote` counts cash for the policy amount, online cancel refused. Bundle cancelled email says any refund comes from Avery directly. CSV: bundle and request rows; card request rows only when card money exists.
+- Endpoints: `POST /api/admin/payment-requests/:id/offline-payment`, `POST /api/admin/packages/sell`.
+- 3 new tests (154 total, all pass).
+**Decisions:** Cash bundles are full-price sales (no partial); students can't cancel them online because there's no card payment to refund. Avery asked me to release this time, overriding the usual "Avery runs releases" rule for this request.
+**State:** committed with this entry; release attempted right after (outcome in the next entry if it needed follow-up).
+**Next:** Record Leslie's $100.
 
 ### 2026-10-25 19:25 — Payments outside Stripe; 15-minute session lengths
 **Asked:** Leslie Davis paid $100 cash on a $130 session but her profile showed $130 owed; Avery wanted a clean way to handle off-Stripe payments. Also: Avery gave Leslie 1 hr 15 min for $130, so booking needs 15-minute length steps (was 15/30/60/90 only).

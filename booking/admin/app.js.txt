@@ -661,24 +661,30 @@
   }
 
   let studentSessions = [];
-  const requestRow = (r) => `<div class="seat">
+  let studentShown = null;
+  const requestsKnown = new Map();
+  const requestRow = (r) => (requestsKnown.set(r.id, r), "") + `<div class="seat">
       <div class="who-line"><strong>${nameTag(r.name, r.pronouns, r.customerId)}</strong>
-        <small>${money(r.amountCents)} for ${esc(r.session.toLowerCase())} on ${esc(fmt(r.start, { weekday: "short", month: "short", day: "numeric" }))} &middot; sent ${esc(whenShort(r.createdAt))}${r.remindersSent ? ` &middot; reminded ${r.remindersSent}&times;` : ""}</small>
+        <small>${money(r.amountCents)} for ${esc(r.session.toLowerCase())} on ${esc(fmt(r.start, { weekday: "short", month: "short", day: "numeric" }))}${r.dueCents !== undefined && r.dueCents !== r.amountCents ? ` (${money(r.dueCents)} left)` : ""} &middot; sent ${esc(whenShort(r.createdAt))}${r.remindersSent ? ` &middot; reminded ${r.remindersSent}&times;` : ""}</small>
         ${r.note ? `<span class="quote">${esc(r.note)}</span>` : ""}</div>
-      ${actionsHtml([act("Remind", `data-request-remind="${esc(r.id)}"`, "Email the request again (at most every 12 hours)", "", { main: true }), act("Withdraw", `data-request-cancel="${esc(r.id)}"`, "Cancel the request; the Pay button stops working", "danger")], { small: true, cls: "seat-actions" })}
+      ${actionsHtml([act("Remind", `data-request-remind="${esc(r.id)}"`, "Email the request again (at most every 12 hours)", "", { main: true }),
+        act("Record payment", `data-record-request="${esc(r.id)}"`, "They paid you outside Stripe (cash, Venmo, Zelle...), or you're letting some of it go", "", { main: true }),
+        act("Withdraw", `data-request-cancel="${esc(r.id)}"`, "Cancel the request; the Pay button stops working", "danger")], { small: true, cls: "seat-actions" })}
     </div>`;
 
   const METHOD_LABELS = { cash: "Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other", waived: "Waived" };
   const offlineRow = (p) => `<div class="seat">
       <div class="who-line"><strong>${money(p.amountCents)} ${p.method === "waived" ? "waived" : esc(METHOD_LABELS[p.method].toLowerCase())}</strong>
-        <small>${esc(shortDate(`${p.receivedOn}T12:00:00Z`))} &middot; for ${esc(p.session.toLowerCase())} on ${esc(fmt(p.start, { weekday: "short", month: "short", day: "numeric" }))}</small>
+        <small>${esc(shortDate(`${p.receivedOn}T12:00:00Z`))} &middot; for ${esc(p.what)}${p.start ? ` on ${esc(fmt(p.start, { weekday: "short", month: "short", day: "numeric" }))}` : ""}</small>
         ${p.note ? `<span class="quote">${esc(p.note)}</span>` : ""}</div>
-      ${p.canRemove ? actionsHtml([act("Remove", `data-offline-remove="${esc(p.id)}"`, "Take this back out (a typo, or the wrong session). It goes back to being owed.", "danger")], { small: true, cls: "seat-actions" }) : ""}
+      ${p.canRemove ? actionsHtml([act("Remove", `data-offline-remove="${esc(p.id)}" data-kind="${esc(p.kind)}"`, p.kind === "bundle" ? "Take back this bundle sale (only while no sessions are booked with it)" : "Take this back out (a typo, or the wrong session). It goes back to being owed.", "danger")], { small: true, cls: "seat-actions" }) : ""}
     </div>`;
 
   // Money they gave you directly, or some of what they owe that you're letting go.
-  function openRecordPayment(bookingId) {
-    const b = known.get(bookingId);
+  function openRecordPayment(bookingId, requestId) {
+    const req = requestId ? requestsKnown.get(requestId) : null;
+    const b = req ? { name: req.name, pronouns: req.pronouns, start: req.start, service: `payment request for ${req.session.toLowerCase()}`, dueCents: req.dueCents ?? req.amountCents, past: true } : known.get(bookingId);
+    const path = req ? `/api/admin/payment-requests/${encodeURIComponent(requestId)}/offline-payment` : `/api/admin/bookings/${encodeURIComponent(bookingId)}/offline-payment`;
     const form = formDialog(`
       <h2 id="dlg-title">Record a payment</h2>
       <p>${nameTag(b.name, b.pronouns)} &middot; ${esc(dayLabel(b.start))} at ${esc(clock(b.start))} (${esc(b.service)}). ${money(b.dueCents)} still owed.</p>
@@ -697,7 +703,7 @@
     async (f) => {
       const amountCents = Math.round(Number(f.amount.value) * 100);
       if (!(amountCents > 0 && amountCents <= b.dueCents)) throw new Error(`Enter an amount up to ${money(b.dueCents)}.`);
-      const r = await api("POST", `/api/admin/bookings/${encodeURIComponent(bookingId)}/offline-payment`, {
+      const r = await api("POST", path, {
         amountCents, method: f.method.value, receivedOn: f.receivedOn.value, note: f.note.value, notifyClient: f.notify.checked,
       });
       students = null;
@@ -717,10 +723,41 @@
         : `Email ${who} a receipt${b.past ? "" : " (with their Zoom link)"}`;
       form.querySelector(".left-hint").textContent = left
         ? `${money(left)} will still be owed, by the usual payment link. Any payment deadline is dropped, so the session won't be released.`
-        : "That covers it: the session will show as paid, as if they'd paid by card.";
+        : `That covers it: the ${req ? "request" : "session"} will show as paid, as if they'd paid by card.`;
     };
     form.amount.addEventListener("input", sync);
     sync();
+  }
+
+  // A bundle paid for outside Stripe (or given free): active straight away, with the usual 90-day use-by.
+  async function openSellBundle(customerId, s) {
+    try { services = services ?? await fetch("/api/services", { cache: "no-store" }).then((r) => r.json()); }
+    catch (err) { toast(err.message, true); return; }
+    const bundles = services.filter((x) => x.kind === "bundle");
+    const form = formDialog(`
+      <h2 id="dlg-title">Add a bundle</h2>
+      <p>${nameTag(s.name, s.pronouns)} paid you directly for a bundle. It works like one bought online, except it can't be cancelled online: you cancel it, and settle any refund yourself.</p>
+      <div class="fgrid">
+        <label>Bundle<select name="serviceId">${bundles.map((x) => `<option value="${esc(x.id)}" data-price="${x.priceCents}"${x.credits === 4 ? " selected" : ""}>${x.credits} sessions (${money(x.priceCents)})</option>`).join("")}</select></label>
+        <label>They paid ($)<input type="number" name="amount" min="0" max="5000" step="0.01" required title="$0 for a free bundle"></label>
+        <label>How<select name="method"><option value="cash">Cash</option><option value="venmo">Venmo</option><option value="zelle">Zelle</option><option value="check">Check</option><option value="other">Other</option></select></label>
+        <label>On<input type="date" name="receivedOn" value="${esc(todayNY())}" max="${esc(todayNY())}" required></label>
+      </div>
+      <label class="field">Note for your records (optional)<textarea name="note" maxlength="300" rows="2"></textarea></label>
+      <label><input type="checkbox" name="notify" checked> Email ${esc(firstName(s.name))} their bundle confirmation, with the link to book</label>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Add bundle</button></div>`,
+    async (f) => {
+      const amountCents = Math.round(Number(f.amount.value) * 100);
+      if (!(amountCents >= 0 && amountCents <= 500000)) throw new Error("Enter what they paid, up to $5,000 ($0 for free).");
+      const r = await api("POST", "/api/admin/packages/sell", {
+        customerId, serviceId: f.serviceId.value, amountCents, method: f.method.value, receivedOn: f.receivedOn.value, note: f.note.value, notifyClient: f.notify.checked,
+      });
+      students = null;
+      await afterAction(r.message);
+    });
+    const syncPrice = () => { form.amount.value = (Number(form.serviceId.selectedOptions[0].dataset.price) / 100).toFixed(2); };
+    form.serviceId.addEventListener("change", syncPrice);
+    syncPrice();
   }
 
   // Ask a student to pay an amount for one of their sessions.
@@ -755,6 +792,7 @@
   function moreMenu(s) {
     return menuHtml([
       act("Request payment", `data-request-student="${esc(s.id)}"`, "Email them a request to pay for one of their sessions"),
+      act("Add a bundle", `data-sell-bundle="${esc(s.id)}"`, "Give them a session bundle they paid you for outside Stripe (cash, Venmo...), or for free"),
       act("Edit", `data-edit-student="${esc(s.id)}"`, "Change their name, email or pronouns"),
       act("Export CSV", `data-export-student="${esc(s.id)}" data-fname="${esc(s.name)}"`, "Download every session, bundle and payment for this student as a spreadsheet"),
       emailBlock(s) ? act("Turn emails back on", `data-resubscribe="${esc(s.id)}"`, "Only do this if they asked you to") : null,
@@ -867,6 +905,7 @@
     catch (err) { toast(err.message, true); return; }
     if (studentOpen !== id) return;
     studentSessions = s.sessions;
+    studentShown = s;
     for (const x of s.sessions) known.set(x.id, { ...x, name: s.name, email: s.email, pronouns: s.pronouns, customerId: s.id, past: x.status === "past", status: x.status === "cancelled" ? "cancelled" : "confirmed", unpaidReleased: x.cancelReason === "unpaid" });
     const upcoming = s.sessions.filter((x) => x.status === "upcoming").reverse();
     const past = s.sessions.filter((x) => x.status !== "upcoming");
@@ -896,7 +935,7 @@
         ? `Cancelled${p.cancelReason === "avery_cancelled" ? " by you" : ""}${p.refundDueCents ? `, ${p.refunded ? "refunded" : "refund due"} ${money(p.refundDueCents)}` : ""}`
         : p.expired ? `Expired ${shortDate(p.expiresAt)}` : `${p.remaining} of ${p.creditsTotal} left, use by ${shortDate(p.expiresAt)}`;
       return `<div class="seat">
-        <div class="who-line"><strong>${esc(p.bundle)}</strong><small>Bought ${esc(shortDate(p.createdAt))} for ${money(p.paidCents)}</small></div>
+        <div class="who-line"><strong>${esc(p.bundle)}</strong><small>Bought ${esc(shortDate(p.createdAt))} for ${money(p.paidCents + (p.offlineCents || 0))}${p.offlineCents ? " (paid you directly)" : ""}</small></div>
         <span class="seat-chips">${p.status === "active" ? pips(p.creditsTotal, p.creditsUsed) : ""}<span class="chip${p.status === "cancelled" || p.expired ? "" : " ok"}">${esc(state)}</span></span>
         ${!live && left > 0 ? actionsHtml([act("Refund", `data-refund-bundle="${esc(p.id)}"`, "Refund all or part of what they paid")], { small: true, cls: "seat-actions" }) : ""}
         ${live ? actionsHtml(bundleActs(p, true), { small: true, cls: "seat-actions", label: "More for this bundle" }) : ""}
@@ -1831,7 +1870,9 @@
         ${q.policyRefundCents ? '<label><input type="radio" name="refund" value="0"> No refund</label>' : ""}
         <label><input type="radio" name="refund" value="custom"> Another amount: $<input type="number" name="custom" min="0" max="${full / 100}" step="0.01" style="width:110px"></label>
       </fieldset>
-      <p class="hint">The refund is sent through Stripe straight away.</p>` : '<p class="hint">There was no card payment for this bundle, so there\'s nothing to refund.</p>'}
+      <p class="hint">The refund is sent through Stripe straight away.</p>` : q.offlineCents
+        ? `<p class="hint">They paid you ${money(q.offlineCents)} directly, so nothing is refunded from here. By your policy you'd give back ${money(q.policyRefundCents)}; do that yourself.</p>`
+        : '<p class="hint">There was no card payment for this bundle, so there\'s nothing to refund.</p>'}
       <label><input type="checkbox" name="notify" checked> Email ${esc(q.name.split(" ")[0])} a cancellation</label>
       <div class="row">${cancelButton("Keep it")}<button type="submit" class="btn danger">Cancel bundle</button></div>`,
     async (f) => {
@@ -2016,7 +2057,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-lights-toggle],[data-followup-dismiss],[data-nudge],[data-nudge-cancel],[data-resubscribe],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel],[data-record],[data-offline-remove]");
+    const t = e.target.closest("[data-lights-toggle],[data-followup-dismiss],[data-nudge],[data-nudge-cancel],[data-resubscribe],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel],[data-record],[data-record-request],[data-offline-remove],[data-sell-bundle]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { const moved = tab !== d.tab; tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); if (moved) window.scrollTo(0, 0); }
@@ -2098,8 +2139,10 @@
     else if (d.keep) keepHeld(d.keep, t);
     else if (d.request) openRequest(d.request);
     else if (d.record) openRecordPayment(d.record);
+    else if (d.recordRequest) openRecordPayment(null, d.recordRequest);
+    else if (d.sellBundle && studentShown && studentShown.id === d.sellBundle) openSellBundle(d.sellBundle, studentShown);
     else if (d.offlineRemove) {
-      if (confirm("Remove this payment? The amount goes back to being owed. Nothing is sent to them.")) {
+      if (confirm(d.kind === "bundle" ? "Take back this bundle sale? The bundle is removed and its booking link stops working. Nothing is sent to them." : "Remove this payment? The amount goes back to being owed. Nothing is sent to them.")) {
         requestAction(`/api/admin/offline-payments/${encodeURIComponent(d.offlineRemove)}/remove`, "Removed. It's owed again.", t).then(() => { students = null; if (studentOpen) openStudent(studentOpen); });
       }
     }
