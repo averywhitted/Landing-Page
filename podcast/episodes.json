@@ -228,6 +228,37 @@
           "url": "https://www.imdb.com/title/tt44111567/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 8,
+      "slug": "ruffin-prentiss",
+      "title": "Ruffin Prentiss: Guard Your Heart",
+      "guest": "Ruffin Prentiss",
+      "headline": "Guard Your Heart",
+      "guid": "9316de8f-c264-438a-bc89-c7fff91e7129",
+      "published": "2026-10-30T04:00:00Z",
+      "duration_seconds": 3505,
+      "apple_episode_id": "1000798827431",
+      "apple_episode_slug": "ruffin-prentiss-guard-your-heart",
+      "summary": "Ruffin Prentiss (Watch Dogs 2, SEAL Team, Power, Insecure, and a whole lot more) talks about making your own work, carrying your emotional prep into the audition room, and guarding your heart without closing it off. Plus, the time his first scene on Power called for a...questionable skill.",
+      "meta_description": "Ruffin Prentiss (Watch Dogs 2, SEAL Team, Power, Insecure, and a whole lot more) talks about making your own work, carrying your... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Ruffin on Instagram",
+          "text": "@rprentissiii",
+          "url": "https://www.instagram.com/rprentissiii/"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://www.instagram.com/avery_whitted/"
+        },
+        {
+          "text": "HOMEbirth short film",
+          "url": "https://www.imdb.com/title/tt41671492/?ref_=nm_flmg_job_1_accord_2_cdt_t_1"
+        }
+      ]
     }
   ]
 }
