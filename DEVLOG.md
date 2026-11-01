@@ -1,7 +1,7 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-10-25 21:00 EDT · branch `master` @ `7092e0b` (GitHub at `37feffc`) · working tree: Stripe expire fix committed with this entry, NOT released_
+_Updated 2026-11-01 · branch `master` · working tree: repeat-test fix committed with this entry; release of it + the Stripe expire fix run right after_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
 **Current goal:** LIVE since 2026-10-25 20:15 EDT: payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths. Avery records Leslie Davis's $100 cash.
@@ -14,9 +14,8 @@ _Updated 2026-10-25 21:00 EDT · branch `master` @ `7092e0b` (GitHub at `37feffc
 - 154 tests pass. Dialogs checked in the mock admin (mock lacks `/api/services`; inject it to test Book a student / Add a bundle).
 
 **Next steps:**
-1. Release the Stripe expire fix: `cd booking && npm run release` (no migration; worker + this log).
-2. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
-3. Admin phone test from 2026-10-18 is still open.
+1. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
+2. Admin phone test from 2026-10-18 is still open.
 
 **Waiting on the user / open questions:**
 - Feedback on the new dialogs from real use.
@@ -27,12 +26,18 @@ _Updated 2026-10-25 21:00 EDT · branch `master` @ `7092e0b` (GitHub at `37feffc
 - "Owed" must use `dueCents()` / `DUE_SQL()` (bookings.ts) and `requestDue()` (requests.ts).
 - Deleting rows: `offline_payments` before `payment_requests`, `bookings`, `packages` (foreign keys).
 - Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated.
+- Repeat tests must compare times with `weeksLater()` (same Eastern clock time), never `+ 7 * DAY`; the latter fails within a week or two of a clock change.
 
 **Key files:** `booking/src/offline.ts`, `booking/migrations/0020_offline_payments.sql`, `booking/src/requests.ts`, `booking/src/packages.ts`, `booking/admin/app.js.txt` (`openRecordPayment`, `openSellBundle`)
 **Run / test:** `cd booking && npm test` · `npm run preview-emails` · `npm run release -- --check`
 
 ## History
 <!-- newest first -->
+
+### 2026-11-01 — Repeat tests broke on the clock change; release
+**Asked:** Release the Stripe expire fix (`071a64a`).
+**Done:** The release dry run stopped: 5 "repeating:" tests failed today (Nov 1, clocks went back). Same failures on the pre-October code (`005f340`), so not caused by recent work. Live code is right: `sameTimeWeeksLater` in `booking/src/series.ts` keeps the Eastern clock time, so a week later is 7 days + 1 hour across the change; the tests assumed exactly 7 x 24 hours. `test/booking.test.ts` now uses a `weeksLater()` helper, plus a new fixed-date test pinning the behaviour for both clock changes in 2026.
+**State:** 156/156 tests pass; test-only change, committed; release run right after.
 
 ### 2026-10-25 21:00 — Closing an already-expired Stripe page showed as a Stripe error
 **Asked:** Avery saw "Stripe refused POST checkout/sessions/expire (400): ... has a status of `expired`".

@@ -7,6 +7,7 @@ import { makeDb, makeWorld, makeEnv, makeClient, accessToken, ACCESS_TEAM, ACCES
 import { resetAccessCache } from "../src/admin";
 import { forgetCalendars } from "../src/icloud";
 import { buildIcs } from "../src/ics";
+import { sameTimeWeeksLater } from "../src/series";
 import type { Env } from "../src/env";
 
 const realFetch = globalThis.fetch;
@@ -1974,6 +1975,8 @@ function endSession(id: string, daysAgo = 1) {
   if (b.series_id) db.prepare("UPDATE series SET last_start = ? WHERE id = ?").run(s, b.series_id);
   return past;
 }
+// Repeats keep Avery's clock time, so across a clock change "a week later" isn't exactly 7 x 24 hours.
+const weeksLater = (ms: number, n = 1) => sameTimeWeeksLater(ms, n);
 const seriesOf = (id: string) => db.prepare("SELECT * FROM series WHERE id = (SELECT series_id FROM bookings WHERE id = ?)").get(id) as any;
 const inSeries = (seriesId: string) => db.prepare("SELECT * FROM bookings WHERE series_id = ? ORDER BY start_utc").all(seriesId) as any[];
 
@@ -1996,7 +1999,7 @@ test("repeating: a student's weekly session books the next one after each ends, 
   const all = inSeries(seriesOf(first).id);
   assert.equal(all.length, 2);
   const next = all[1];
-  assert.equal(Date.parse(next.start_utc) - past, 7 * DAY, "same time, a week later");
+  assert.equal(Date.parse(next.start_utc), weeksLater(past), "same time, a week later");
   assert.equal(next.status, "confirmed");
   assert.equal(next.price_cents, 13000);
   assert.equal(next.amount_cents, 0);
@@ -2023,14 +2026,14 @@ test("repeating: a clash skips that week and carries on; two unpaid in a row sto
   const sid = seriesOf(first).id;
   const past = endSession(first);
   // Someone else has the usual time next week.
-  const nextTime = new Date(past + 7 * DAY);
+  const nextTime = new Date(weeksLater(past));
   await adminBook({ date: etDate(nextTime.getTime()), time: new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(nextTime), students: [student("Other", "other@example.com")] });
   world.state.emails.length = 0;
   await api.cron();
   assert.equal(inSeries(sid).length, 1, "skipped");
   assert.ok(world.state.emails.some((e) => /^No session on /.test(e.subject) && e.to[0] === "rep@example.com"));
   assert.ok(world.state.emails.some((e) => /^Repeat skipped: Rep Eat/.test(e.subject)));
-  assert.equal(Date.parse(seriesOf(first).last_start), past + 7 * DAY, "moves on to the following week");
+  assert.equal(Date.parse(seriesOf(first).last_start), weeksLater(past), "moves on to the following week");
 
   // The following week is booked; it goes unpaid, then the next one too: the series stops.
   db.prepare("UPDATE series SET last_start = ? WHERE id = ?").run(new Date(past).toISOString().replace(/\.000Z$/, "Z"), sid);
@@ -2059,8 +2062,7 @@ test("repeating: a set number of sessions ends by itself; groups and bundle cred
   await api.cron();
   const all = inSeries(sid);
   assert.equal(all.length, 2);
-  // Same Eastern clock time, so across a clock change it's 14 days give or take an hour.
-  assert.ok(Math.abs(Date.parse(all[1].start_utc) - past - 14 * DAY) <= 3600000, "every 2 weeks");
+  assert.equal(Date.parse(all[1].start_utc), weeksLater(past, 2), "every 2 weeks");
   assert.equal(all[1].price_cents, 0, "free, so no pay link");
   assert.equal(seriesOf(first).status, "ended");
   endSession(all[1].id);
@@ -2089,7 +2091,7 @@ test("repeating: a skipped week doesn't use up one of a set number of sessions",
   const sid = seriesOf(first).id;
   assert.equal(seriesOf(first).sessions_left, 1);
   const past = endSession(first);
-  const nextTime = new Date(past + 7 * DAY);
+  const nextTime = new Date(weeksLater(past));
   await adminBook({ date: etDate(nextTime.getTime()), time: new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(nextTime), students: [student("Other Two", "other2@example.com")] });
   await api.cron();
   assert.equal(inSeries(sid).length, 1, "skipped");
@@ -2102,7 +2104,7 @@ test("repeating: future times are kept for the student; others can't book them, 
   const r = await adminBook({ time: "13:00", students: [student("Kept Time", "kept@example.com", { priceCents: 0 })], repeat: { everyWeeks: 1 } });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const first = row(r.data.bookingId);
-  const nextWeek = Date.parse(first.start_utc) + 7 * DAY;
+  const nextWeek = weeksLater(Date.parse(first.start_utc));
   const nextIso = new Date(nextWeek).toISOString().replace(/\.000Z$/, "Z");
   const dayOf = async () => (await api.call("GET", `/api/availability?service=coaching-60&from=${etDate(nextWeek)}&days=1&fresh=${Math.random()}`)).data.slots as string[];
   const slots = await dayOf();
@@ -2121,7 +2123,7 @@ test("repeating: a week that clashes with Avery's calendar is held until she kee
   const first = r.data.bookingId;
   const sid = seriesOf(first).id;
   const past = endSession(first);
-  const next = past + 7 * DAY;
+  const next = weeksLater(past);
   const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   world.state.busy.push({ calendar: "Personal", ics: `BEGIN:VEVENT\r\nUID:dentist\r\nDTSTART:${stamp(next)}\r\nDTEND:${stamp(next + 3600000)}\r\nEND:VEVENT` });
   world.state.emails.length = 0;
@@ -2155,7 +2157,7 @@ test("repeating: a held week Avery never decides goes ahead 2 days before", asyn
   const first = r.data.bookingId;
   const sid = seriesOf(first).id;
   const past = endSession(first);
-  const next = past + 7 * DAY;
+  const next = weeksLater(past);
   const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   world.state.busy.push({ calendar: "Professional", ics: `BEGIN:VEVENT\r\nUID:meeting\r\nDTSTART:${stamp(next)}\r\nDTEND:${stamp(next + 3600000)}\r\nEND:VEVENT` });
   await api.cron();
@@ -3207,4 +3209,13 @@ test("closing a payment page that already timed out isn't logged as a Stripe err
   assert.equal(rec.status, 201, JSON.stringify(rec.data));
   const errors = db.prepare("SELECT message FROM integration_events WHERE service = 'stripe' AND level = 'error'").all() as any[];
   assert.deepEqual(errors.map((e) => e.message), [], "no amber Stripe light");
+});
+
+test("repeating: the next session keeps Avery's clock time across a clock change", () => {
+  // Sun Oct 25 2026, 2:00 PM EDT (18:00 UTC) -> Sun Nov 1, 2:00 PM EST (19:00 UTC), after clocks go back.
+  assert.equal(new Date(sameTimeWeeksLater(Date.UTC(2026, 9, 25, 18), 1)).toISOString(), "2026-11-01T19:00:00.000Z");
+  // Sat Mar 7 2026, 10:00 AM EST (15:00 UTC) -> Sat Mar 14, 10:00 AM EDT (14:00 UTC), after clocks go forward.
+  assert.equal(new Date(sameTimeWeeksLater(Date.UTC(2026, 2, 7, 15), 1)).toISOString(), "2026-03-14T14:00:00.000Z");
+  // No change in between: exactly 14 x 24 hours.
+  assert.equal(sameTimeWeeksLater(Date.UTC(2026, 5, 1, 18), 2) - Date.UTC(2026, 5, 1, 18), 14 * DAY);
 });
