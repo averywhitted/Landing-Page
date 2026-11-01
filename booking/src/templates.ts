@@ -4,6 +4,7 @@
 
 import type { Email } from "./email";
 import { HEADING_IMAGES } from "./email-headings";
+import { CHANGE_CUTOFF_HOURS } from "./settings";
 
 export type BookingView = {
   id: string;
@@ -163,19 +164,27 @@ function sessionRows(b: BookingView, tz: string, withPaid: boolean): [string, st
   return rows;
 }
 
-// Once a session is over it can't be rescheduled or cancelled, so emails sent
-// after it (a late payment, an invite for a past session) leave those links out.
+// Sessions can only be rescheduled or cancelled online until the cutoff, so
+// emails sent later leave those links out: inside the cutoff they say to
+// reply instead, and once the session is over they say nothing.
 const isOver = (b: BookingView) => b.end <= Date.now();
+const canChangeOnline = (b: BookingView) => b.start - Date.now() >= CHANGE_CUTOFF_HOURS * 3600000;
+const lateChangeText = "Can't make it? Please reply to this email.";
 
 // Rescheduling and cancelling: a quiet line at the bottom, not a button, so
 // it's there if they need it without suggesting they use it.
 function manageLine(b: BookingView, manageUrl: string, opts: { group?: boolean; refundNote?: boolean } = {}): string {
   if (isOver(b)) return "";
   const link = (label: string) => `<a href="${esc(manageUrl)}" style="color:#6b727b;">${label}</a>`;
-  return `<p style="margin:18px 0 0;padding-top:14px;border-top:1px solid #eceef2;font:12px/1.6 ${FONT};color:#6b727b;">${opts.group
-    ? `Can't make it? You can ${link("cancel your spot")} up to 24 hours before the session.`
-    : `Need to change plans? You can ${link("reschedule or cancel")} up to 24 hours before your session.${opts.refundNote ? " Refunds for cancellations may take a few business days to appear." : ""}`}</p>`;
+  return `<p style="margin:18px 0 0;padding-top:14px;border-top:1px solid #eceef2;font:12px/1.6 ${FONT};color:#6b727b;">${!canChangeOnline(b)
+    ? `Can't make it? It's now less than ${CHANGE_CUTOFF_HOURS} hours before ${opts.group ? "the" : "your"} session, so please reply to this email and I'll help.`
+    : opts.group
+    ? `Can't make it? You can ${link("cancel your spot")} up to ${CHANGE_CUTOFF_HOURS} hours before the session.`
+    : `Need to change plans? You can ${link("reschedule or cancel")} up to ${CHANGE_CUTOFF_HOURS} hours before your session.${opts.refundNote ? " Refunds for cancellations may take a few business days to appear." : ""}`}</p>`;
 }
+
+// The plain-text version: `line` while it can still be changed online.
+const manageText = (b: BookingView, line: string) => canChangeOnline(b) ? [line, ""] : isOver(b) ? [] : [lateChangeText, ""];
 
 // ── Client: booking confirmed ──
 
@@ -204,7 +213,7 @@ export function clientConfirmation(b: BookingView, ics: string, manageUrl: strin
       intro ? "Thanks for booking an intro chat." : "You're all set.", "",
       textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"],
         ...(b.amountCents > 0 ? [["Paid", money(b.amountCents)] as [string, string]] : [])]), "",
-      ...(isOver(b) ? [] : [`Need to reschedule or cancel? You can do it up to 24 hours before your session: ${manageUrl}`, ""]),
+      ...manageText(b, `Need to reschedule or cancel? You can do it up to ${CHANGE_CUTOFF_HOURS} hours before your session: ${manageUrl}`),
       "See you soon,", "Avery",
     ].join("\n"),
     attachments: icsAttachment(ics, "REQUEST"),
@@ -246,31 +255,37 @@ export function adminInvite(b: BookingView, ics: string, manageUrl: string, payU
       ...(b.message ? ["Note:", b.message, ""] : []),
       textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
       ...(due ? [dueLine(b, tz), `Pay here: ${payUrl}`, ""] : []),
-      ...(isOver(b) ? [] : [`${b.group ? "View or cancel your spot" : "Reschedule or cancel"} (up to 24 hours before): ${manageUrl}`, ""]),
+      ...manageText(b, `${b.group ? "View or cancel your spot" : "Reschedule or cancel"} (up to ${CHANGE_CUTOFF_HOURS} hours before): ${manageUrl}`),
       "See you soon,", "Avery",
     ].join("\n"),
     attachments: icsAttachment(ics, "REQUEST"),
   };
 }
 
+// Paid after the session (no deadline, so the link stayed open): a plain
+// receipt, without the Zoom link, calendar invite or "see you soon".
 export function paymentReceived(b: BookingView, manageUrl: string, ics?: string): Email {
   const tz = b.clientTimeZone;
+  const over = isOver(b);
+  const line = over
+    ? `Thanks, your payment of ${money(b.amountCents)} for your ${b.serviceName.toLowerCase()} on ${day(b.start, tz)} went through. You're all paid up.`
+    : `Thanks, your payment of ${money(b.amountCents)} went through. You're all set.`;
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
-    para(`Thanks, your payment of ${esc(money(b.amountCents))} went through. You're all set.${b.zoomUrl ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
-    details(sessionRows(b, tz, true)),
-    zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
-    para("See you soon,<br>Avery"),
+    para(`${esc(line)}${!over && b.zoomUrl ? " Here's your Zoom link, and the attached invite updates your calendar with it." : ""}`),
+    details(over ? sessionRows(b, tz, true).filter(([k]) => k !== "Where") : sessionRows(b, tz, true)),
+    !over && zoomFor(b) ? zoomButton(zoomFor(b)!) : "",
+    para(over ? "Thanks,<br>Avery" : "See you soon,<br>Avery"),
     manageLine(b, manageUrl, { group: b.group, refundNote: true }),
   ].join("\n");
   return {
     to: b.email,
     subject: `Payment received: ${b.serviceName} on ${shortDay(b.start, tz)}`,
     html: layout({ preheader: `Paid ${money(b.amountCents)}`, tag: b.group ? "Group coaching" : tagFor(b), title: "Payment received", body }),
-    text: [`Hi ${firstName(b.name)},`, "", `Thanks, your payment of ${money(b.amountCents)} went through. You're all set.`, "",
-      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ["Zoom", b.zoomUrl ?? "Link to follow"]]), "",
-      ...(isOver(b) ? [] : [`Manage your session: ${manageUrl}`, ""]), "See you soon,", "Avery"].join("\n"),
-    ...(ics ? { attachments: icsAttachment(ics, "REQUEST") } : {}),
+    text: [`Hi ${firstName(b.name)},`, "", line, "",
+      textRows([["Session", b.serviceName], ["Date", day(b.start, tz)], ["Time", timeRange(b, tz)], ...(over ? [] : [["Zoom", b.zoomUrl ?? "Link to follow"] as [string, string]])]), "",
+      ...manageText(b, `Manage your session: ${manageUrl}`), ...(over ? ["Thanks,"] : ["See you soon,"]), "Avery"].join("\n"),
+    ...(ics && !over ? { attachments: icsAttachment(ics, "REQUEST") } : {}),
   };
 }
 
@@ -321,7 +336,7 @@ export function adminPaymentReceived(b: BookingView): Email {
 
 export function paymentReminder(b: BookingView, payUrl: string, manageUrlIn?: string): Email {
   const tz = b.clientTimeZone;
-  const manageUrl = isOver(b) ? undefined : manageUrlIn;
+  const manageUrl = canChangeOnline(b) ? manageUrlIn : undefined;
   const body = [
     para(`Hi ${esc(firstName(b.name))},`),
     para(`A quick reminder that your ${esc(b.serviceName.toLowerCase())} on <strong>${esc(day(b.start, tz))}</strong> hasn't been paid yet.`),
@@ -795,7 +810,7 @@ export function clientRescheduled(b: BookingView, previousStart: number, ics: st
     html: layout({ preheader: `New time: ${day(b.start, tz)}, ${timeRange(b, tz)}`, tag: tagFor(b), title: "Session rescheduled", body }),
     text: [`Hi ${firstName(b.name)},`, "", "Your session has been moved.", "",
       textRows([["Session", b.serviceName], ["New date", day(b.start, tz)], ["New time", timeRange(b, tz)], ["Was", was], ["Zoom", zoomFor(b) ?? noZoomText(b)]]), "",
-      ...(isOver(b) ? [] : [`Reschedule or cancel: ${manageUrl}`, ""]), "See you then,", "Avery"].join("\n"),
+      ...manageText(b, `Reschedule or cancel: ${manageUrl}`), "See you then,", "Avery"].join("\n"),
     attachments: icsAttachment(ics, "REQUEST"),
   };
 }

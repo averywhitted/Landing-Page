@@ -1,7 +1,7 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-11-01 12:32 EST · branch `master` @ `79831b1` · working tree: uncommitted `booking/src/templates.ts` + `booking/test/booking.test.ts` (no cancel links in post-session emails). Promo codes (79831b1) and this fix both NOT released_
+_Updated 2026-11-01 12:38 EST · branch `master` @ `2f9d0e8` · working tree: uncommitted cutoff + late-receipt changes in `booking/src/templates.ts`, `settings.ts`, `bookings.ts`, test. Promo codes (79831b1) and the email fixes NOT released_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
 **Current goal:** Release two finished changes: Stripe promo codes from the admin page (needs a Stripe key permission first) and the fix that drops cancel links from emails sent after a session is over.
@@ -10,12 +10,12 @@ _Updated 2026-11-01 12:32 EST · branch `master` @ `79831b1` · working tree: un
 - `booking/src/promos.ts` (validation, plain-English errors) + `booking/src/stripe.ts` (`listPromotionCodes`, `createPromotionCode`, `setPromotionCodeActive`, pinned `Stripe-Version: 2024-06-20`). Endpoints `GET/POST /api/admin/promo-codes`, `POST /api/admin/promo-codes/:id/active`. Nothing stored in D1; no migration.
 - Admin (`booking/admin/app.js.txt`, `promoPanel`, `openNewPromo`, `setPromoActive`): list (working codes, "Show old codes" for off / used up / ended), New promo code dialog (code or "Make one up", % or $ off, optional last day, total uses, private note), Copy link (booking link with ?promo=), Turn off with Undo, Turn on. Booking link dialog suggests working codes.
 - Off-Stripe payments and 15-minute lengths: live since 2026-10-25 (`booking/src/offline.ts`, migration 0020).
-- Post-session emails: `isOver(b)` in `booking/src/templates.ts` hides the reschedule/cancel line (`manageLine`) and the reminder's "cancel the session" link once a session has ended. Covers payment reminder, payment received, confirmation, Avery's invite, rescheduled.
+- Email change links (`booking/src/templates.ts`): `canChangeOnline(b)` (24h cutoff, `CHANGE_CUTOFF_HOURS` now in `settings.ts`) shows the reschedule/cancel link; inside the cutoff the email says to reply instead; once `isOver(b)` it says nothing. Late payment receipts are plain (no Zoom, no .ics, "Thanks,").
 - 159 tests pass. Promo UI checked in a mock admin (desktop, 375px dark): create, duplicate refusal, off + Undo, copy link; no console errors. Not tried against real Stripe.
 
 **Next steps:**
 1. Avery: Stripe dashboard > Developers > API keys > the booking site's restricted live key > Edit: Coupons = Write, Promotion codes = Write. Without it the panel shows a message saying exactly that.
-2. Commit the post-session email fix if Avery hasn't, then release: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run release` (no migration).
+2. Commit the cutoff/late-receipt email change if Avery hasn't, then release: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run release` (no migration).
 3. Make a throwaway code on the live admin, open its Copy link, check Stripe Checkout shows the discount, then turn it off.
 4. Still open: Leslie Davis's $100 cash (profile > $130 session > Record payment); admin phone test from 2026-10-18.
 
@@ -36,6 +36,17 @@ _Updated 2026-11-01 12:32 EST · branch `master` @ `79831b1` · working tree: un
 
 ## History
 <!-- newest first -->
+
+### 2026-11-01 12:38 — Email change links follow the 24-hour cutoff; plain late receipts
+**Asked:** Follow-up to 2f9d0e8: also drop the cancel link inside the last 24 hours, and stop late payment receipts saying "See you soon" with a Zoom link.
+**Done:**
+- `CHANGE_CUTOFF_HOURS` moved from `booking/src/bookings.ts` to `booking/src/settings.ts` so templates can use it (templates is imported by bookings; avoided a cycle).
+- `booking/src/templates.ts`: `canChangeOnline(b)` gates `manageLine`, new `manageText` (plain-text lines) and the payment reminder's cancel link. Inside the cutoff: "Can't make it? It's now less than 24 hours before your session, so please reply to this email and I'll help." (text: "Can't make it? Please reply to this email."). Over: nothing.
+- `paymentReceived` when the session is over: names the session, "You're all paid up.", no Where/Zoom row, no Zoom button, no .ics attachment, signs off "Thanks,".
+- Test renamed to "emails sent inside the 24-hour cutoff or after a session have no reschedule or cancel link; late receipts are plain" and extended.
+**Decisions:** Cutoff check mirrors `canChange` in bookings.ts (start - now >= 24h). Admin invites for past sessions still say "See you soon" and attach an invite; not asked, left alone.
+**State:** Uncommitted. 159/159 tests pass, `tsc --noEmit` clean. Not released.
+**Next:** Commit, then release with the promo codes work.
 
 ### 2026-11-01 12:32 — No cancel links in emails sent after a session is over
 **Asked:** A payment reminder went out with a cancel link for a session that had already happened. Go through every email and drop cancel links from any that can arrive after the session.

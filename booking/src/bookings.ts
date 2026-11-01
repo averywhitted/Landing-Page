@@ -14,7 +14,7 @@
 
 import type { Env } from "./env";
 import { findPublicService, findService, type Service } from "./services";
-import { RULES } from "./settings";
+import { CHANGE_CUTOFF_HOURS, RULES } from "./settings";
 import { calendarFor } from "./calendar";
 import { blocksFor, openSlots } from "./availability";
 import { iso, isValidTimeZone, zonedDate, zonedToUtc } from "./time";
@@ -698,7 +698,6 @@ export async function publicStatus(env: Env, by: "booking" | "session", value: s
 
 /* ── Client self-service: view, cancel, reschedule (from the manage link) ── */
 
-export const CHANGE_CUTOFF_HOURS = 24;
 export const MAX_RESCHEDULES = 3;
 
 async function loadManaged(env: Env, bookingId: unknown, token: unknown): Promise<BookingRow> {

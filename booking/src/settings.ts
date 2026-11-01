@@ -20,6 +20,9 @@ export const RULES = {
   packageSessionService: "coaching-60", // what one bundle credit books
 };
 
+// Students can reschedule or cancel online until this many hours before a session.
+export const CHANGE_CUTOFF_HOURS = 24;
+
 // iCloud calendars. Anything on these blocks booking; new bookings are written to bookingCalendar.
 export const CALENDARS = {
   busy: ["Professional", "Personal", "Coaching"],

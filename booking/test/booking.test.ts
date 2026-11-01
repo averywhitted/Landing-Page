@@ -1984,7 +1984,7 @@ test("reminders: after any reminder, the next (automatic or manual) waits 12 hou
   assert.match(reminder.html, /cancel the session/, "a quiet cancel link");
 });
 
-test("emails sent after a session is over have no reschedule or cancel link", async () => {
+test("emails sent inside the 24-hour cutoff or after a session have no reschedule or cancel link; late receipts are plain", async () => {
   adminEnv();
   await adminBook({ students: [student("Late Payer", "late@example.com")] });
   const id = bookingByEmail("late@example.com").id;
@@ -2003,8 +2003,27 @@ test("emails sent after a session is over have no reschedule or cancel link", as
     T.adminInvite({ ...past, group: true }, "", manage, null), T.clientRescheduled(past, past.start - DAY, "", manage)]) {
     assert.doesNotMatch(e.html + e.text, /reschedule or cancel|cancel your spot|Manage your session/i, e.subject);
   }
-  const soon = { ...past, start: Date.now() + 3 * DAY, end: Date.now() + 3 * DAY + 3600000 };
-  assert.match(T.paymentReceived(soon, manage).html, /reschedule or cancel/, "upcoming sessions keep the link");
+  const later = { ...past, start: Date.now() + 3 * DAY, end: Date.now() + 3 * DAY + 3600000 };
+  assert.match(T.paymentReceived(later, manage).html, /reschedule or cancel/, "upcoming sessions keep the link");
+  assert.match(T.paymentReminder({ ...later, dueCents: 9000 }, manage, manage).html, /cancel the session/);
+
+  // Inside the 24-hour cutoff: reply instead of a link that can't do anything.
+  const soon = { ...past, start: Date.now() + 3 * 3600000, end: Date.now() + 4 * 3600000 };
+  for (const e of [T.paymentReceived(soon, manage), T.clientConfirmation(soon, "", manage), T.adminInvite({ ...soon, group: true }, "", manage, null),
+    T.clientRescheduled(soon, soon.start + DAY, "", manage), T.paymentReminder({ ...soon, dueCents: 9000 }, manage, manage)]) {
+    assert.doesNotMatch(e.html + e.text, /reschedule or cancel|cancel your spot|cancel the session|Manage your session/i, e.subject);
+    assert.match(e.html, /reply to this email/, e.subject);
+  }
+  assert.match(T.clientConfirmation(soon, "", manage).text, /Can't make it\? Please reply to this email\./);
+
+  // A late payment is a plain receipt: no Zoom link, calendar invite or "see you soon".
+  const late = T.paymentReceived({ ...past, zoomUrl: "https://zoom.us/j/123" }, manage, "BEGIN:VCALENDAR");
+  assert.doesNotMatch(late.html + late.text, /zoom|see you soon|all set/i);
+  assert.equal(late.attachments, undefined);
+  assert.match(late.text, /You're all paid up\./);
+  const onTime = T.paymentReceived({ ...later, zoomUrl: "https://zoom.us/j/123" }, manage, "BEGIN:VCALENDAR");
+  assert.match(onTime.html, /Join on Zoom/);
+  assert.equal(onTime.attachments?.length, 1);
 });
 
 test("notes, attendance, days off, export, and backups", async () => {
