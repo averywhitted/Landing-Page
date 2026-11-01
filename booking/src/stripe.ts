@@ -22,7 +22,7 @@ function formEncode(data: Record<string, unknown>, prefix = ""): string[] {
   return out;
 }
 
-async function stripe<T>(env: Env, method: "GET" | "POST", path: string, data?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+async function stripe<T>(env: Env, method: "GET" | "POST" | "DELETE", path: string, data?: Record<string, unknown>, idempotencyKey?: string, version?: string): Promise<T> {
   if (!env.STRIPE_SECRET_KEY) throw new Error("Stripe is not configured (STRIPE_SECRET_KEY missing)");
   const res = await fetch(`${apiBase(env)}/v1/${path}`, {
     method,
@@ -30,6 +30,7 @@ async function stripe<T>(env: Env, method: "GET" | "POST", path: string, data?: 
       Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       "Content-Type": "application/x-www-form-urlencoded",
       ...(idempotencyKey && { "Idempotency-Key": idempotencyKey }),
+      ...(version && { "Stripe-Version": version }),
     },
     body: data ? formEncode(data).join("&") : undefined,
   });
@@ -40,8 +41,9 @@ async function stripe<T>(env: Env, method: "GET" | "POST", path: string, data?: 
   if (!res.ok && res.status !== 404) await logEvent(env, "stripe", "error", `Stripe refused ${method} ${path.split("?")[0].replace(/\/cs_[^/]+/, "")} (${res.status}): ${body.error?.message ?? "unknown error"}`);
   else if (res.ok && what) await logEvent(env, "stripe", "ok", what === "refund" ? "Sent a refund to Stripe" : "Created a checkout page");
   if (!res.ok) {
-    const err = new Error(`Stripe ${path} failed (${res.status}): ${body.error?.message ?? "unknown error"}`) as Error & { code?: string };
+    const err = new Error(`Stripe ${path} failed (${res.status}): ${body.error?.message ?? "unknown error"}`) as Error & { code?: string; status?: number };
     err.code = body.error?.code;
+    err.status = res.status;
     throw err;
   }
   return body;
@@ -134,6 +136,72 @@ export async function promoCodeUsed(env: Env, sessionId: string): Promise<string
     console.warn("stripe: couldn't read promo code used:", (err as Error).message);
     return null;
   }
+}
+
+// ── Promo codes made from the admin page ──
+// Each is a Stripe coupon (the discount, once per purchase) with one
+// promotion code (the word students type). These calls name an API version
+// because newer versions moved the coupon inside a "promotion" field; pinned,
+// the request and reply shapes stay the same whatever the account's default.
+// The key needs Coupons and Promotion Codes set to Write.
+
+const PROMO_API_VERSION = "2024-06-20";
+
+type StripePromo = {
+  id: string; code: string; active: boolean; created: number; times_redeemed: number;
+  max_redemptions: number | null; expires_at: number | null; metadata?: Record<string, string>;
+  coupon: { id: string; percent_off: number | null; amount_off: number | null; valid: boolean };
+};
+
+export type PromoCode = {
+  id: string; code: string; active: boolean; createdAt: number; timesUsed: number;
+  maxUses: number | null; expiresAt: number | null; percentOff: number | null; amountOffCents: number | null;
+  note: string | null; fromAdmin: boolean;
+};
+
+const promoView = (p: StripePromo): PromoCode => ({
+  id: p.id, code: p.code, active: p.active && p.coupon.valid, createdAt: p.created * 1000, timesUsed: p.times_redeemed,
+  maxUses: p.max_redemptions, expiresAt: p.expires_at ? p.expires_at * 1000 : null,
+  percentOff: p.coupon.percent_off, amountOffCents: p.coupon.amount_off,
+  note: p.metadata?.note || null, fromAdmin: p.metadata?.created_by === "admin",
+});
+
+// The newest 100 (made here or in Stripe's dashboard).
+export async function listPromotionCodes(env: Env): Promise<PromoCode[]> {
+  const res = await stripe<{ data: StripePromo[] }>(env, "GET", "promotion_codes?limit=100", undefined, undefined, PROMO_API_VERSION);
+  return res.data.map(promoView);
+}
+
+export async function createPromotionCode(env: Env, p: {
+  code: string; percentOff?: number; amountOffCents?: number; maxUses?: number; expiresAt?: number; note?: string;
+}): Promise<PromoCode> {
+  const coupon = await stripe<{ id: string }>(env, "POST", "coupons", {
+    ...(p.percentOff ? { percent_off: p.percentOff } : { amount_off: p.amountOffCents, currency: "usd" }),
+    duration: "once",
+    name: p.code,
+    metadata: { created_by: "admin" },
+  }, undefined, PROMO_API_VERSION);
+  try {
+    const promo = await stripe<StripePromo>(env, "POST", "promotion_codes", {
+      coupon: coupon.id,
+      code: p.code,
+      max_redemptions: p.maxUses,
+      expires_at: p.expiresAt ? Math.floor(p.expiresAt / 1000) : undefined,
+      metadata: { created_by: "admin", note: p.note || undefined },
+    }, undefined, PROMO_API_VERSION);
+    await logEvent(env, "stripe", "ok", `Made promo code ${p.code}`);
+    return promoView(promo);
+  } catch (err) {
+    // No code to go with it: don't leave the coupon lying around in Stripe.
+    await stripe(env, "DELETE", `coupons/${encodeURIComponent(coupon.id)}`, undefined, undefined, PROMO_API_VERSION).catch(() => {});
+    throw err;
+  }
+}
+
+// Turning a code off stops new checkouts using it; it can be turned back on.
+export async function setPromotionCodeActive(env: Env, id: string, active: boolean): Promise<PromoCode> {
+  const promo = await stripe<StripePromo>(env, "POST", `promotion_codes/${encodeURIComponent(id)}`, { active: String(active) }, undefined, PROMO_API_VERSION);
+  return promoView(promo);
 }
 
 // Ends an unpaid checkout early. Returns the session's final state.

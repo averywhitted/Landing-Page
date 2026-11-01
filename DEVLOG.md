@@ -1,38 +1,51 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-11-01 · branch `master` · working tree: repeat-test fix committed with this entry; release of it + the Stripe expire fix run right after_
+_Updated 2026-11-01 11:50 EST · branch `master` @ `bfe4ad2` (GitHub same) · working tree: promo codes from admin committed with this entry, NOT released_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** LIVE since 2026-10-25 20:15 EDT: payments outside Stripe (sessions, payment requests, bundles) and 15-minute session lengths. Avery records Leslie Davis's $100 cash.
+**Current goal:** Make Stripe promo codes from the admin page (Settings > Promo codes). Built and tested locally; needs a Stripe key permission change, then a release.
 
 **Where things stand:**
-- Off-Stripe money: `booking/src/offline.ts`, migration 0020 (`offline_payments` rows point at a booking, a request + booking, or a package; running totals `offline_cents`/`waived_cents` on bookings and payment_requests, `offline_cents` on packages; triggers cap them at the price).
-- Admin: "Record payment" on unpaid sessions and open payment requests; profile "⋯ > Add a bundle" sells a bundle outside Stripe (or free at $0); profile "Paid outside Stripe" list with Remove (a bundle sale only while unused).
-- Cash bundles can't be cancelled online (bundle page says to email); Avery cancels from admin, dialog shows the policy amount to give back by hand; no Stripe refund ever.
-- Book a student lengths: 30 min to 3 hr in 15-minute steps (`coaching-<minutes>`, admin-only, pro rata by default).
-- 154 tests pass. Dialogs checked in the mock admin (mock lacks `/api/services`; inject it to test Book a student / Add a bundle).
+- `booking/src/promos.ts` (validation, plain-English errors) + `booking/src/stripe.ts` (`listPromotionCodes`, `createPromotionCode`, `setPromotionCodeActive`, pinned `Stripe-Version: 2024-06-20`). Endpoints `GET/POST /api/admin/promo-codes`, `POST /api/admin/promo-codes/:id/active`. Nothing stored in D1; no migration.
+- Admin (`booking/admin/app.js.txt`, `promoPanel`, `openNewPromo`, `setPromoActive`): list (working codes, "Show old codes" for off / used up / ended), New promo code dialog (code or "Make one up", % or $ off, optional last day, total uses, private note), Copy link (booking link with ?promo=), Turn off with Undo, Turn on. Booking link dialog suggests working codes.
+- Off-Stripe payments and 15-minute lengths: live since 2026-10-25 (`booking/src/offline.ts`, migration 0020).
+- 158 tests pass. Promo UI checked in a mock admin (desktop, 375px dark): create, duplicate refusal, off + Undo, copy link; no console errors. Not tried against real Stripe.
 
 **Next steps:**
-1. Avery: Leslie Davis's profile > her $130 session > Record payment: $100, Cash.
-2. Admin phone test from 2026-10-18 is still open.
+1. Avery: Stripe dashboard > Developers > API keys > the booking site's restricted live key > Edit: Coupons = Write, Promotion codes = Write. Without it the panel shows a message saying exactly that.
+2. Release: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run release` (no migration).
+3. Make a throwaway code on the live admin, open its Copy link, check Stripe Checkout shows the discount, then turn it off.
+4. Still open: Leslie Davis's $100 cash (profile > $130 session > Record payment); admin phone test from 2026-10-18.
 
 **Waiting on the user / open questions:**
-- Feedback on the new dialogs from real use.
+- The Stripe key permission (step 1).
 
 **Watch out for:**
 - Releases: Avery runs them unless they explicitly ask me to in the chat (memory: booking-wip-no-public). From this app, `git push` hangs on the macOS Keychain helper; push with the GitHub CLI's login instead (memory has the command).
-- `amount_cents` (bookings, packages) and `paid_cents` (requests) are card-only: what Stripe can refund. Never fold off-Stripe money into them.
-- "Owed" must use `dueCents()` / `DUE_SQL()` (bookings.ts) and `requestDue()` (requests.ts).
-- Deleting rows: `offline_payments` before `payment_requests`, `bookings`, `packages` (foreign keys).
-- Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated.
-- Repeat tests must compare times with `weeksLater()` (same Eastern clock time), never `+ 7 * DAY`; the latter fails within a week or two of a clock change.
+- Promo calls pin API version 2024-06-20 on purpose: newer versions moved `coupon` into a `promotion` field. Don't drop the pin without changing request/response shapes.
+- Stripe can't limit a code to once per student (no Stripe customers here) or to certain services (line items are ad-hoc products). "Total uses" counts everyone.
+- A promo call refused for missing permission logs a Stripe error, so the Stripe light can go amber until the next success.
+- `amount_cents` (bookings, packages) and `paid_cents` (requests) are card-only: what Stripe can refund. Never fold off-Stripe money into them. "Owed" must use `dueCents()` / `DUE_SQL()` and `requestDue()`.
+- Test "refund safety: a cancellation racing a reschedule…" is flaky; unrelated. Repeat tests compare times with `weeksLater()`, never `+ 7 * DAY`.
+- Mock admin for UI checks: `booking/.test-build/mock/admin.html` (gitignored; data from `.test-build/dump-mock.mjs`, fake promo API inline), served by the `static-site` preview.
 
-**Key files:** `booking/src/offline.ts`, `booking/migrations/0020_offline_payments.sql`, `booking/src/requests.ts`, `booking/src/packages.ts`, `booking/admin/app.js.txt` (`openRecordPayment`, `openSellBundle`)
+**Key files:** `booking/src/promos.ts`, `booking/src/stripe.ts` (promo section), `booking/admin/app.js.txt` (promo section above Connections), `booking/test/harness.ts` (fake coupons/promotion codes)
 **Run / test:** `cd booking && npm test` · `npm run preview-emails` · `npm run release -- --check`
 
 ## History
 <!-- newest first -->
+
+### 2026-11-01 11:50 — Make Stripe promo codes from the admin page
+**Asked:** Feature request: create Stripe discount codes from the admin page.
+**Done:**
+- `booking/src/stripe.ts`: each code is a coupon (`duration: once`, named after the code) plus one promotion code (limits on the promotion code: `max_redemptions`, `expires_at`; `metadata.created_by=admin`, optional `note`). If the promotion code is refused, the coupon is deleted. `stripe()` gained DELETE, an optional `Stripe-Version`, and `status` on errors.
+- `booking/src/promos.ts`: checks code (same rule as ?promo= links), 1-100% or $1-$1,000 off, uses 1-10,000, last day = end of that day Eastern (up to 5 years). 401/403 -> how to fix the key; duplicate active code -> 409.
+- `booking/src/index.ts`: three admin endpoints. `booking/admin/app.js.txt`: Promo codes panel at the top of Settings (redraws alone so unsaved settings edits survive), dialog, Turn off with Undo (reversible, so no confirm), Copy link, suggestions in the Booking link dialog.
+- Tests: fake coupons/promotion codes in `test/harness.ts`; 2 new tests (create/validate/duplicate/list/promo link/off/on; missing permission). 158/158 pass.
+**Decisions:** Codes live only in Stripe (no D1 table) so dashboard-made codes show too and nothing can drift. Left out per-student limits and per-service codes (Stripe can't enforce either with this checkout setup) and "first-time customers only" (unreliable without Stripe customers).
+**State:** committed with this entry; not released; mock-admin checked, not run against real Stripe.
+**Next:** Avery adds Coupons + Promotion codes Write to the live restricted key, then `npm run release`.
 
 ### 2026-11-01 — Repeat tests broke on the clock change; release
 **Asked:** Release the Stripe expire fix (`071a64a`).

@@ -438,6 +438,22 @@ app.post("/api/admin/offline-payments/:id/remove", async (c) => {
   } catch (err) { return bookingErrorResponse(c, err); }
 });
 
+// Promo codes (kept in Stripe): list, make, and turn on or off.
+app.get("/api/admin/promo-codes", async (c) => {
+  try { const { adminListPromos } = await import("./promos"); return c.json(await adminListPromos(c.env)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/promo-codes", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminCreatePromo } = await import("./promos"); return c.json(await adminCreatePromo(c.env, body, Date.now()), 201); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+app.post("/api/admin/promo-codes/:id/active", async (c) => {
+  const body = await jsonBody(c);
+  try { const { adminSetPromoActive } = await import("./promos"); return c.json(await adminSetPromoActive(c.env, c.req.param("id"), body.active)); }
+  catch (err) { return bookingErrorResponse(c, err); }
+});
+
 app.post("/api/admin/series/:id/stop", async (c) => {
   const body = await jsonBody(c);
   try { const { stopSeries } = await import("./series"); return c.json(await stopSeries(c.env, c.req.param("id"), "admin", Date.now(), body.notifyClient !== false)); }

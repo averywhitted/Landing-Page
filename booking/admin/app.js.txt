@@ -1131,14 +1131,16 @@
   /* ── Copy a link to the booking page ── */
 
   const BOOK_URL = "https://averywhitted.com/book/";
-  async function openBookingLink() {
+  async function openBookingLink(presetCode = "") {
     let list = [];
     try { list = await (await fetch("/api/services", { cache: "no-store" })).json(); } catch { /* the plain link still works */ }
+    if (!promos) await loadPromos();
     const opt = (s) => `<option value="${esc(s.id)}">${esc(s.name)} (${s.priceCents ? money(s.priceCents) : "free"})</option>`;
     showDialog(`<h2 id="dlg-title">Booking link</h2>
       <p>A link students can use to book themselves. Anyone with it can book; nothing about it is private.</p>
       <label class="field">Opens on<select id="bl-service"><option value="">The booking page (they choose)</option>${list.filter((s) => s.kind !== "bundle").map(opt).join("")}${list.some((s) => s.kind === "bundle") ? `<optgroup label="Bundles">${list.filter((s) => s.kind === "bundle").map(opt).join("")}</optgroup>` : ""}</select></label>
-      <label class="field" style="margin-top:10px">Promo code (optional)<input type="text" id="bl-promo" maxlength="40" placeholder="e.g. WELCOME10" autocomplete="off"></label>
+      <label class="field" style="margin-top:10px">Promo code (optional)<input type="text" id="bl-promo" maxlength="40" placeholder="e.g. WELCOME10" autocomplete="off" list="bl-codes" value="${esc(presetCode)}"></label>
+      <datalist id="bl-codes">${(promos || []).filter(promoWorks).map((p) => `<option value="${esc(p.code)}">${esc(promoOff(p))}</option>`).join("")}</datalist>
       <p class="hint" id="bl-hint">The code is applied for them when they follow the link.</p>
       <label class="field" style="margin-top:10px">Link<input type="text" id="bl-url" readonly></label>
       <div class="row">${cancelButton("Close")}<button type="button" class="btn primary" id="bl-copy">Copy link</button></div>`);
@@ -1162,6 +1164,118 @@
       catch { url.select(); document.execCommand("copy"); }
       toast("Link copied.");
     });
+  }
+
+  /* ── Promo codes (kept in Stripe; Settings > Promo codes) ── */
+
+  let promos = null;                 // [{ id, code, active, timesUsed, maxUses, expiresAt, percentOff, amountOffCents, note }]
+  let promoError = "";
+  let promosShowAll = false;
+  const promoOff = (p) => (p.percentOff ? `${p.percentOff}% off` : `${money(p.amountOffCents)} off`);
+  const promoUsedUp = (p) => p.maxUses !== null && p.timesUsed >= p.maxUses;
+  const promoExpired = (p) => p.expiresAt !== null && p.expiresAt <= Date.now();
+  const promoWorks = (p) => p.active && !promoUsedUp(p) && !promoExpired(p);
+
+  let promosLoading = null;
+  function loadPromos() {
+    promosLoading ??= (async () => {
+      try { promos = (await api("GET", "/api/admin/promo-codes")).codes; promoError = ""; }
+      catch (err) { promoError = err.message; }
+      promosLoading = null;
+      refreshPromoPanel();
+    })();
+    return promosLoading;
+  }
+  // Only this panel is redrawn, so unsaved edits in the settings form below stay put.
+  function refreshPromoPanel() {
+    const box = document.getElementById("promo-panel");
+    if (box) box.outerHTML = promoPanel();
+  }
+
+  function promoPanel() {
+    if (!promos && !promoError) setTimeout(loadPromos);
+    const working = (promos || []).filter(promoWorks), rest = (promos || []).filter((p) => !promoWorks(p));
+    const row = (p) => {
+      const state = !p.active ? "Off" : promoUsedUp(p) ? "Used up" : promoExpired(p) ? "Ended" : "";
+      const uses = `Used ${p.timesUsed}${p.maxUses !== null ? ` of ${p.maxUses}` : ""} time${p.timesUsed === 1 && p.maxUses === null ? "" : "s"}`;
+      const ends = p.expiresAt ? `${promoExpired(p) ? "ended" : "last day"} ${shortDate(new Date(p.expiresAt).toISOString())}` : "no end date";
+      return `<div class="seat">
+        <div class="who-line"><strong>${esc(p.code)}</strong> ${esc(promoOff(p))}${state ? ` <span class="mono-hint">(${state})</span>` : ""}
+          <small>${esc(uses)} &middot; ${esc(ends)}</small>
+          ${p.note ? `<span class="quote">${esc(p.note)}</span>` : ""}</div>
+        ${actionsHtml([
+          promoWorks(p) ? act("Copy link", `data-promo-link="${esc(p.code)}"`, "A booking link with this code already applied", "", { main: true }) : null,
+          p.active ? act("Turn off", `data-promo-off="${esc(p.id)}"`, "Stop it working at checkout. You can turn it back on.", "danger", { main: true })
+            : act("Turn on", `data-promo-on="${esc(p.id)}"`, "Let students use it again", "", { main: true }),
+        ], { small: true, cls: "seat-actions" })}
+      </div>`;
+    };
+    const body = promoError ? `<p class="hint">${esc(promoError)}</p>`
+      : !promos ? '<p class="hint">Loading codes from Stripe...</p>'
+      : `${working.length ? working.map(row).join("") : '<p class="hint">No codes are working right now.</p>'}
+        ${rest.length ? (promosShowAll ? rest.map(row).join("") : "") + `<p>${btn(promosShowAll ? "Hide old codes" : `Show ${rest.length} old code${rest.length === 1 ? "" : "s"}`, "data-promo-all", "Codes that are off, used up or past their last day")}</p>` : ""}`;
+    return `<div class="panel settings" id="promo-panel">
+      <fieldset><legend>Promo codes</legend>
+        <p class="hint">Students type a code at checkout, or follow a link with it already applied. It takes money off any session, bundle or payment link they pay by card, once per purchase. Codes live in Stripe, so ones made in Stripe's dashboard show here too.</p>
+        ${body}
+        <div class="row" style="justify-content:flex-start;margin-top:8px">${btn("New promo code", "data-promo-new", "Make a discount code in Stripe", "primary")}</div>
+      </fieldset>
+    </div>`;
+  }
+
+  // A short code that's easy to read out: no 0/O or 1/I.
+  const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (n) => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[n % 32]).join("");
+
+  function openNewPromo() {
+    const form = formDialog(`
+      <h2 id="dlg-title">New promo code</h2>
+      <div class="fgrid">
+        <label>Code<input type="text" name="code" maxlength="40" required pattern="[A-Za-z0-9_\\-]{2,40}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. SPRING20"></label>
+        <label>Discount<select name="kind"><option value="percent">Percent off</option><option value="amount">Dollars off</option></select></label>
+        <label><span id="np-off-label">Percent off</span><input type="number" name="off" min="1" max="100" step="1" required></label>
+      </div>
+      <p class="hint" style="margin-top:-6px"><button type="button" class="btn sm" id="np-random">Make one up</button> Letters, numbers, dashes and underscores. Students can type it in any case.</p>
+      <div class="fgrid">
+        <label>Last day (optional)<input type="date" name="lastDay" min="${esc(todayNY())}"></label>
+        <label>Total uses (optional)<input type="number" name="maxUses" min="1" max="10000" step="1" placeholder="No limit"></label>
+      </div>
+      <p class="hint" style="margin-top:-6px">It works until the end of the last day, Eastern time. Total uses counts every student together; Stripe can't limit it to once per student.</p>
+      <label class="field">Note for you (optional)<input type="text" name="note" maxlength="200" placeholder="e.g. For the October workshop group"></label>
+      <p class="hint">Only you see the note.</p>
+      <div class="row">${cancelButton()}<button type="submit" class="btn primary">Make code</button></div>`,
+    async (f) => {
+      const percent = f.kind.value === "percent", off = Number(f.off.value);
+      const r = await api("POST", "/api/admin/promo-codes", {
+        code: f.code.value.trim(), kind: f.kind.value,
+        ...(percent ? { percentOff: off } : { amountOffCents: Math.round(off * 100) }),
+        lastDay: f.lastDay.value || undefined, maxUses: f.maxUses.value ? Number(f.maxUses.value) : undefined, note: f.note.value,
+      });
+      $dlg.close();
+      toast(r.message);
+      await loadPromos();
+    });
+    const syncKind = () => {
+      const percent = form.kind.value === "percent";
+      $dlg.querySelector("#np-off-label").textContent = percent ? "Percent off" : "Dollars off ($)";
+      Object.assign(form.off, percent ? { min: 1, max: 100, step: 1 } : { min: 1, max: 1000, step: 0.01 });
+    };
+    form.kind.addEventListener("change", syncKind);
+    $dlg.querySelector("#np-random").addEventListener("click", () => { form.code.value = randomCode(); });
+    syncKind();
+    form.code.focus();
+  }
+
+  // Easy to take back, so no "are you sure": turning one off offers Undo.
+  async function setPromoActive(id, active, b) {
+    const send = (on) => api("POST", `/api/admin/promo-codes/${encodeURIComponent(id)}/active`, { active: on });
+    if (b) b.disabled = true;
+    try {
+      const r = await send(active);
+      await loadPromos();
+      toast(r.message, false, active ? null : async () => {
+        try { toast((await send(true)).message); await loadPromos(); } catch (err) { toast(err.message, true); }
+      });
+    } catch (err) { toast(err.message, true); if (b) b.disabled = false; }
   }
 
   /* ── Connections: status lights and their logs ── */
@@ -1441,7 +1555,8 @@
     const calPicker = cals
       ? cals.map((n) => `<label class="check"><input type="checkbox" name="busy" value="${esc(n)}"${v.busyCalendars.includes(n) ? " checked" : ""}> ${esc(n)}</label>`).join("")
       : `<p class="hint">Couldn't reach iCloud to list your calendars right now, so calendar choices can't be changed. Currently: ${esc(v.busyCalendars.join(", "))}.</p>`;
-    return `<form class="panel settings" id="settings-form">
+    return `${promoPanel()}
+    <form class="panel settings" id="settings-form">
       <fieldset><legend>Payments</legend>
         <p class="mode-line"><span class="mode ${data.mode}">${data.mode === "test" ? "Test mode" : "Live"}</span> ${data.mode === "test" ? "Stripe is in test mode: no real cards are charged." : "Stripe is live: real cards are charged."}</p>
       </fieldset>
@@ -2057,7 +2172,7 @@
   /* ── Wiring ── */
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-lights-toggle],[data-followup-dismiss],[data-nudge],[data-nudge-cancel],[data-resubscribe],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel],[data-record],[data-record-request],[data-offline-remove],[data-sell-bundle]");
+    const t = e.target.closest("[data-lights-toggle],[data-followup-dismiss],[data-nudge],[data-nudge-cancel],[data-resubscribe],[data-add-student],[data-dupes],[data-dup-merge],[data-dup-ignore],[data-export-student],[data-booking-link],[data-light],[data-conn-check],[data-conn-backup],[data-conn-testemail],[data-conn-filter],[data-edit-student],[data-delete-student],[data-clear-test],[data-bfilter],[data-stop-series],[data-export],[data-backup],[data-refund-bundle],[data-grant],[data-decline],[data-noshow],[data-tab],[data-view],[data-scale],[data-filter],[data-day],[data-cal],[data-session],[data-student],[data-book-student],[data-cancel],[data-credit],[data-extend],[data-refund],[data-move],[data-cancel-group],[data-cancel-bundle],[data-resend],[data-remind],[data-remind-student],[data-sort],[data-sfilter],[data-keep],[data-request],[data-request-student],[data-request-remind],[data-request-cancel],[data-record],[data-record-request],[data-offline-remove],[data-sell-bundle],[data-promo-new],[data-promo-off],[data-promo-on],[data-promo-link],[data-promo-all]");
     if (!t || t.disabled) return;
     const d = t.dataset;
     if (d.tab) { const moved = tab !== d.tab; tab = d.tab; history.replaceState(null, "", `#${tab}`); render(); if (moved) window.scrollTo(0, 0); }
@@ -2140,6 +2255,11 @@
     else if (d.request) openRequest(d.request);
     else if (d.record) openRecordPayment(d.record);
     else if (d.recordRequest) openRecordPayment(null, d.recordRequest);
+    else if (d.promoNew !== undefined) openNewPromo();
+    else if (d.promoOff) setPromoActive(d.promoOff, false, t);
+    else if (d.promoOn) setPromoActive(d.promoOn, true, t);
+    else if (d.promoLink) { studentOpen = null; openBookingLink(d.promoLink); }
+    else if (d.promoAll !== undefined) { promosShowAll = !promosShowAll; refreshPromoPanel(); }
     else if (d.sellBundle && studentShown && studentShown.id === d.sellBundle) openSellBundle(d.sellBundle, studentShown);
     else if (d.offlineRemove) {
       if (confirm(d.kind === "bundle" ? "Take back this bundle sale? The bundle is removed and its booking link stops working. Nothing is sent to them." : "Remove this payment? The amount goes back to being owed. Nothing is sent to them.")) {

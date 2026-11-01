@@ -1002,6 +1002,74 @@ test("cancel bundle: the refund never goes below zero", async () => {
 
 /* ── Edge cases ── */
 
+/* ── Promo codes made from the admin page ── */
+
+test("admin promo codes: make one, it works on a promo link, list it, turn it off and on", async () => {
+  adminEnv();
+  const make = (body: Record<string, unknown>) => api.call("POST", "/api/admin/promo-codes", { headers: asAdmin(), body });
+  assert.equal((await api.call("POST", "/api/admin/promo-codes", { headers: { "X-Admin": "1" }, body: { code: "X1" } })).status, 403, "needs a pass");
+
+  for (const bad of [
+    { code: "has space", kind: "percent", percentOff: 10 },
+    { code: "OK10", kind: "percent", percentOff: 0 },
+    { code: "OK10", kind: "percent", percentOff: 101 },
+    { code: "OK10", kind: "amount", amountOffCents: 50 },
+    { code: "OK10" },
+    { code: "OK10", kind: "percent", percentOff: 10, maxUses: 0 },
+    { code: "OK10", kind: "percent", percentOff: 10, lastDay: "2020-01-01" },
+  ]) assert.equal((await make(bad)).status, 400, JSON.stringify(bad));
+  assert.equal(world.state.coupons.size, 0, "nothing reached Stripe");
+
+  const lastDay = etDate(Date.now() + 10 * DAY);
+  const r = await make({ code: "SPRING20", kind: "percent", percentOff: 20, maxUses: 5, lastDay, note: "Spring newsletter" });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.code.code, "SPRING20");
+  assert.equal(r.data.code.percentOff, 20);
+  const coupon = [...world.state.coupons.values()][0];
+  assert.equal(coupon._form.duration, "once");
+  assert.equal(coupon._form.percent_off, "20");
+  const promo = world.state.promos.get(r.data.code.id)!;
+  assert.equal(promo.max_redemptions, 5);
+  assert.equal(promo.metadata.note, "Spring newsletter");
+  assert.equal(etDate((promo.expires_at + 1) * 1000), etDate(Date.now() + 11 * DAY), "works to the end of the last day, Eastern");
+  assert.ok(world.state.stripeVersions.length && world.state.stripeVersions.every((v) => v === "2024-06-20"), "promo calls pin an API version");
+
+  const dollars = await make({ code: "TENOFF", kind: "amount", amountOffCents: 1000 });
+  assert.equal(dollars.status, 201);
+  assert.equal([...world.state.coupons.values()][1]._form.amount_off, "1000");
+  assert.equal([...world.state.coupons.values()][1]._form.currency, "usd");
+
+  const dup = await make({ code: "SPRING20", kind: "percent", percentOff: 50 });
+  assert.equal(dup.status, 409);
+  assert.equal(world.state.coupons.size, 2, "the coupon made for the refused code was deleted");
+
+  const list = await api.call("GET", "/api/admin/promo-codes", { headers: asAdmin() });
+  assert.deepEqual(list.data.codes.map((c: any) => c.code), ["TENOFF", "SPRING20"]);
+  assert.equal(list.data.codes[1].fromAdmin, true);
+
+  // A booking with ?promo= picks the new code up.
+  const slots = await openSlots();
+  const good = await book("coaching-60", slots[0], {}, { promo: "SPRING20" });
+  assert.equal(sessionFor(good.data.bookingId)._form.discounts["0"].promotion_code, r.data.code.id);
+
+  const off = await api.call("POST", `/api/admin/promo-codes/${r.data.code.id}/active`, { headers: asAdmin(), body: { active: false } });
+  assert.equal(off.status, 200);
+  assert.equal(off.data.code.active, false);
+  const after = await book("coaching-30", slots.at(-1)!, { email: "b@example.com" }, { promo: "SPRING20" });
+  assert.equal(sessionFor(after.data.bookingId)._form.allow_promotion_codes, "true", "an off code isn't applied");
+  const on = await api.call("POST", `/api/admin/promo-codes/${r.data.code.id}/active`, { headers: asAdmin(), body: { active: true } });
+  assert.equal(on.data.code.active, true);
+  assert.equal((await api.call("POST", "/api/admin/promo-codes/not-a-promo/active", { headers: asAdmin(), body: { active: true } })).status, 404);
+});
+
+test("admin promo codes: a Stripe key without permission gets a plain explanation", async () => {
+  adminEnv();
+  world.state.promoWriteForbidden = true;
+  const r = await api.call("POST", "/api/admin/promo-codes", { headers: asAdmin(), body: { code: "NOPE10", kind: "percent", percentOff: 10 } });
+  assert.equal(r.status, 502);
+  assert.match(r.data.error, /Coupons and Promotion codes to Write/);
+});
+
 test("a 100%-off promo code still confirms the booking (Stripe says 'no payment required')", async () => {
   const [slot] = await openSlots("coaching-60");
   const res = await book("coaching-60", slot);

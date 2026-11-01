@@ -79,6 +79,10 @@ export function makeWorld() {
     stripeFailNextCreate: false,
     promoCodes: {} as Record<string, string>,       // code -> Stripe promo id
     promoLookupForbidden: false,                    // simulate a key without "Promotion Codes: Read"
+    promoWriteForbidden: false,                     // simulate a key without Coupons/Promotion Codes: Write
+    coupons: new Map<string, Record<string, any>>(),
+    promos: new Map<string, Record<string, any>>(), // promotion codes made through the API
+    stripeVersions: [] as string[],                 // Stripe-Version sent with promo calls
     refunds: [] as Record<string, any>[],
     refundFailNext: 0,                              // simulate Stripe refusing refunds
     refundedIntents: new Set<string>(),             // Stripe won't refund the same payment twice
@@ -141,6 +145,40 @@ export function makeWorld() {
           s.status = "expired";
         }
         return json({ ...s, total_details: { breakdown: { discounts: s._promo ? [{ discount: { promotion_code: s._promo } }] : [] } } });
+      }
+      if (p.startsWith("/v1/coupons") || (p.startsWith("/v1/promotion_codes") && (method === "POST" || !u.searchParams.has("code")))) {
+        const version = new Headers(init?.headers).get("Stripe-Version");
+        if (version) state.stripeVersions.push(version);
+        if (state.promoWriteForbidden && method !== "GET") return json({ error: { message: "The provided key does not have the required permissions" } }, 403);
+        const f = parseForm(body);
+        if (p === "/v1/coupons" && method === "POST") {
+          const c = { id: `co_${++state.counter}`, percent_off: f.percent_off ? Number(f.percent_off) : null, amount_off: f.amount_off ? Number(f.amount_off) : null, valid: true, _form: f };
+          state.coupons.set(c.id, c);
+          return json(c);
+        }
+        const cd = p.match(/^\/v1\/coupons\/([^/]+)$/);
+        if (cd && method === "DELETE") { state.coupons.delete(cd[1]); return json({ id: cd[1], deleted: true }); }
+        const view = (x: Record<string, any>) => ({ ...x, coupon: state.coupons.get(x.coupon) });
+        if (p === "/v1/promotion_codes" && method === "POST") {
+          if ([...state.promos.values()].some((x) => x.active && x.code.toLowerCase() === f.code.toLowerCase())) {
+            return json({ error: { message: `An active promotion code with \`code: ${f.code}\` already exists.` } }, 400);
+          }
+          const x = { id: `promo_${++state.counter}`, code: f.code, active: true, created: Math.floor(Date.now() / 1000), times_redeemed: 0,
+            max_redemptions: f.max_redemptions ? Number(f.max_redemptions) : null, expires_at: f.expires_at ? Number(f.expires_at) : null,
+            metadata: f.metadata ?? {}, coupon: f.coupon };
+          state.promos.set(x.id, x);
+          state.promoCodes[x.code] = x.id;
+          return json(view(x));
+        }
+        if (p === "/v1/promotion_codes" && method === "GET") return json({ data: [...state.promos.values()].reverse().map(view) });
+        const up = p.match(/^\/v1\/promotion_codes\/([^/]+)$/);
+        if (up && method === "POST") {
+          const x = state.promos.get(up[1]);
+          if (!x) return json({ error: { message: "No such promotion code" } }, 404);
+          x.active = f.active === "true";
+          if (x.active) state.promoCodes[x.code] = x.id; else delete state.promoCodes[x.code];
+          return json(view(x));
+        }
       }
       if (p === "/v1/promotion_codes" && method === "GET") {
         if (state.promoLookupForbidden) return json({ error: { message: "missing permission" } }, 403);
