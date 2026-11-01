@@ -1984,6 +1984,29 @@ test("reminders: after any reminder, the next (automatic or manual) waits 12 hou
   assert.match(reminder.html, /cancel the session/, "a quiet cancel link");
 });
 
+test("emails sent after a session is over have no reschedule or cancel link", async () => {
+  adminEnv();
+  await adminBook({ students: [student("Late Payer", "late@example.com")] });
+  const id = bookingByEmail("late@example.com").id;
+  db.prepare("UPDATE bookings SET start_utc = ?, end_utc = ? WHERE id = ?").run(new Date(Date.now() - DAY).toISOString(), new Date(Date.now() - DAY + 3600000).toISOString(), id);
+  assert.equal((await api.call("POST", `/api/admin/bookings/${id}/remind`, { headers: asAdmin() })).status, 200);
+  const reminder = world.state.emails.filter((e) => /^Payment due: /.test(e.subject)).at(-1);
+  assert.doesNotMatch(reminder.html, /cancel/i);
+  assert.doesNotMatch(reminder.text, /Can't make it/);
+  assert.match(reminder.html, /Pay \$/, "still asks for the payment");
+
+  const T = await import("../src/templates");
+  const past = { id: "b1", kind: "single" as const, serviceName: "1 hour session", durationMinutes: 60, start: Date.now() - DAY, end: Date.now() - DAY + 3600000,
+    clientTimeZone: "America/New_York", amountCents: 9000, name: "Late Payer", email: "late@example.com", dueCents: 0 };
+  const manage = "https://example.com/book/manage/?b=b1&t=x";
+  for (const e of [T.paymentReceived(past, manage), T.clientConfirmation(past, "", manage), T.adminInvite(past, "", manage, null),
+    T.adminInvite({ ...past, group: true }, "", manage, null), T.clientRescheduled(past, past.start - DAY, "", manage)]) {
+    assert.doesNotMatch(e.html + e.text, /reschedule or cancel|cancel your spot|Manage your session/i, e.subject);
+  }
+  const soon = { ...past, start: Date.now() + 3 * DAY, end: Date.now() + 3 * DAY + 3600000 };
+  assert.match(T.paymentReceived(soon, manage).html, /reschedule or cancel/, "upcoming sessions keep the link");
+});
+
 test("notes, attendance, days off, export, and backups", async () => {
   adminEnv();
   const { id } = await confirmedBooking();

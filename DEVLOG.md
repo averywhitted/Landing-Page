@@ -1,20 +1,21 @@
 # Dev Log — averywhitted.com (site + booking service)
 
 ## Resume here
-_Updated 2026-11-01 11:50 EST · branch `master` @ `bfe4ad2` (GitHub same) · working tree: promo codes from admin committed with this entry, NOT released_
+_Updated 2026-11-01 12:32 EST · branch `master` @ `79831b1` · working tree: uncommitted `booking/src/templates.ts` + `booking/test/booking.test.ts` (no cancel links in post-session emails). Promo codes (79831b1) and this fix both NOT released_
 
 **Project:** Avery's static site on GitHub Pages (master) plus the in-house booking service in `booking/` (Cloudflare Worker + D1, Stripe, Resend, iCloud CalDAV, Zoom), live at book.averywhitted.com since 2026-09-29.
-**Current goal:** Make Stripe promo codes from the admin page (Settings > Promo codes). Built and tested locally; needs a Stripe key permission change, then a release.
+**Current goal:** Release two finished changes: Stripe promo codes from the admin page (needs a Stripe key permission first) and the fix that drops cancel links from emails sent after a session is over.
 
 **Where things stand:**
 - `booking/src/promos.ts` (validation, plain-English errors) + `booking/src/stripe.ts` (`listPromotionCodes`, `createPromotionCode`, `setPromotionCodeActive`, pinned `Stripe-Version: 2024-06-20`). Endpoints `GET/POST /api/admin/promo-codes`, `POST /api/admin/promo-codes/:id/active`. Nothing stored in D1; no migration.
 - Admin (`booking/admin/app.js.txt`, `promoPanel`, `openNewPromo`, `setPromoActive`): list (working codes, "Show old codes" for off / used up / ended), New promo code dialog (code or "Make one up", % or $ off, optional last day, total uses, private note), Copy link (booking link with ?promo=), Turn off with Undo, Turn on. Booking link dialog suggests working codes.
 - Off-Stripe payments and 15-minute lengths: live since 2026-10-25 (`booking/src/offline.ts`, migration 0020).
-- 158 tests pass. Promo UI checked in a mock admin (desktop, 375px dark): create, duplicate refusal, off + Undo, copy link; no console errors. Not tried against real Stripe.
+- Post-session emails: `isOver(b)` in `booking/src/templates.ts` hides the reschedule/cancel line (`manageLine`) and the reminder's "cancel the session" link once a session has ended. Covers payment reminder, payment received, confirmation, Avery's invite, rescheduled.
+- 159 tests pass. Promo UI checked in a mock admin (desktop, 375px dark): create, duplicate refusal, off + Undo, copy link; no console errors. Not tried against real Stripe.
 
 **Next steps:**
 1. Avery: Stripe dashboard > Developers > API keys > the booking site's restricted live key > Edit: Coupons = Write, Promotion codes = Write. Without it the panel shows a message saying exactly that.
-2. Release: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run release` (no migration).
+2. Commit the post-session email fix if Avery hasn't, then release: `cd "/Users/averywhitted/Documents/GitHub/Landing Page/booking" && npm run release` (no migration).
 3. Make a throwaway code on the live admin, open its Copy link, check Stripe Checkout shows the discount, then turn it off.
 4. Still open: Leslie Davis's $100 cash (profile > $130 session > Record payment); admin phone test from 2026-10-18.
 
@@ -35,6 +36,16 @@ _Updated 2026-11-01 11:50 EST · branch `master` @ `bfe4ad2` (GitHub same) · wo
 
 ## History
 <!-- newest first -->
+
+### 2026-11-01 12:32 — No cancel links in emails sent after a session is over
+**Asked:** A payment reminder went out with a cancel link for a session that had already happened. Go through every email and drop cancel links from any that can arrive after the session.
+**Done:**
+- `booking/src/templates.ts`: new `isOver(b)` (end <= now, same test `dueLine` already used). `manageLine` now takes the booking and returns nothing once it's over; plain-text versions skip their reschedule/cancel/manage lines too. `paymentReminder` drops "Can't make it anymore? cancel the session" and says "If you have any questions, please reply" instead.
+- Emails that can go out after a session: manual payment reminder (Avery can send it any time; the reported case), payment received (late Stripe payment), confirmation/invite (resent, or a session logged after the fact), rescheduled. `offlinePaymentReceived` was already gated by `upcoming`; session reminder, request emails, bundle and series emails have no session cancel link.
+- `booking/test/booking.test.ts`: "emails sent after a session is over have no reschedule or cancel link" (fails without the fix).
+**Decisions:** Cut-off is "session ended", as asked. Inside the last 24 hours the link still shows; the manage page then says it can't be changed online. Late receipts still say "See you soon" and carry the Zoom link; left alone.
+**State:** Uncommitted. 159/159 tests pass, `tsc --noEmit` clean. Not released.
+**Next:** Commit + release with the promo codes work.
 
 ### 2026-11-01 11:50 — Make Stripe promo codes from the admin page
 **Asked:** Feature request: create Stripe discount codes from the admin page.
