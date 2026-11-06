@@ -259,6 +259,41 @@
           "url": "https://www.imdb.com/title/tt41671492/?ref_=nm_flmg_job_1_accord_2_cdt_t_1"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 9,
+      "slug": "misha-molani",
+      "title": "Misha Molani: Shoot Your Shot",
+      "guest": "Misha Molani",
+      "headline": "Shoot Your Shot",
+      "guid": "d171f636-e89a-4e31-82aa-b74c592999fb",
+      "published": "2026-11-06T07:08:32Z",
+      "duration_seconds": 3713,
+      "apple_episode_id": "1000800204186",
+      "apple_episode_slug": "misha-molani-shoot-your-shot",
+      "summary": "Misha Molani (Friendsgiving, How Do I Tell You This, My Scary Indian Wedding, FBI, and a whole lot more) talks about why there's no secret formula for a self-tape, how knowing your principles helps you find the right collaborators, and why it's time to shoot your shot and reach out to creators directly. Plus, the audition where adrenaline gave her a sudden stutter.",
+      "meta_description": "Misha Molani (Friendsgiving, How Do I Tell You This, My Scary Indian Wedding, FBI, and a whole lot more) talks about why there's... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "label": "Follow Misha on Instagram",
+          "text": "@mimolani",
+          "url": "https://instagram.com/mimolani"
+        },
+        {
+          "label": "Follow Avery on Instagram",
+          "text": "@avery_whitted",
+          "url": "https://instagram.com/avery_whitted"
+        },
+        {
+          "text": "Feel Like Ghosts (Amazon)",
+          "url": "https://pro.imdb.com/title/tt19844970/?ref_=nmovr_c_2"
+        },
+        {
+          "text": "In Fading Light (IMDb)",
+          "url": "https://pro.imdb.com/title/tt37280204/?ref_=nmcr_flmg_unrel_cdt_t_1"
+        }
+      ]
     }
   ]
 }
