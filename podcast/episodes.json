@@ -294,6 +294,27 @@
           "url": "https://pro.imdb.com/title/tt37280204/?ref_=nmcr_flmg_unrel_cdt_t_1"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 10,
+      "slug": "harrison-bryan",
+      "title": "Harrison Bryan: Your Own Little Play",
+      "guest": "Harrison Bryan",
+      "headline": "Your Own Little Play",
+      "guid": "b488cd9c-cee6-47f9-a222-3f4cefe45bb0",
+      "published": "2026-11-13T06:25:04Z",
+      "duration_seconds": 3713,
+      "apple_episode_id": "1000801666607",
+      "apple_episode_slug": "harrison-bryan-your-own-little-play",
+      "summary": "Harrison Bryan (Balls, Law & Order, American Horror Story, and a whole lot more) talks about treating every audition as your own little play, only sending in work you're excited to share, and why the imperfect moments are often the ones that land the best. Plus, the Avenue Q audition that somehow turned into a sing-along.",
+      "meta_description": "Harrison Bryan (Balls, Law & Order, American Horror Story, and a whole lot more) talks about treating every audition as your own... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "text": "BALLS: The Monster-Catchin' Musical Comédy",
+          "url": "https://www.ballsmusical.com/"
+        }
+      ]
     }
   ]
 }
