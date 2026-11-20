@@ -315,6 +315,31 @@
           "url": "https://www.ballsmusical.com/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 11,
+      "slug": "maya-jackson",
+      "title": "Maya Jackson: A Beautiful Birthday Cake of Catastrophe",
+      "guest": "Maya Jackson",
+      "headline": "A Beautiful Birthday Cake of Catastrophe",
+      "guid": "62652145-1371-4c6d-bbc6-7a328671945e",
+      "published": "2026-11-20T05:00:00Z",
+      "duration_seconds": 4210,
+      "apple_episode_id": "1000803057949",
+      "apple_episode_slug": "maya-jackson-a-beautiful-birthday-cake-of-catastrophe",
+      "summary": "Maya Jackson (Death of a Salesman, The Skin of Our Teeth, The Blood Quilt, and a whole lot more) talks about telling the artists you admire that they matter, how small the theater world really is, and why casting directors were never the enemy. Plus, the audition where she ululated too soon, then popped her head back in the room to apologize for \"prematurely ululating.\"",
+      "meta_description": "Maya Jackson (Death of a Salesman, The Skin of Our Teeth, The Blood Quilt, and a whole lot more) talks about telling the artists... 90% of the Job, hosted by Avery Whitted.",
+      "links": [
+        {
+          "text": "The Twelve Dates of Christmas at Cincinnati Playhouse (through Dec 27)",
+          "url": "https://www.cincyplay.com/productions/THE-TWELVE-DATES-OF-CHRISTMAS"
+        },
+        {
+          "text": "Maya's photography",
+          "url": "https://mlojackso.myportfolio.com/"
+        }
+      ]
     }
   ]
 }
