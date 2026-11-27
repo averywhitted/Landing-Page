@@ -340,6 +340,22 @@
           "url": "https://mlojackso.myportfolio.com/"
         }
       ]
+    },
+    {
+      "season": 1,
+      "number": 12,
+      "slug": "josh-marx",
+      "title": "Josh Marx: It's Not a Binary Decision",
+      "guest": "Josh Marx",
+      "headline": "It's Not a Binary Decision",
+      "guid": "57ed0a1d-fad6-449c-9ff1-be8c59dc8991",
+      "published": "2026-11-27T05:00:00Z",
+      "duration_seconds": 3804,
+      "apple_episode_id": "1000804314719",
+      "apple_episode_slug": "josh-marx-its-not-a-binary-decision",
+      "summary": "In this special episode, Josh Marx (Alabama Shakespeare Festival, San Jose Stage, and a whole lot more) tells us how he went from the stage to leading Learning and Development at PlayStation. He talks about why choosing between acting and a stable career isn't a binary decision, how the skills actors already have are in demand far outside the industry, and what AI means for performers.",
+      "meta_description": "In this special episode, Josh Marx (Alabama Shakespeare Festival, San Jose Stage, and a whole lot more) tells us how he went from... 90% of the Job, hosted by Avery Whitted.",
+      "links": []
     }
   ]
 }
